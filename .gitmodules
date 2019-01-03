@@ -1,0 +1,6 @@
+[submodule "mapguide"]
+	path = mapguide
+	url = https://github.com/jumpinjackie/mapguide
+[submodule "fdo"]
+	path = fdo
+	url = https://github.com/jumpinjackie/fdo
