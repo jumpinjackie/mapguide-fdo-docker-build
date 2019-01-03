@@ -1,4 +1,8 @@
 docker
 logs
+artifacts/*
+!artifacts/README.md
+caches/*
+!caches/README.md
 fdo_version.sh
 mapguide_version.sh
