@@ -1,2 +1,4 @@
 docker
 logs
+fdo_version.sh
+mapguide_version.sh
