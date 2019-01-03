@@ -1,0 +1,1 @@
+This is the root of all ccache compiler output
