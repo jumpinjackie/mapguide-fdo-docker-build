@@ -64,23 +64,23 @@ write_fdo_build()
     cpu=$3
     distro=$4
 
-    want_generator=$(cat distros/$distro/cmake_generator.txt)
+    want_generator=$(cat templates/distros/$distro/cmake_generator.txt)
 
     cat > $path/Dockerfile <<EOF
 # This dockerfile executes the build, it starts from the dev environment
 FROM fdo_${distro_label}_develop_${cpu}
 
 # These are the build steps
-RUN BUILD_DIR=/usr/local/src/fdo/build  \
-&& ccache -s \
-&& mkdir $BUILD_DIR \ 
-&& mkdir $BUILD_DIR/artifacts \ 
-&& cd $BUILD_DIR \
-&& cmake ${want_generator} .. -DWITH_SDF=TRUE -DWITH_SHP=TRUE -DWITH_SQLITE=TRUE -DWITH_WFS=TRUE -DWITH_WMS=TRUE -DWITH_OGR=TRUE -DWITH_GDAL=TRUE -DWITH_GENERICRDBMS=TRUE \
-&& cmake --build . \
-&& ccache -s \
-&& cmake --build . --target package \
-&& mv fdosdk*.tar.gz $BUILD_DIR/artifacts
+RUN BUILD_DIR=/usr/local/src/fdo/build \\
+&& ccache -s \\
+&& mkdir \$BUILD_DIR \\
+&& mkdir \$BUILD_DIR/artifacts \\
+&& cd \$BUILD_DIR \\
+&& cmake ${want_generator} .. -DWITH_SDF=TRUE -DWITH_SHP=TRUE -DWITH_SQLITE=TRUE -DWITH_WFS=TRUE -DWITH_WMS=TRUE -DWITH_OGR=TRUE -DWITH_GDAL=TRUE -DWITH_GENERICRDBMS=TRUE \\
+&& cmake --build . \\
+&& ccache -s \\
+&& cmake --build . --target package \\
+&& mv fdosdk*.tar.gz \$BUILD_DIR/artifacts
 EOF
 
     echo "Wrote: $path/Dockerfile"
@@ -91,6 +91,11 @@ build_fdo_env()
     distro=$1
     cpu=$2
     tag=$3
+
+    if [ ! -d "templates/distros/$distro" ]; then
+        echo "No template confiugrations found for $distro"
+        exit 1
+    fi
 
     echo "Setting FDO environment for"
     echo "Distro: $distro"
