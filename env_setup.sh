@@ -127,6 +127,13 @@ build_fdo_env()
     mkdir -p $current_path
     write_fdo_build $current_path $distro_label $cpu $distro
     cp -f templates/scripts/fdo/snap_build.sh $current_path/snap.sh
+
+cat > fdo_version.sh <<EOF
+#!/bin/sh
+export FDO_VER=${FDO_VER}.${FDO_REV}
+EOF
+    echo "Wrote: fdo_version.sh"
+    chmod +x fdo_version.sh
 }
 
 write_mapguide_run()
@@ -289,6 +296,13 @@ build_mapguide_env()
     mkdir -p $current_path
     write_mapguide_build $current_path $distro_label $cpu $distro
     cp -f templates/scripts/mapguide/snap_build.sh $current_path/snap.sh
+
+    cat > mapguide_version.sh <<EOF
+#!/bin/sh
+export MG_VER=${MG_VER}.${MG_REV}
+EOF
+    echo "Wrote: mapguide_version.sh"
+    chmod +x mapguide_version.sh
 }
 
 TARGET=fdo
