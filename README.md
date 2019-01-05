@@ -55,12 +55,16 @@ NOTE: You must build FDO first (and its SDK tarball present in `artifacts`) befo
 
 # Supported build environments
 
-* Ubuntu LTS releases
-    * 14.04
-    * 16.04
-    * 18.04
-* CentOS
-    * 7
+|target  |distro|tag  |x64|x86|
+|--------|------|-----|---|---|
+|mapguide|centos|7    | N | N |
+|mapguide|ubuntu|14.04| Y | N |
+|mapguide|ubuntu|16.04| Y | N |
+|mapguide|ubuntu|18.04| N | N |
+|fdo     |ubuntu|14.04| Y | N |
+|fdo     |ubuntu|16.04| Y | N |
+|fdo     |ubuntu|18.04| Y | N |
+|fdo     |centos|7    | Y | N |
 
 # Credits
 

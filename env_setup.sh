@@ -111,7 +111,7 @@ build_fdo_env()
     path_base="docker/${cpu}/fdo/${distro_label}"
     echo "Base path for environment is: $path_base"
 
-    mkdir -p "caches/${cpu}/fdo/${distro_label}"
+    mkdir -p "caches/${cpu}/fdo/${distro_label}/.ccache"
 
     current_path="${path_base}/run"
     mkdir -p $current_path
@@ -280,7 +280,7 @@ build_mapguide_env()
     path_base="docker/${cpu}/mapguide/${distro_label}"
     echo "Base path for environment is: $path_base"
 
-    mkdir -p "caches/${cpu}/mapguide/${distro_label}"
+    mkdir -p "caches/${cpu}/mapguide/${distro_label}/.ccache"
 
     current_path="${path_base}/run"
     mkdir -p $current_path
