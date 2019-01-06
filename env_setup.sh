@@ -65,6 +65,21 @@ write_fdo_build()
     cpu=$3
     distro=$4
 
+    build_bits=
+    case "$cpu" in
+        x86)
+            build_bits=32
+            ;;
+        x64)
+            build_bits=64
+            ;;
+        *)
+            echo "Unknown CPU"
+            exit 1
+            ;;
+    esac
+    fdo_thirdparty_args=$(cat templates/distros/$distro/args_fdo_thirdparty_build.txt)
+    fdo_args=$(cat templates/distros/$distro/args_fdo_build.txt)
     want_generator=$(cat templates/distros/$distro/cmake_generator.txt)
 
     cat > $path/Dockerfile <<EOF
@@ -73,13 +88,14 @@ FROM fdo_${distro_label}_develop_${cpu}
 
 # These are the build steps
 RUN BUILD_DIR=/usr/local/src/fdo/build \\
+&& THIRDPARTY_DIR=/usr/local/src/fdo/thirdparty_build \\
 && ccache -s \\
-&& mkdir \$BUILD_DIR \\
-&& mkdir \$BUILD_DIR/artifacts \\
+&& mkdir -p \$BUILD_DIR/artifacts \\
+&& cd /usr/local/src/fdo \\
+&& ./cmake_bootstrap.sh --working-dir \$THIRDPARTY_DIR --build ${build_bits} ${fdo_thirdparty_args} \\
+&& ./cmake_build.sh --thirdparty-working-dir \$THIRDPARTY_DIR --cmake-build-dir \$BUILD_DIR ${fdo_args} \\
+&& ccache -s \
 && cd \$BUILD_DIR \\
-&& cmake ${want_generator} .. -DWITH_SDF=TRUE -DWITH_SHP=TRUE -DWITH_SQLITE=TRUE -DWITH_WFS=TRUE -DWITH_WMS=TRUE -DWITH_OGR=TRUE -DWITH_GDAL=TRUE -DWITH_GENERICRDBMS=TRUE \\
-&& cmake --build . \\
-&& ccache -s \\
 && cmake --build . --target package \\
 && mv fdosdk*.tar.gz \$BUILD_DIR/artifacts
 EOF
@@ -197,6 +213,8 @@ write_mapguide_build()
     distro=$4
 
     want_generator=$(cat templates/distros/$distro/cmake_generator.txt)
+    #oem_build_args="--with-ccache --have-system-xerces"
+    oem_build_args=$(cat templates/distros/$distro/args_mapguide_oem_build.txt)
 
     cpu_label=
     case "$cpu" in
@@ -226,7 +244,7 @@ RUN BUILD_DIR=/usr/local/src/mapguide/build \\
 && mkdir -p \$OEM_BUILD_DIR \\
 && mkdir -p \$BUILD_DIR \\
 && cd /usr/local/src/mapguide/MgDev \\
-&& ./cmake_bootstrap.sh --oem-working-dir \$OEM_BUILD_DIR --build 64 --with-ccache --have-system-xerces \\
+&& ./cmake_bootstrap.sh --oem-working-dir \$OEM_BUILD_DIR --build 64 ${oem_build_args} \\
 && ./cmake_linuxapt.sh --prefix /usr/local/mapguideopensource-${MG_VER} --oem-working-dir \$OEM_BUILD_DIR --working-dir \$LINUXAPT_BUILD \\
 && ccache -s
 
