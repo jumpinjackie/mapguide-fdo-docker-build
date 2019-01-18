@@ -103,6 +103,46 @@ EOF
     echo "Wrote: $path/Dockerfile"
 }
 
+write_fdo_test()
+{
+    path=$1
+    distro_label=$2
+    cpu=$3
+    distro=$4
+
+    build_bits=
+    case "$cpu" in
+        x86)
+            build_bits=32
+            ;;
+        x64)
+            build_bits=64
+            ;;
+        *)
+            echo "Unknown CPU"
+            exit 1
+            ;;
+    esac
+    fdo_thirdparty_args=$(cat templates/distros/$distro/args_fdo_thirdparty_build.txt)
+    fdo_args=$(cat templates/distros/$distro/args_fdo_build.txt)
+    want_generator=$(cat templates/distros/$distro/cmake_generator.txt)
+
+    cat > $path/Dockerfile <<EOF
+# This dockerfile executes the build, it starts from the dev environment
+FROM fdo_${distro_label}_build_${cpu}
+
+# Add the test runner script
+ADD run_fdo_tests.sh /usr/local/src/fdo/build
+
+# Run the tests
+RUN BUILD_DIR=/usr/local/src/fdo/build \\
+&& cd \$BUILD_DIR \\
+&& ./run_fdo_tests.sh --log-path \$BUILD_DIR/logs
+EOF
+
+    echo "Wrote: $path/Dockerfile"
+}
+
 build_fdo_env()
 {
     distro=$1
@@ -143,6 +183,12 @@ build_fdo_env()
     mkdir -p $current_path
     write_fdo_build $current_path $distro_label $cpu $distro
     cp -f templates/scripts/fdo/snap_build.sh $current_path/snap.sh
+
+    current_path="${path_base}/test"
+    mkdir -p $current_path
+    write_fdo_test $current_path $distro_label $cpu $distro
+    cp -f templates/scripts/fdo/run_fdo_tests.sh $current_path/run_fdo_tests.sh
+    cp -f templates/scripts/fdo/snap_test.sh $current_path/snap.sh
 
 cat > fdo_version.sh <<EOF
 #!/bin/sh
