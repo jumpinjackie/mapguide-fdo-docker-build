@@ -9,6 +9,7 @@ TEST_LOG_PATH=$(pwd)
 
 TEST_SUITE_NAME=
 TEST_FAILURE_COUNT=0
+FDO_BUILD_DIR=
 
 check_for_errors()
 {
@@ -28,11 +29,12 @@ check_for_errors()
   fi
 }
 
-THISDIR=$(pwd)
-export NLSPATH="$THISDIR/nls/linux/en_US"
-
 while [ $# -gt 0 ]; do    # Until you run out of parameters...
     case "$1" in
+        --fdo-build-dir)
+            FDO_BUILD_DIR="$2"
+            shift
+            ;;
         --log-path)
             TEST_LOG_PATH="$2"
             shift
@@ -58,6 +60,8 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
         --help)
             echo "Usage: $0 (options)"
             echo "Options:"
+            echo "  --fdo-build-dir [FDO build dir]"
+            echo "  --log-path [Unit Test log path]"
             echo "  --with-wms [Run WMS Tests]"
             echo "  --with-oracle [Run Oracle Tests]"
             echo "  --with-odbc-init [Run ODBC Tests against provided init file]"
@@ -70,10 +74,13 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
     shift   # Check next set of parameters.
 done
 
+echo "FDO build dir: $FDO_BUILD_DIR"
+echo "NLSPATH: $NLSPATH"
 echo "Log path is: $TEST_LOG_PATH"
 if [ ! -d "$TEST_LOG_PATH" ]; then
     mkdir -p $TEST_LOG_PATH
 fi
+cd $FDO_BUILD_DIR || exit
 echo "Starting unit tests"
 
 pushd Fdo/UnitTest >& /dev/null
