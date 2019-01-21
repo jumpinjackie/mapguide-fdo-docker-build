@@ -26,7 +26,7 @@ echo "Taking a 'develop' snapshot first (required for '$CONTAINER_NAME')"
 "$DIR/../develop/snap.sh" | indent
 
 # Can't parameterize distro/arch due to case sensitivity and incorrect labels
-cp -f $STAGE/fdosdk-${FDO_VER}-Ubuntu14-amd64.tar.gz $DIR/fdosdk.tar.gz
+cp -f $STAGE/fdosdk-${FDO_VER}-${DISTRO}-amd64.tar.gz $DIR/fdosdk.tar.gz
 if [ "$?" -ne 0 ] ; then
     exit 1
 fi
