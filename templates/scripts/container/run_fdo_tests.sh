@@ -81,6 +81,15 @@ if [ ! -d "$TEST_LOG_PATH" ]; then
     mkdir -p $TEST_LOG_PATH
 fi
 cd $FDO_BUILD_DIR || exit
+
+# Some suites (GDAL, SHP) just cannot be run from their built location, so they need FDO to be at its
+# installed location
+cmake --build . --target install
+
+# Needed for some SHP test cases
+locale-gen ja_JP.EUC-JP
+update-locale
+
 echo "Starting unit tests"
 
 pushd Fdo/UnitTest >& /dev/null
@@ -88,13 +97,6 @@ TEST_SUITE_NAME="FDO Core"
 echo "Running suite: $TEST_SUITE_NAME"
 ./UnitTest >& $TEST_LOG_PATH/Fdo_unit_test_log.txt
 check_for_errors $? "Fdo unit test returned an error, please check Fdo_unit_test_log.txt for more information" "0"
-popd >& /dev/null
-
-pushd Providers/SHP/Src/UnitTest >& /dev/null
-TEST_SUITE_NAME="SHP"
-echo "Running suite: $TEST_SUITE_NAME"
-./UnitTest >& $TEST_LOG_PATH/Shp_unit_test_log.txt
-check_for_errors $? "Shp unit test returned an error, please check Shp_unit_test_log.txt for more information" "0"
 popd >& /dev/null
 
 pushd Providers/SDF/Src/UnitTest >& /dev/null
@@ -109,13 +111,6 @@ TEST_SUITE_NAME="SQLite"
 echo "Running suite: $TEST_SUITE_NAME"
 ./UnitTest >& $TEST_LOG_PATH/SQLite_unit_test_log.txt
 check_for_errors $? "SQLite unit test returned an error, please check SQLite_unit_test_log.txt for more information" "0"
-popd >& /dev/null
-
-pushd Providers/GDAL/Src/UnitTest >& /dev/null
-TEST_SUITE_NAME="GDAL"
-echo "Running suite: $TEST_SUITE_NAME"
-./UnitTest >& $TEST_LOG_PATH/GDAL_unit_test_log.txt
-check_for_errors $? "GDAL unit test returned an error, please check GDAL_unit_test_log.txt for more information" "0"
 popd >& /dev/null
 
 pushd Providers/OGR/Src/UnitTest >& /dev/null
@@ -174,6 +169,25 @@ then
     check_for_errors $? "Oracle unit test returned an error, please check Oracle_unit_test_log.txt for more information" "0"
     popd >& /dev/null
 fi
+
+# These suites need FDO installed at the default location in order to run
+export LD_LIBRARY_PATH=/usr/local/fdo-4.2.0/lib64
+
+pushd Providers/GDAL/Src/UnitTest >& /dev/null
+TEST_SUITE_NAME="GDAL"
+rm providers.xml # Having this local copy sadly doesn't work, so remove it
+echo "Running suite: $TEST_SUITE_NAME"
+./UnitTest >& $TEST_LOG_PATH/GDAL_unit_test_log.txt
+check_for_errors $? "GDAL unit test returned an error, please check GDAL_unit_test_log.txt for more information" "0"
+popd >& /dev/null
+
+pushd Providers/SHP/Src/UnitTest >& /dev/null
+TEST_SUITE_NAME="SHP"
+rm providers.xml # Having this local copy sadly doesn't work, so remove it
+echo "Running suite: $TEST_SUITE_NAME"
+./UnitTest >& $TEST_LOG_PATH/Shp_unit_test_log.txt
+check_for_errors $? "Shp unit test returned an error, please check Shp_unit_test_log.txt for more information" "0"
+popd >& /dev/null
 
 echo "End unit tests..."
 
