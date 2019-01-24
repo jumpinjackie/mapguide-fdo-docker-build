@@ -1,3 +1,3 @@
-apt-get install -y \
+apt-get update && apt-get install -y \
 lsb-release ccache build-essential bison lintian dos2unix libssl-dev libcurl4-openssl-dev libexpat-dev libmysqlclient-dev \
 unixodbc-dev libpq-dev libcppunit-dev libxalan-c-dev libxerces-c-dev libgdal-dev cmake ninja-build
