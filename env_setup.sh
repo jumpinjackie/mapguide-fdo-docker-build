@@ -11,7 +11,7 @@ write_fdo_run()
     distro=$2
     tag=$3
 
-    prepare_cmd=$(cat templates/distros/$distro/cmd_prepare_run.txt)
+    prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_run.txt")
 
     cat > $path/Dockerfile <<EOF
 # This dockerfile defines the expected runtime environment before the project is installed
@@ -31,7 +31,12 @@ write_fdo_develop()
     cpu=$3
     distro=$4
 
-    prepare_cmd=$(cat templates/distros/$distro/cmd_prepare_fdo_develop.txt)
+    if [ -f "templates/distros/$distro/cmd_prepare_fdo_develop_${distro_label}.txt" ]; then
+        echo "Using ${distro_label} args override for prepare_fdo_develop"
+        prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_fdo_develop_${distro_label}.txt")
+    else
+        prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_fdo_develop.txt")
+    fi
 
     cat > $path/Dockerfile <<EOF
 # This dockerfile makes a snapshot of the development environment
@@ -78,9 +83,18 @@ write_fdo_build()
             exit 1
             ;;
     esac
-    fdo_thirdparty_args=$(cat templates/distros/$distro/args_fdo_thirdparty_build.txt)
-    fdo_args=$(cat templates/distros/$distro/args_fdo_build.txt)
-    want_generator=$(cat templates/distros/$distro/cmake_generator.txt)
+    if [ -f "templates/distros/$distro/args_fdo_thirdparty_build_${distro_label}.txt" ]; then
+        echo "Using ${distro_label} args override for fdo_thirdparty_build"
+        fdo_thirdparty_args=$(cat "templates/distros/$distro/args_fdo_thirdparty_build_${distro_label}.txt")
+    else
+        fdo_thirdparty_args=$(cat "templates/distros/$distro/args_fdo_thirdparty_build.txt")
+    fi
+    if [ -f "templates/distros/$distro/args_fdo_build_${distro_label}.txt" ]; then
+        echo "Using ${distro_label} args override for fdo_build"
+        fdo_args=$(cat "templates/distros/$distro/args_fdo_build_${distro_label}.txt")
+    else
+        fdo_args=$(cat "templates/distros/$distro/args_fdo_build.txt")
+    fi
 
     cat > $path/Dockerfile <<EOF
 # This dockerfile executes the build, it starts from the dev environment
@@ -158,7 +172,7 @@ write_mapguide_run()
     distro=$2
     tag=$3
 
-    prepare_cmd=$(cat templates/distros/$distro/cmd_prepare_run.txt)
+    prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_run.txt")
 
     cat > $path/Dockerfile <<EOF
 # This dockerfile defines the expected runtime environment before the project is installed
@@ -178,7 +192,12 @@ write_mapguide_develop()
     cpu=$3
     distro=$4
 
-    prepare_cmd=$(cat templates/distros/$distro/cmd_prepare_mapguide_develop.txt)
+    if [ -f "templates/distros/$distro/cmd_prepare_mapguide_develop_${distro_label}.txt" ]; then
+        echo "Using ${distro_label} args override for prepare_mapguide_develop"
+        prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_mapguide_develop_${distro_label}.txt")
+    else
+        prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_mapguide_develop.txt")
+    fi
 
     cat > $path/Dockerfile <<EOF
 # This dockerfile makes a snapshot of the development environment
@@ -212,9 +231,12 @@ write_mapguide_build()
     cpu=$3
     distro=$4
 
-    want_generator=$(cat templates/distros/$distro/cmake_generator.txt)
-    #oem_build_args="--with-ccache --have-system-xerces"
-    oem_build_args=$(cat templates/distros/$distro/args_mapguide_oem_build.txt)
+    if [ -f "templates/distros/$distro/args_mapguide_oem_build_${distro_label}.txt" ]; then
+        echo "Using ${distro_label} args override for mapguide_oem_build"
+        oem_build_args=$(cat "templates/distros/$distro/args_mapguide_oem_build_${distro_label}.txt")
+    else
+        oem_build_args=$(cat "templates/distros/$distro/args_mapguide_oem_build.txt")
+    fi
 
     cpu_label=
     case "$cpu" in
