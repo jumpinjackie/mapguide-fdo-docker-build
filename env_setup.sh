@@ -5,6 +5,10 @@ FDO_REV=0
 MG_VER=3.3.0
 MG_REV=0
 
+indent(){
+    sed 's/^/    /'
+}
+
 write_fdo_run()
 {
     path=$1
@@ -21,7 +25,7 @@ FROM ${distro}:${tag}
 RUN ${prepare_cmd}
 EOF
 
-    echo "Wrote: $path/Dockerfile"
+    echo "Wrote: $path/Dockerfile" | indent
 }
 
 write_fdo_develop()
@@ -32,7 +36,7 @@ write_fdo_develop()
     distro=$4
 
     if [ -f "templates/distros/$distro/cmd_prepare_fdo_develop_${distro_label}.txt" ]; then
-        echo "Using ${distro_label} args override for prepare_fdo_develop"
+        echo "Using ${distro_label} args override for prepare_fdo_develop" | indent
         prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_fdo_develop_${distro_label}.txt")
     else
         prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_fdo_develop.txt")
@@ -60,7 +64,7 @@ RUN rm /usr/local/src/fdo/.git
 COPY .git/modules/fdo /usr/local/src/fdo/.git/
 EOF
 
-    echo "Wrote: $path/Dockerfile"
+    echo "Wrote: $path/Dockerfile" | indent
 }
 
 write_fdo_build()
@@ -79,18 +83,18 @@ write_fdo_build()
             build_bits=64
             ;;
         *)
-            echo "Unknown CPU"
+            echo "Unknown CPU" | indent
             exit 1
             ;;
     esac
     if [ -f "templates/distros/$distro/args_fdo_thirdparty_build_${distro_label}.txt" ]; then
-        echo "Using ${distro_label} args override for fdo_thirdparty_build"
+        echo "Using ${distro_label} args override for fdo_thirdparty_build" | indent
         fdo_thirdparty_args=$(cat "templates/distros/$distro/args_fdo_thirdparty_build_${distro_label}.txt")
     else
         fdo_thirdparty_args=$(cat "templates/distros/$distro/args_fdo_thirdparty_build.txt")
     fi
     if [ -f "templates/distros/$distro/args_fdo_build_${distro_label}.txt" ]; then
-        echo "Using ${distro_label} args override for fdo_build"
+        echo "Using ${distro_label} args override for fdo_build" | indent
         fdo_args=$(cat "templates/distros/$distro/args_fdo_build_${distro_label}.txt")
     else
         fdo_args=$(cat "templates/distros/$distro/args_fdo_build.txt")
@@ -114,7 +118,7 @@ RUN BUILD_DIR=/usr/local/src/fdo/build \\
 && mv fdosdk*.tar.gz \$BUILD_DIR/artifacts
 EOF
 
-    echo "Wrote: $path/Dockerfile"
+    echo "Wrote: $path/Dockerfile" | indent
 }
 
 build_fdo_env()
@@ -129,17 +133,17 @@ build_fdo_env()
     fi
 
     echo "Setting FDO environment for"
-    echo "Distro: $distro"
-    echo "CPU: $cpu"
-    echo "Docker base image tag: $tag"
+    echo "Distro: $distro" | indent
+    echo "CPU: $cpu" | indent
+    echo "Docker base image tag: $tag" | indent
 
     ver_major=$(echo $tag | cut -d. -f1)
     distro_label="${distro}${ver_major}"
 
-    echo "Distro label will be: $distro_label"
+    echo "Distro label will be: $distro_label" | indent
 
     path_base="docker/${cpu}/fdo/${distro_label}"
-    echo "Base path for environment is: $path_base"
+    echo "Base path for environment is: $path_base" | indent
 
     mkdir -p "caches/${cpu}/fdo/${distro_label}/.ccache"
 
@@ -162,7 +166,7 @@ cat > fdo_version.sh <<EOF
 #!/bin/sh
 export FDO_VER=${FDO_VER}.${FDO_REV}
 EOF
-    echo "Wrote: fdo_version.sh"
+    echo "Wrote: fdo_version.sh" | indent
     chmod +x fdo_version.sh
 }
 
@@ -182,7 +186,7 @@ FROM ${distro}:${tag}
 RUN ${prepare_cmd}
 EOF
 
-    echo "Wrote: $path/Dockerfile"
+    echo "Wrote: $path/Dockerfile" | indent
 }
 
 write_mapguide_develop()
@@ -193,7 +197,7 @@ write_mapguide_develop()
     distro=$4
 
     if [ -f "templates/distros/$distro/cmd_prepare_mapguide_develop_${distro_label}.txt" ]; then
-        echo "Using ${distro_label} args override for prepare_mapguide_develop"
+        echo "Using ${distro_label} args override for prepare_mapguide_develop" | indent
         prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_mapguide_develop_${distro_label}.txt")
     else
         prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_mapguide_develop.txt")
@@ -221,7 +225,7 @@ RUN rm /usr/local/src/mapguide/.git
 COPY .git/modules/mapguide /usr/local/src/mapguide/.git/
 EOF
 
-    echo "Wrote: $path/Dockerfile"
+    echo "Wrote: $path/Dockerfile" | indent
 }
 
 write_mapguide_build()
@@ -232,7 +236,7 @@ write_mapguide_build()
     distro=$4
 
     if [ -f "templates/distros/$distro/args_mapguide_oem_build_${distro_label}.txt" ]; then
-        echo "Using ${distro_label} args override for mapguide_oem_build"
+        echo "Using ${distro_label} args override for mapguide_oem_build" | indent
         oem_build_args=$(cat "templates/distros/$distro/args_mapguide_oem_build_${distro_label}.txt")
     else
         oem_build_args=$(cat "templates/distros/$distro/args_mapguide_oem_build.txt")
@@ -247,7 +251,7 @@ write_mapguide_build()
             cpu_label=amd64
             ;;
         *)
-            echo "Unknown CPU"
+            echo "Unknown CPU" | indent
             exit 1
             ;;
     esac
@@ -293,7 +297,7 @@ RUN BUILD_DIR=/usr/local/src/mapguide/build \\
 && tar -zcf \$BUILD_DIR/artifacts/mapguideopensource-${MG_VER}.${MG_REV}-${distro_label}-${cpu_label}.tar.gz *
 EOF
 
-    echo "Wrote: $path/Dockerfile"
+    echo "Wrote: $path/Dockerfile" | indent
 }
 
 build_mapguide_env()
@@ -308,17 +312,17 @@ build_mapguide_env()
     fi
 
     echo "Setting MapGuide environment for"
-    echo "Distro: $distro"
-    echo "CPU: $cpu"
-    echo "Docker base image tag: $tag"
+    echo "Distro: $distro" | indent
+    echo "CPU: $cpu" | indent
+    echo "Docker base image tag: $tag" | indent
 
     ver_major=$(echo $tag | cut -d. -f1)
     distro_label="${distro}${ver_major}"
 
-    echo "Distro label will be: $distro_label"
+    echo "Distro label will be: $distro_label" | indent
 
     path_base="docker/${cpu}/mapguide/${distro_label}"
-    echo "Base path for environment is: $path_base"
+    echo "Base path for environment is: $path_base" | indent
 
     mkdir -p "caches/${cpu}/mapguide/${distro_label}/.ccache"
 
@@ -341,7 +345,7 @@ build_mapguide_env()
 #!/bin/sh
 export MG_VER=${MG_VER}.${MG_REV}
 EOF
-    echo "Wrote: mapguide_version.sh"
+    echo "Wrote: mapguide_version.sh" | indent
     chmod +x mapguide_version.sh
 }
 
