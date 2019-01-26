@@ -76,7 +76,7 @@ docker/x64/fdo/ubuntu14/test/snap.sh --skip-base-image-build
 
 |target  |distro|tag  |x64|x86|
 |--------|------|-----|---|---|
-|mapguide|centos|7    | N | N |
+|mapguide|centos|7    | Y | N |
 |mapguide|ubuntu|14.04| Y | N |
 |mapguide|ubuntu|16.04| Y | N |
 |mapguide|ubuntu|18.04| N | N |
@@ -84,6 +84,13 @@ docker/x64/fdo/ubuntu14/test/snap.sh --skip-base-image-build
 |fdo     |ubuntu|16.04| Y | N |
 |fdo     |ubuntu|18.04| Y | N |
 |fdo     |centos|7    | Y | N |
+
+# Known issues
+
+MapGuide will not fully build on Ubuntu 18.04 due to our bundled version of PHP (5.6) requiring OpenSSL <= 1.1.0, which is not not possible on this distro
+
+ * Ubuntu 18.04 provides OpenSSL 1.1.0
+ * Ubuntu 18.04 also provides OpenSSL 1.0, but this cannot be installed side-by-side with the default 1.1.0 package. The 1.1.0 package is also a dependency of several build packages.
 
 # Credits
 
