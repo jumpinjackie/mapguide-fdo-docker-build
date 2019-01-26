@@ -36,7 +36,7 @@ write_fdo_develop()
     distro=$4
 
     if [ -f "templates/distros/$distro/cmd_prepare_fdo_develop_${distro_label}.txt" ]; then
-        echo "Using ${distro_label} args override for prepare_fdo_develop" | indent
+        echo ">>> Using ${distro_label} args override for prepare_fdo_develop" | indent
         prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_fdo_develop_${distro_label}.txt")
     else
         prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_fdo_develop.txt")
@@ -88,13 +88,13 @@ write_fdo_build()
             ;;
     esac
     if [ -f "templates/distros/$distro/args_fdo_thirdparty_build_${distro_label}.txt" ]; then
-        echo "Using ${distro_label} args override for fdo_thirdparty_build" | indent
+        echo ">>> Using ${distro_label} args override for fdo_thirdparty_build" | indent
         fdo_thirdparty_args=$(cat "templates/distros/$distro/args_fdo_thirdparty_build_${distro_label}.txt")
     else
         fdo_thirdparty_args=$(cat "templates/distros/$distro/args_fdo_thirdparty_build.txt")
     fi
     if [ -f "templates/distros/$distro/args_fdo_build_${distro_label}.txt" ]; then
-        echo "Using ${distro_label} args override for fdo_build" | indent
+        echo ">>> Using ${distro_label} args override for fdo_build" | indent
         fdo_args=$(cat "templates/distros/$distro/args_fdo_build_${distro_label}.txt")
     else
         fdo_args=$(cat "templates/distros/$distro/args_fdo_build.txt")
@@ -197,7 +197,7 @@ write_mapguide_develop()
     distro=$4
 
     if [ -f "templates/distros/$distro/cmd_prepare_mapguide_develop_${distro_label}.txt" ]; then
-        echo "Using ${distro_label} args override for prepare_mapguide_develop" | indent
+        echo ">>> Using ${distro_label} args override for prepare_mapguide_develop" | indent
         prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_mapguide_develop_${distro_label}.txt")
     else
         prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_mapguide_develop.txt")
@@ -236,7 +236,7 @@ write_mapguide_build()
     distro=$4
 
     if [ -f "templates/distros/$distro/args_mapguide_oem_build_${distro_label}.txt" ]; then
-        echo "Using ${distro_label} args override for mapguide_oem_build" | indent
+        echo ">>> Using ${distro_label} args override for mapguide_oem_build" | indent
         oem_build_args=$(cat "templates/distros/$distro/args_mapguide_oem_build_${distro_label}.txt")
     else
         oem_build_args=$(cat "templates/distros/$distro/args_mapguide_oem_build.txt")
