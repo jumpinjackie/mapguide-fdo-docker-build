@@ -6,4 +6,5 @@ yum install -y wget centos-release-scl \
 && yum install -y redhat-lsb-core ccache devtoolset-7 automake libtool bison unixODBC-devel libcom_err-devel \ 
 krb5-devel mysql-devel postgresql-devel cmake unzip \
 && wget https://github.com/ninja-build/ninja/releases/download/v1.8.2/ninja-linux.zip \
-&& unzip ninja-linux.zip -d /usr/bin
+&& unzip ninja-linux.zip -d /usr/bin \
+&& ln -s /usr/bin/ninja /usr/bin/ninja-build
