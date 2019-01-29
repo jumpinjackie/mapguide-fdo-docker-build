@@ -1,0 +1,9 @@
+yum install -y wget centos-release-scl \
+&& wget http://dl.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm \
+&& rpm -ivh epel-release-6-8.noarch.rpm  \
+&& yum repolist \
+&& yum update -y \
+&& yum install -y redhat-lsb-core ccache devtoolset-7 automake libtool bison unixODBC-devel libcom_err-devel \ 
+krb5-devel mysql-devel postgresql-devel cmake unzip \
+&& wget https://github.com/ninja-build/ninja/releases/download/v1.8.2/ninja-linux.zip \
+&& unzip ninja-linux.zip -d /usr/bin

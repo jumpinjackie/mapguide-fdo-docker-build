@@ -87,20 +87,34 @@ write_fdo_build()
             exit 1
             ;;
     esac
-    if [ -f "templates/distros/$distro/args_fdo_thirdparty_build_${distro_label}.txt" ]; then
-        echo ">>> Using ${distro_label} args override for fdo_thirdparty_build" | indent
-        fdo_thirdparty_args=$(cat "templates/distros/$distro/args_fdo_thirdparty_build_${distro_label}.txt")
-    else
-        fdo_thirdparty_args=$(cat "templates/distros/$distro/args_fdo_thirdparty_build.txt")
-    fi
-    if [ -f "templates/distros/$distro/args_fdo_build_${distro_label}.txt" ]; then
-        echo ">>> Using ${distro_label} args override for fdo_build" | indent
-        fdo_args=$(cat "templates/distros/$distro/args_fdo_build_${distro_label}.txt")
-    else
-        fdo_args=$(cat "templates/distros/$distro/args_fdo_build.txt")
-    fi
 
-    cat > $path/Dockerfile <<EOF
+    # Sometimes a given distro just may not be able to fit in the normal dockerfile template
+    # we have, so such distros have the opportunity to completely override the dockerfile body
+    # if the provide a file with the right name
+    if [ -f "templates/distros/$distro/dockerfile_${distro_label}.txt" ]; then
+        echo ">>> Using custom dockerfile content for ${distro_label} FDO build" | indent
+        dockerfile_body=$(cat "templates/distros/$distro/dockerfile_${distro_label}.txt")
+        cat > $path/Dockerfile <<EOF
+# This dockerfile executes the build, it starts from the dev environment
+FROM fdo_${distro_label}_develop_${cpu}
+
+${dockerfile_body}
+EOF
+    else
+        if [ -f "templates/distros/$distro/args_fdo_thirdparty_build_${distro_label}.txt" ]; then
+            echo ">>> Using ${distro_label} args override for fdo_thirdparty_build" | indent
+            fdo_thirdparty_args=$(cat "templates/distros/$distro/args_fdo_thirdparty_build_${distro_label}.txt")
+        else
+            fdo_thirdparty_args=$(cat "templates/distros/$distro/args_fdo_thirdparty_build.txt")
+        fi
+        if [ -f "templates/distros/$distro/args_fdo_build_${distro_label}.txt" ]; then
+            echo ">>> Using ${distro_label} args override for fdo_build" | indent
+            fdo_args=$(cat "templates/distros/$distro/args_fdo_build_${distro_label}.txt")
+        else
+            fdo_args=$(cat "templates/distros/$distro/args_fdo_build.txt")
+        fi
+
+        cat > $path/Dockerfile <<EOF
 # This dockerfile executes the build, it starts from the dev environment
 FROM fdo_${distro_label}_develop_${cpu}
 
@@ -117,6 +131,7 @@ RUN BUILD_DIR=/usr/local/src/fdo/build \\
 && cmake --build . --target package \\
 && mv fdosdk*.tar.gz \$BUILD_DIR/artifacts
 EOF
+    fi
 
     echo "Wrote: $path/Dockerfile" | indent
 }
