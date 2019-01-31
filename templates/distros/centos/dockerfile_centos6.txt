@@ -17,5 +17,5 @@ RUN THIRDPARTY_BUILD_DIR=/usr/local/src/fdo/build_thirdparty \
 --with-sdf --with-shp --with-sqlite --with-ogr --with-gdal --with-wfs --with-wms --with-genericrdbms --ninja \
 && ccache -s \
 && cd $BUILD_DIR \
-&& make package \
+&& cmake --build . --target package \
 && mv fdosdk*.tar.gz $BUILD_DIR/artifacts
