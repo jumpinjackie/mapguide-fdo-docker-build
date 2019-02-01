@@ -91,9 +91,9 @@ write_fdo_build()
     # Sometimes a given distro just may not be able to fit in the normal dockerfile template
     # we have, so such distros have the opportunity to completely override the dockerfile body
     # if the provide a file with the right name
-    if [ -f "templates/distros/$distro/dockerfile_${distro_label}.txt" ]; then
+    if [ -f "templates/distros/$distro/dockerfile_${cpu}_fdo_build_${distro_label}.txt" ]; then
         echo ">>> Using custom dockerfile content for ${distro_label} FDO build" | indent
-        dockerfile_body=$(cat "templates/distros/$distro/dockerfile_${distro_label}.txt")
+        dockerfile_body=$(cat "templates/distros/$distro/dockerfile_${cpu}_fdo_build_${distro_label}.txt")
         cat > $path/Dockerfile <<EOF
 # This dockerfile executes the build, it starts from the dev environment
 FROM fdo_${distro_label}_develop_${cpu}
@@ -271,7 +271,20 @@ write_mapguide_build()
             ;;
     esac
 
-    cat > $path/Dockerfile <<EOF
+    # Sometimes a given distro just may not be able to fit in the normal dockerfile template
+    # we have, so such distros have the opportunity to completely override the dockerfile body
+    # if the provide a file with the right name
+    if [ -f "templates/distros/$distro/dockerfile_${cpu}_mapguide_build_${distro_label}.txt" ]; then
+        echo ">>> Using custom dockerfile content for ${distro_label} MapGuide build" | indent
+        dockerfile_body=$(cat "templates/distros/$distro/dockerfile_${cpu}_mapguide_build_${distro_label}.txt")
+        cat > $path/Dockerfile <<EOF
+# This dockerfile executes the build, it starts from the dev environment
+FROM mapguide_${distro_label}_develop_${cpu}
+
+${dockerfile_body}
+EOF
+    else
+        cat > $path/Dockerfile <<EOF
 # This dockerfile executes the build, it starts from the dev environment
 FROM mapguide_${distro_label}_develop_${cpu}
 
@@ -311,6 +324,7 @@ RUN BUILD_DIR=/usr/local/src/mapguide/build \\
 && cd /usr/local/mapguideopensource-${MG_VER} \\
 && tar -zcf \$BUILD_DIR/artifacts/mapguideopensource-${MG_VER}.${MG_REV}-${distro_label}-${cpu_label}.tar.gz *
 EOF
+    fi
 
     echo "Wrote: $path/Dockerfile" | indent
 }

@@ -1,0 +1,37 @@
+# These are the build steps
+
+# 1. Add FDO sdk this should've been copied to the same directory by snap.sh
+ADD fdosdk.tar.gz /usr/local/fdo-4.2.0
+
+# 2. Add atomic.h (needed to build DWF Toolkit)
+ADD atomic.h /usr/include/asm/
+
+# 3. Internal thirdparty
+RUN BUILD_DIR=/usr/local/src/mapguide/build \
+&& OEM_BUILD_DIR=/usr/local/src/mapguide/build_oem \
+&& LINUXAPT_BUILD=/usr/local/src/mapguide/build_linuxapt \
+&& ccache -s \
+&& . scl_source enable devtoolset-7 \
+&& mkdir -p $OEM_BUILD_DIR \
+&& mkdir -p $BUILD_DIR \
+&& cd /usr/local/src/mapguide/MgDev \
+&& ./cmake_bootstrap.sh --oem-working-dir $OEM_BUILD_DIR --build 64 --with-ccache --with-all-internal \
+&& ./cmake_linuxapt.sh --prefix /usr/local/mapguideopensource-3.3.0 --oem-working-dir $OEM_BUILD_DIR --working-dir $LINUXAPT_BUILD \
+&& ccache -s
+
+# 4. Main build
+RUN BUILD_DIR=/usr/local/src/mapguide/build \
+&& OEM_BUILD_DIR=/usr/local/src/mapguide/build_oem \
+&& ccache -s \
+&& . scl_source enable devtoolset-7 \
+&& cd /usr/local/src/mapguide/MgDev \
+&& ./cmake_build.sh --oem-working-dir $OEM_BUILD_DIR --cmake-build-dir $BUILD_DIR --ninja \
+&& ccache -s \
+&& cd $BUILD_DIR \
+&& cmake --build . --target install
+
+# 5. Tar the installation
+RUN BUILD_DIR=/usr/local/src/mapguide/build \
+&& mkdir -p $BUILD_DIR/artifacts \
+&& cd /usr/local/mapguideopensource-3.3.0 \
+&& tar -zcf $BUILD_DIR/artifacts/mapguideopensource-3.3.0.0-centos6-amd64.tar.gz *
