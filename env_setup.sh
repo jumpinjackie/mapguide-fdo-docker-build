@@ -67,6 +67,31 @@ EOF
     echo "Wrote: $path/Dockerfile" | indent
 }
 
+write_fdo_develop_thin()
+{
+    path=$1
+    distro_label=$2
+    cpu=$3
+    distro=$4
+
+    if [ -f "templates/distros/$distro/cmd_prepare_fdo_develop_${distro_label}.txt" ]; then
+        echo ">>> Using ${distro_label} args override for prepare_fdo_develop" | indent
+        prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_fdo_develop_${distro_label}.txt")
+    else
+        prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_fdo_develop.txt")
+    fi
+
+    cat > $path/Dockerfile <<EOF
+# This dockerfile makes a snapshot of the development environment
+FROM fdo_${distro_label}_run_${cpu}
+
+# Install build dependencies
+RUN ${prepare_cmd}
+EOF
+
+    echo "Wrote: $path/Dockerfile" | indent
+}
+
 write_fdo_build()
 {
     path=$1
@@ -172,6 +197,11 @@ build_fdo_env()
     write_fdo_develop $current_path $distro_label $cpu $distro
     cp -f templates/scripts/fdo/snap_develop.sh $current_path/snap.sh
 
+    current_path="${path_base}/develop_thin"
+    mkdir -p $current_path
+    write_fdo_develop_thin $current_path $distro_label $cpu $distro
+    cp -f templates/scripts/fdo/snap_develop_thin.sh $current_path/snap.sh
+
     current_path="${path_base}/build"
     mkdir -p $current_path
     write_fdo_build $current_path $distro_label $cpu $distro
@@ -238,6 +268,31 @@ RUN rm -rf /usr/local/src/mapguide/build
 # git relocated .git/ to the parent repo, un-submodule it in the image
 RUN rm /usr/local/src/mapguide/.git
 COPY .git/modules/mapguide /usr/local/src/mapguide/.git/
+EOF
+
+    echo "Wrote: $path/Dockerfile" | indent
+}
+
+write_mapguide_develop_thin()
+{
+    path=$1
+    distro_label=$2
+    cpu=$3
+    distro=$4
+
+    if [ -f "templates/distros/$distro/cmd_prepare_mapguide_develop_${distro_label}.txt" ]; then
+        echo ">>> Using ${distro_label} args override for prepare_mapguide_develop" | indent
+        prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_mapguide_develop_${distro_label}.txt")
+    else
+        prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_mapguide_develop.txt")
+    fi
+
+    cat > $path/Dockerfile <<EOF
+# This dockerfile makes a snapshot of the development environment
+FROM mapguide_${distro_label}_run_${cpu}
+
+# Install build dependencies
+RUN ${prepare_cmd}
 EOF
 
     echo "Wrote: $path/Dockerfile" | indent
@@ -364,6 +419,11 @@ build_mapguide_env()
     mkdir -p $current_path
     write_mapguide_develop $current_path $distro_label $cpu $distro
     cp -f templates/scripts/mapguide/snap_develop.sh $current_path/snap.sh
+
+    current_path="${path_base}/develop_thin"
+    mkdir -p $current_path
+    write_mapguide_develop_thin $current_path $distro_label $cpu $distro
+    cp -f templates/scripts/mapguide/snap_develop_thin.sh $current_path/snap.sh
 
     current_path="${path_base}/build"
     mkdir -p $current_path

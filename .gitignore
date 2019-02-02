@@ -6,3 +6,4 @@ caches/*
 !caches/README.md
 fdo_version.sh
 mapguide_version.sh
+build_area/*
