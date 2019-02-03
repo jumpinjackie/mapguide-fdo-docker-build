@@ -209,6 +209,7 @@ build_fdo_env()
 
 cat > fdo_version.sh <<EOF
 #!/bin/sh
+export FDO_VER_TRIPLE=${FDO_VER}
 export FDO_VER=${FDO_VER}.${FDO_REV}
 EOF
     echo "Wrote: fdo_version.sh" | indent
@@ -432,6 +433,7 @@ build_mapguide_env()
 
     cat > mapguide_version.sh <<EOF
 #!/bin/sh
+export MG_VER_TRIPLE=${MG_VER}
 export MG_VER=${MG_VER}.${MG_REV}
 EOF
     echo "Wrote: mapguide_version.sh" | indent

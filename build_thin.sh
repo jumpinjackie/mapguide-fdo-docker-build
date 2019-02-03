@@ -42,7 +42,7 @@ build_fdo_thin()
         container_name="fdo_${distro_label}_develop_thin_${cpu}"
 
         container_root="/tmp/work"
-        docker run --rm -it -e FDO_VER=$FDO_VER -v $ccache_dir:/root/.ccache -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts $container_name $container_root/scripts/build_fdo.sh
+        docker run --rm -it -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -v $ccache_dir:/root/.ccache -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts $container_name $container_root/scripts/build_fdo.sh
     fi
 }
 
@@ -85,7 +85,7 @@ build_mapguide_thin()
         fdosdk="fdosdk-${FDO_VER}-${distro_label}-${cpu_label}.tar.gz"
 
         container_root="/tmp/work"
-        docker run --rm -it -e MG_VER=$MG_VER -e FDOSDK=$fdosdk -v $ccache_dir:/root/.ccache -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts $container_name $container_root/scripts/build_mapguide.sh
+        docker run --rm -it -e MG_VER=$MG_VER -e MG_VER_TRIPLE=$MG_VER_TRIPLE -e FDOSDK=$fdosdk -v $ccache_dir:/root/.ccache -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts $container_name $container_root/scripts/build_mapguide.sh
     fi
 }
 

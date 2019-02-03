@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "Building FDO (v${FDO_VER})"
+echo "Building FDO ${FDO_VER_TRIPLE} (v${FDO_VER})"
 ccache -s
 THIRDPARTY_BUILD_DIR=/tmp/work/build_area/fdo_thirdparty
 BUILD_DIR=/tmp/work/build_area/fdo
