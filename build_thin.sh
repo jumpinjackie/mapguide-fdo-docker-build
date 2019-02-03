@@ -33,7 +33,7 @@ build_fdo_thin()
         ./snap.sh
         popd
     else
-        build_area_dir="$PWD/build_area/$cpu/$distro/fdo"
+        build_area_dir="$PWD/build_area/$cpu/$distro_label/fdo"
         mkdir -p "$build_area_dir"
         src_dir="$PWD/fdo"
         scripts_dir="$PWD/templates/scripts/container"
@@ -75,17 +75,18 @@ build_mapguide_thin()
         ./snap.sh
         popd
     else
-        build_area_dir="$PWD/build_area/$cpu/$distro/mapguide"
+        build_area_dir="$PWD/build_area/$cpu/$distro_label/mapguide"
         mkdir -p "$build_area_dir"
         src_dir="$PWD/mapguide/MgDev"
         scripts_dir="$PWD/templates/scripts/container"
         artifacts_dir="$PWD/artifacts"
         container_name="mapguide_${distro_label}_develop_thin_${cpu}"
         ccache_dir="$PWD/caches/${cpu}/mapguide/${distro_label}/.ccache"
+        patches_dir="$PWD/patches"
         fdosdk="fdosdk-${FDO_VER}-${distro_label}-${cpu_label}.tar.gz"
 
         container_root="/tmp/work"
-        docker run --rm -it -e MG_VER=$MG_VER -e MG_VER_TRIPLE=$MG_VER_TRIPLE -e FDOSDK=$fdosdk -v $ccache_dir:/root/.ccache -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts $container_name $container_root/scripts/build_mapguide.sh
+        docker run --rm -it -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER=$MG_VER -e MG_VER_TRIPLE=$MG_VER_TRIPLE -e FDOSDK=$fdosdk -v $patches_dir:$container_root/patches -v $ccache_dir:/root/.ccache -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts $container_name $container_root/scripts/build_mapguide.sh
     fi
 }
 

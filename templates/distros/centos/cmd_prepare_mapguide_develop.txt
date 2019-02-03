@@ -5,4 +5,4 @@ yum install -y wget \
 && yum update -y \
 && yum install -y redhat-lsb-core ccache gcc gcc-c++ bison bzip2 curl-devel unixODBC-devel libcom_err-devel \ 
 krb5-devel openssl-devel mysql-devel postgresql-devel xerces-c-devel xalan-c-devel gdal-devel libxslt-devel libxml2-devel \ 
-cppunit-devel cmake ninja-build jsoncpp-devel gd-devel geos-devel java-1.7.0-openjdk-devel ant zlib-devel
+cppunit-devel cmake ninja-build jsoncpp-devel gd-devel geos-devel java-1.7.0-openjdk-devel ant zlib-devel pcre-devel expat-devel
