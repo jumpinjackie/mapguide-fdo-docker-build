@@ -77,6 +77,7 @@ docker/x64/fdo/ubuntu14/test/snap.sh --skip-base-image-build
 |target  |distro|tag  |x64|x86|
 |--------|------|-----|---|---|
 |mapguide|centos|7    | Y | N |
+|mapguide|centos|6    | Y | N |
 |mapguide|ubuntu|14.04| Y | N |
 |mapguide|ubuntu|16.04| Y | N |
 |mapguide|ubuntu|18.04| N | N |
@@ -84,6 +85,7 @@ docker/x64/fdo/ubuntu14/test/snap.sh --skip-base-image-build
 |fdo     |ubuntu|16.04| Y | N |
 |fdo     |ubuntu|18.04| Y | N |
 |fdo     |centos|7    | Y | N |
+|fdo     |centos|6    | Y | N |
 
 # Known issues
 
