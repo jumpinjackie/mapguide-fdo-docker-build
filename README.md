@@ -5,6 +5,8 @@ This is a docker-driven build system for MapGuide and FDO
 # Requirements
 
  * A linux host OS that can run Docker
+ * Git
+ * git-lfs
 
 # Usage
 
@@ -13,6 +15,8 @@ This is a docker-driven build system for MapGuide and FDO
 ```
 git clone https://github.com/jumpinjackie/mapguide-fdo-docker-build`
 git submodule --init
+cd mapguide/MgDev/Oem/CsMap
+git lfs pull
 ```
 
 ## 2. Set up your desired target environment
