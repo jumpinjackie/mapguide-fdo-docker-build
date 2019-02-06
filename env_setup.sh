@@ -364,7 +364,10 @@ ADD fdosdk.tar.gz /usr/local/fdo-${FDO_VER}
 # 3. Add atomic.h (needed to build DWF Toolkit)
 ADD atomic.h /usr/include/asm/
 
-# 4. Main build
+# 4. Add binary stripping script
+ADD strip_mapguide_binaries.sh /usr/local/src/mapguide/MgDev
+
+# 5. Main build
 RUN BUILD_DIR=/usr/local/src/mapguide/build \\
 && OEM_BUILD_DIR=/usr/local/src/mapguide/build_oem \\
 && ccache -s \\
@@ -374,9 +377,10 @@ RUN BUILD_DIR=/usr/local/src/mapguide/build \\
 && cd \$BUILD_DIR \\
 && cmake --build . --target install
 
-# 5. Tar the installation
+# 6. Tar the installation
 RUN BUILD_DIR=/usr/local/src/mapguide/build \\
 && mkdir -p \$BUILD_DIR/artifacts \\
+&& /usr/local/src/mapguide/MgDev/strip_mapguide_binaries.sh /usr/local/mapguideopensource-${MG_VER} \\
 && cd /usr/local/mapguideopensource-${MG_VER} \\
 && tar -zcf \$BUILD_DIR/artifacts/mapguideopensource-${MG_VER}.${MG_REV}-${distro_label}-${cpu_label}.tar.gz *
 EOF
@@ -430,6 +434,7 @@ build_mapguide_env()
     mkdir -p $current_path
     write_mapguide_build $current_path $distro_label $cpu $distro
     cp -f templates/scripts/mapguide/snap_build.sh $current_path/snap.sh
+    cp -f templates/scripts/mapguide/strip_mapguide_binaries.sh $current_path/strip_mapguide_binaries.sh
 
     cat > mapguide_version.sh <<EOF
 #!/bin/sh

@@ -6,7 +6,10 @@ ADD fdosdk.tar.gz /usr/local/fdo-4.2.0
 # 2. Add atomic.h (needed to build DWF Toolkit)
 ADD atomic.h /usr/include/asm/
 
-# 3. Internal thirdparty
+# 3. Add binary stripping script
+ADD strip_mapguide_binaries.sh /usr/local/src/mapguide/MgDev
+
+# 4. Internal thirdparty
 RUN BUILD_DIR=/usr/local/src/mapguide/build \
 && OEM_BUILD_DIR=/usr/local/src/mapguide/build_oem \
 && LINUXAPT_BUILD=/usr/local/src/mapguide/build_linuxapt \
@@ -19,7 +22,7 @@ RUN BUILD_DIR=/usr/local/src/mapguide/build \
 && ./cmake_linuxapt.sh --prefix /usr/local/mapguideopensource-3.3.0 --oem-working-dir $OEM_BUILD_DIR --working-dir $LINUXAPT_BUILD \
 && ccache -s
 
-# 4. Main build
+# 5. Main build
 RUN BUILD_DIR=/usr/local/src/mapguide/build \
 && OEM_BUILD_DIR=/usr/local/src/mapguide/build_oem \
 && ccache -s \
@@ -30,8 +33,9 @@ RUN BUILD_DIR=/usr/local/src/mapguide/build \
 && cd $BUILD_DIR \
 && cmake --build . --target install
 
-# 5. Tar the installation
+# 6. Tar the installation
 RUN BUILD_DIR=/usr/local/src/mapguide/build \
 && mkdir -p $BUILD_DIR/artifacts \
+&& /usr/local/src/mapguide/MgDev/strip_mapguide_binaries.sh /usr/local/mapguideopensource-3.3.0 \
 && cd /usr/local/mapguideopensource-3.3.0 \
 && tar -zcf $BUILD_DIR/artifacts/mapguideopensource-3.3.0.0-centos6-amd64.tar.gz *
