@@ -29,3 +29,4 @@ do
         fi
     done
 done
+docker system prune
