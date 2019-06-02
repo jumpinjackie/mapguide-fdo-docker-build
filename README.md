@@ -55,7 +55,7 @@ Once FDO is built, the tarballs will be copied to the top-level `artifacts` fold
 To build MapGuide, run:
 
 ```
-docker/x64/fdo/ubuntu14/build/snap.sh
+docker/x64/mapguide/ubuntu14/build/snap.sh
 ```
 
 NOTE: You must build FDO first (and its SDK tarball present in `artifacts`) before you can build MapGuide.
