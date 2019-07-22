@@ -30,6 +30,7 @@ cp -p "$DIR/Dockerfile" "$ROOT"
 
 echo "Generating temporary .dockerignore"
 rm -f "$ROOT/.dockerignore"
+echo ".git" >> "$ROOT/.dockerignore"
 echo "artifacts" >> "$ROOT/.dockerignore"
 echo "caches/x64/fdo" >> "$ROOT/.dockerignore"
 echo "fdo" >> "$ROOT/.dockerignore"
