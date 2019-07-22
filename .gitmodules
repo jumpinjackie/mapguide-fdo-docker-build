@@ -1,0 +1,3 @@
+[submodule "fdo"]
+	path = fdo
+	url = https://github.com/jumpinjackie/fdo
