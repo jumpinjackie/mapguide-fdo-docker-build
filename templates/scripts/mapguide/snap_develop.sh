@@ -28,10 +28,22 @@ echo "Taking snapshot: '$CONTAINER_NAME'"
 # (necessary because docker hashes children to see if rebuilding a layer is needed)
 cp -p "$DIR/Dockerfile" "$ROOT"
 
+echo "Generating temporary .dockerignore"
+rm -f "$ROOT/.dockerignore"
+echo "artifacts" >> "$ROOT/.dockerignore"
+echo "caches/x64/fdo" >> "$ROOT/.dockerignore"
+echo "fdo" >> "$ROOT/.dockerignore"
+echo "mapguide/Installer" >> "$ROOT/.dockerignore"
+echo "mapguide/Tools" >> "$ROOT/.dockerignore"
+echo "logs" >> "$ROOT/.dockerignore"
+echo "patches" >> "$ROOT/.dockerignore"
+echo "templates" >> "$ROOT/.dockerignore"
+
 cd "$ROOT"
 docker build . -t "$CONTAINER_NAME:latest"
 
 rm "$ROOT/Dockerfile"
+rm "$ROOT/.dockerignore"
 
 echo "To explore '$CONTAINER_NAME' run:"
 echo "docker run --rm -it $CONTAINER_NAME /bin/bash"
