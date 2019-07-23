@@ -2,7 +2,7 @@
 
 FDO_VER=4.2.0
 FDO_REV=0
-MG_VER=3.3.0
+MG_VER=4.0.0
 MG_REV=0
 
 indent(){
