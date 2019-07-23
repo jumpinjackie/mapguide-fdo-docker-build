@@ -1,3 +1,6 @@
 [submodule "fdo"]
 	path = fdo
 	url = https://github.com/jumpinjackie/fdo
+[submodule "mapguide"]
+	path = mapguide
+	url = https://github.com/jumpinjackie/mapguide
