@@ -33,10 +33,19 @@ rm -f "$ROOT/.dockerignore"
 echo ".git/modules/mapguide" >> "$ROOT/.dockerignore"
 echo "artifacts" >> "$ROOT/.dockerignore"
 echo "caches/x64/mapguide" >> "$ROOT/.dockerignore"
+# Ignore all non-current-distro FDO ccache output
+for test_distro in ubuntu18 ubuntu16 ubuntu14 centos7 centos6
+do
+    if [ "$DISTRO" != "$test_distro" ]; then
+        echo "caches/x64/fdo/$test_distro" >> "$ROOT/.dockerignore"
+    fi
+done
 echo "mapguide" >> "$ROOT/.dockerignore"
 echo "logs" >> "$ROOT/.dockerignore"
 echo "patches" >> "$ROOT/.dockerignore"
 echo "templates" >> "$ROOT/.dockerignore"
+echo "Contents are:"
+cat "$ROOT/.dockerignore" | indent
 
 cd "$ROOT"
 docker build . -t "$CONTAINER_NAME:latest"
