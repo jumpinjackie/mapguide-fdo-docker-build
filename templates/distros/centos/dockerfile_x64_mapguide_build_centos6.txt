@@ -1,7 +1,7 @@
 # These are the build steps
 
 # 1. Add FDO sdk this should've been copied to the same directory by snap.sh
-ADD fdosdk.tar.gz /usr/local/fdo-4.2.0
+ADD fdosdk.tar.gz /usr/local/fdo-__FDO_VER__
 
 # 2. Add atomic.h (needed to build DWF Toolkit)
 ADD atomic.h /usr/include/asm/
@@ -19,7 +19,7 @@ RUN BUILD_DIR=/usr/local/src/mapguide/build \
 && mkdir -p $BUILD_DIR \
 && cd /usr/local/src/mapguide/MgDev \
 && ./cmake_bootstrap.sh --oem-working-dir $OEM_BUILD_DIR --build 64 --with-ccache --with-all-internal \
-&& ./cmake_linuxapt.sh --prefix /usr/local/mapguideopensource-3.3.0 --oem-working-dir $OEM_BUILD_DIR --working-dir $LINUXAPT_BUILD \
+&& ./cmake_linuxapt.sh --prefix /usr/local/mapguideopensource-__MG_VER__ --oem-working-dir $OEM_BUILD_DIR --working-dir $LINUXAPT_BUILD \
 && ccache -s
 
 # 5. Main build
@@ -36,6 +36,6 @@ RUN BUILD_DIR=/usr/local/src/mapguide/build \
 # 6. Tar the installation
 RUN BUILD_DIR=/usr/local/src/mapguide/build \
 && mkdir -p $BUILD_DIR/artifacts \
-&& /usr/local/src/mapguide/MgDev/strip_mapguide_binaries.sh /usr/local/mapguideopensource-3.3.0 \
-&& cd /usr/local/mapguideopensource-3.3.0 \
-&& tar -zcf $BUILD_DIR/artifacts/mapguideopensource-3.3.0.0-centos6-amd64.tar.gz *
+&& /usr/local/src/mapguide/MgDev/strip_mapguide_binaries.sh /usr/local/mapguideopensource-__MG_VER__ \
+&& cd /usr/local/mapguideopensource-__MG_VER__ \
+&& tar -zcf $BUILD_DIR/artifacts/mapguideopensource-__MG_VER_FULL__-centos6-amd64.tar.gz *

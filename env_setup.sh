@@ -332,7 +332,11 @@ write_mapguide_build()
     # if the provide a file with the right name
     if [ -f "templates/distros/$distro/dockerfile_${cpu}_mapguide_build_${distro_label}.txt" ]; then
         echo ">>> Using custom dockerfile content for ${distro_label} MapGuide build" | indent
-        dockerfile_body=$(cat "templates/distros/$distro/dockerfile_${cpu}_mapguide_build_${distro_label}.txt")
+        dockerfile_body=$(cat "templates/distros/$distro/dockerfile_${cpu}_mapguide_build_${distro_label}.txt" | \
+            sed "s/__MG_VER__/${MG_VER}/g" | \
+            sed "s/__MG_VER_FULL__/${MG_VER}.${MG_REV}/g" | \
+            sed "s/__FDO_VER__/${FDO_VER}/g" | \
+            sed "s/__FDO_VER_FULL__/${FDO_VER}.${FDO_REV}/g")
         cat > $path/Dockerfile <<EOF
 # This dockerfile executes the build, it starts from the dev environment
 FROM mapguide_${distro_label}_develop_${cpu}
