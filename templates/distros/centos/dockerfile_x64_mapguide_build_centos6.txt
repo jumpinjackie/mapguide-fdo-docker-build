@@ -28,7 +28,7 @@ RUN BUILD_DIR=/usr/local/src/mapguide/build \
 && ccache -s \
 && . scl_source enable devtoolset-7 \
 && cd /usr/local/src/mapguide/MgDev \
-&& ./cmake_build.sh --oem-working-dir $OEM_BUILD_DIR --cmake-build-dir $BUILD_DIR --ninja \
+&& ./cmake_build.sh --mg-ver-major __MG_VER_MAJOR__ --mg-ver-minor __MG_VER_MINOR__ --mg-ver-rel __MG_VER_REL__ --mg-ver-rev __MG_VER_REV__ --oem-working-dir $OEM_BUILD_DIR --cmake-build-dir $BUILD_DIR --ninja \
 && ccache -s \
 && cd $BUILD_DIR \
 && cmake --build . --target install

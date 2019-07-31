@@ -1,9 +1,19 @@
 #!/bin/bash
 
-FDO_VER=4.2.0
-FDO_REV=0
-MG_VER=4.0.0
-MG_REV=0
+FDO_VER_MAJOR=4
+FDO_VER_MINOR=2
+FDO_VER_REL=0
+FDO_VER_REV=0
+
+MG_VER_MAJOR=4
+MG_VER_MINOR=0
+MG_VER_REL=0
+MG_VER_REV=0
+
+FDO_VER="${FDO_VER_MAJOR}.${FDO_VER_MINOR}.${FDO_VER_REL}"
+FDO_REV=${FDO_VER_REV}
+MG_VER="${MG_VER_MAJOR}.${MG_VER_MINOR}.${MG_VER_REL}"
+MG_REV=${MG_VER_REV}
 
 indent(){
     sed 's/^/    /'
@@ -118,7 +128,13 @@ write_fdo_build()
     # if the provide a file with the right name
     if [ -f "templates/distros/$distro/dockerfile_${cpu}_fdo_build_${distro_label}.txt" ]; then
         echo ">>> Using custom dockerfile content for ${distro_label} FDO build" | indent
-        dockerfile_body=$(cat "templates/distros/$distro/dockerfile_${cpu}_fdo_build_${distro_label}.txt")
+        dockerfile_body=$(cat "templates/distros/$distro/dockerfile_${cpu}_fdo_build_${distro_label}.txt" | \
+            sed "s/__FDO_VER_MAJOR__/${FDO_VER_MAJOR}/g" | \
+            sed "s/__FDO_VER_MINOR__/${FDO_VER_MINOR}/g" | \
+            sed "s/__FDO_VER_REL__/${FDO_VER_REL}/g" | \
+            sed "s/__FDO_VER_REV__/${FDO_VER_REV}/g" | \
+            sed "s/__FDO_VER__/${FDO_VER}/g" | \
+            sed "s/__FDO_VER_FULL__/${FDO_VER}.${FDO_REV}/g")
         cat > $path/Dockerfile <<EOF
 # This dockerfile executes the build, it starts from the dev environment
 FROM fdo_${distro_label}_develop_${cpu}
@@ -150,7 +166,7 @@ RUN BUILD_DIR=/usr/local/src/fdo/build \\
 && mkdir -p \$BUILD_DIR/artifacts \\
 && cd /usr/local/src/fdo \\
 && ./cmake_bootstrap.sh --working-dir \$THIRDPARTY_DIR --build ${build_bits} ${fdo_thirdparty_args} \\
-&& ./cmake_build.sh --thirdparty-working-dir \$THIRDPARTY_DIR --cmake-build-dir \$BUILD_DIR ${fdo_args} \\
+&& ./cmake_build.sh --fdo-ver-major ${FDO_VER_MAJOR} --fdo-ver-minor ${FDO_VER_MINOR} --fdo-ver-rel ${FDO_VER_REL} --fdo-ver-rev ${FDO_VER_REV} --thirdparty-working-dir \$THIRDPARTY_DIR --cmake-build-dir \$BUILD_DIR ${fdo_args} \\
 && ccache -s \
 && cd \$BUILD_DIR \\
 && cmake --build . --target package \\
@@ -333,6 +349,10 @@ write_mapguide_build()
     if [ -f "templates/distros/$distro/dockerfile_${cpu}_mapguide_build_${distro_label}.txt" ]; then
         echo ">>> Using custom dockerfile content for ${distro_label} MapGuide build" | indent
         dockerfile_body=$(cat "templates/distros/$distro/dockerfile_${cpu}_mapguide_build_${distro_label}.txt" | \
+            sed "s/__MG_VER_MAJOR__/${MG_VER_MAJOR}/g" | \
+            sed "s/__MG_VER_MINOR__/${MG_VER_MINOR}/g" | \
+            sed "s/__MG_VER_REL__/${MG_VER_REL}/g" | \
+            sed "s/__MG_VER_REV__/${MG_VER_REV}/g" | \
             sed "s/__MG_VER__/${MG_VER}/g" | \
             sed "s/__MG_VER_FULL__/${MG_VER}.${MG_REV}/g" | \
             sed "s/__FDO_VER__/${FDO_VER}/g" | \
@@ -376,7 +396,7 @@ RUN BUILD_DIR=/usr/local/src/mapguide/build \\
 && OEM_BUILD_DIR=/usr/local/src/mapguide/build_oem \\
 && ccache -s \\
 && cd /usr/local/src/mapguide/MgDev \\
-&& ./cmake_build.sh --oem-working-dir \$OEM_BUILD_DIR --cmake-build-dir \$BUILD_DIR --ninja \\
+&& ./cmake_build.sh --mg-ver-major ${MG_VER_MAJOR} --mg-ver-minor ${MG_VER_MINOR} --mg-ver-rel ${MG_VER_REL} --mg-ver-rev ${MG_VER_REV} --oem-working-dir \$OEM_BUILD_DIR --cmake-build-dir \$BUILD_DIR --ninja \\
 && ccache -s \\
 && cd \$BUILD_DIR \\
 && cmake --build . --target install
