@@ -1,5 +1,7 @@
 docker
 logs
+*.run
+staging/*
 artifacts/*
 !artifacts/README.md
 caches/*
