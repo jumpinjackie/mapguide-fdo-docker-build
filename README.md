@@ -14,7 +14,7 @@ This is a docker-driven build system for MapGuide and FDO
 
 ```
 git clone https://github.com/jumpinjackie/mapguide-fdo-docker-build`
-git submodule --init
+git submodule update --init --recursive
 cd mapguide/MgDev/Oem/CsMap
 git lfs pull
 ```
