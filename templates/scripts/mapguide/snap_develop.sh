@@ -41,6 +41,8 @@ do
     fi
 done
 echo "fdo" >> "$ROOT/.dockerignore"
+# SDKs are only for FDO, so ignore as well
+echo "sdks" >> "$ROOT/.dockerignore"
 echo "mapguide/Installer" >> "$ROOT/.dockerignore"
 echo "mapguide/Tools" >> "$ROOT/.dockerignore"
 echo "logs" >> "$ROOT/.dockerignore"

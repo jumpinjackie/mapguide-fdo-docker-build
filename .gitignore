@@ -1,6 +1,7 @@
 docker
 logs
 *.run
+sdks/oracle
 staging/*
 artifacts/*
 !artifacts/README.md

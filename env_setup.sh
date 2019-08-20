@@ -59,6 +59,9 @@ FROM fdo_${distro_label}_run_${cpu}
 # Install build dependencies
 RUN ${prepare_cmd}
 
+# Include the Oracle Instant Client SDK
+COPY sdks/oracle/${cpu}/instantclient_11_2 /opt/oracle/instantclient_11_2
+
 # include the code
 COPY fdo/ /usr/local/src/fdo
 
@@ -166,7 +169,7 @@ RUN BUILD_DIR=/usr/local/src/fdo/build \\
 && mkdir -p \$BUILD_DIR/artifacts \\
 && cd /usr/local/src/fdo \\
 && ./cmake_bootstrap.sh --working-dir \$THIRDPARTY_DIR --build ${build_bits} ${fdo_thirdparty_args} \\
-&& ./cmake_build.sh --fdo-ver-major ${FDO_VER_MAJOR} --fdo-ver-minor ${FDO_VER_MINOR} --fdo-ver-rel ${FDO_VER_REL} --fdo-ver-rev ${FDO_VER_REV} --thirdparty-working-dir \$THIRDPARTY_DIR --cmake-build-dir \$BUILD_DIR ${fdo_args} \\
+&& ./cmake_build.sh --with-kingoracle --with-oracle-include /opt/oracle/instantclient_11_2/sdk/include --with-oracle-lib /opt/oracle/instantclient_11_2/sdk/lib --with-oci-version 110 --fdo-ver-major ${FDO_VER_MAJOR} --fdo-ver-minor ${FDO_VER_MINOR} --fdo-ver-rel ${FDO_VER_REL} --fdo-ver-rev ${FDO_VER_REV} --thirdparty-working-dir \$THIRDPARTY_DIR --cmake-build-dir \$BUILD_DIR ${fdo_args} \\
 && ccache -s \
 && cd \$BUILD_DIR \\
 && cmake --build . --target package \\
