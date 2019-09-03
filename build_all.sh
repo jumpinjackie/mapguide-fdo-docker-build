@@ -4,7 +4,7 @@ for cpu in x64 x86
 do
     for distro in ubuntu18 ubuntu16 ubuntu14 centos7 centos6
     do
-        BUILT_FDO=0
+         BUILT_FDO=0
         BUILT_MAPGUIDE=0
         if [ -d ./docker/$cpu/fdo/$distro ];
         then

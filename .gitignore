@@ -1,6 +1,8 @@
 docker
 logs
 *.run
+mapguide/
+fdo/
 sdks/oracle
 staging/*
 artifacts/*

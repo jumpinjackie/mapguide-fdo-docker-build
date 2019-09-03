@@ -40,6 +40,8 @@ do
         echo "caches/x64/mapguide/$test_distro" >> "$ROOT/.dockerignore"
     fi
 done
+# In case this is a svn checkout, and not a git clone/submodule
+echo ".svn" >> "$ROOT/.dockerignore"
 echo "fdo" >> "$ROOT/.dockerignore"
 # SDKs are only for FDO, so ignore as well
 echo "sdks" >> "$ROOT/.dockerignore"

@@ -40,6 +40,8 @@ do
         echo "caches/x64/fdo/$test_distro" >> "$ROOT/.dockerignore"
     fi
 done
+# In case this is a svn checkout, and not a git clone/submodule
+echo ".svn" >> "$ROOT/.dockerignore"
 echo "mapguide" >> "$ROOT/.dockerignore"
 echo "logs" >> "$ROOT/.dockerignore"
 echo "patches" >> "$ROOT/.dockerignore"
