@@ -230,6 +230,10 @@ build_fdo_env()
 
 cat > fdo_version.sh <<EOF
 #!/bin/sh
+export FDO_VER_MAJOR=${FDO_VER_MAJOR}
+export FDO_VER_MINOR=${FDO_VER_MINOR}
+export FDO_VER_REL=${FDO_VER_REL}
+export FDO_VER_REV=${FDO_VER_REV}
 export FDO_VER_TRIPLE=${FDO_VER}
 export FDO_VER=${FDO_VER}.${FDO_REV}
 EOF
@@ -467,6 +471,10 @@ build_mapguide_env()
 
     cat > mapguide_version.sh <<EOF
 #!/bin/sh
+export MG_VER_MAJOR=${MG_VER_MAJOR}
+export MG_VER_MINOR=${MG_VER_MINOR}
+export MG_VER_REL=${MG_VER_REL}
+export MG_VER_REV=${MG_VER_REV}
 export MG_VER_TRIPLE=${MG_VER}
 export MG_VER=${MG_VER}.${MG_REV}
 EOF
