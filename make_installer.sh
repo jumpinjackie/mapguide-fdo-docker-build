@@ -18,3 +18,4 @@ chmod +x staging/install.sh
 echo "Create self-extracting archive"
 ~/makeself/makeself.sh --xz --quiet --needroot --sha256 staging/ mapguideopensource-${MG_VER}-${DISTRO}-install.run "${INSTALLER_LABEL}" ./install.sh
 rm -rf staging/
+mv *.run artifacts/
