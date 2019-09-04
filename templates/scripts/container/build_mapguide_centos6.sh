@@ -22,6 +22,11 @@ echo "Building MapGuide ${MG_VER_TRIPLE} (v${MG_VER})"
 echo "Using FDO SDK at: ${ARTIFACTS_DIR}/${FDOSDK}"
 ccache -s
 
+if [ ! -f "${ARTIFACTS_DIR}/${FDOSDK}" ]; then
+    echo "FATAL: FDO SDK (${ARTIFACTS_DIR}/${FDOSDK}) not found"
+    exit 1
+fi
+
 echo "Installing FDO SDK"
 mkdir -p /usr/local/fdo-${FDO_VER_TRIPLE}
 tar -zxf ${ARTIFACTS_DIR}/${FDOSDK} -C /usr/local/fdo-${FDO_VER_TRIPLE}
