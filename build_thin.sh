@@ -28,6 +28,8 @@ build_fdo_thin()
             ;;
     esac
 
+    echo "Building FDO for: ${distro_label}"
+
     if [ $build_image_only -eq 1 ]; then
         pushd docker/${cpu}/fdo/${distro_label}/develop_thin
         ./snap.sh
@@ -76,6 +78,8 @@ build_mapguide_thin()
             exit 1
             ;;
     esac
+
+    echo "Building MapGuide for: ${distro_label}"
 
     if [ $build_image_only -eq 1 ]; then
         pushd docker/${cpu}/mapguide/${distro_label}/develop_thin
