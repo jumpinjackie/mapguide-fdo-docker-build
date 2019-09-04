@@ -45,6 +45,7 @@ check_build
 check_build
 ./cmake_build.sh --oem-working-dir $OEM_BUILD_DIR --cmake-build-dir $BUILD_DIR --ninja
 check_build
+cd $BUILD_DIR || exit
 cmake --build . --target install
 check_build
 cd /usr/local/mapguideopensource-${MG_VER_TRIPLE} || exit
