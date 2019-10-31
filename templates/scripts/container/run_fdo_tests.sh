@@ -96,28 +96,28 @@ pushd Fdo/UnitTest >& /dev/null
 TEST_SUITE_NAME="FDO Core"
 echo "Running suite: $TEST_SUITE_NAME"
 ./UnitTest >& $TEST_LOG_PATH/Fdo_unit_test_log.txt
-check_for_errors $? "Fdo unit test returned an error, please check Fdo_unit_test_log.txt for more information" "0"
+check_for_errors $? "Fdo unit test returned an error, please check $TEST_LOG_PATH/Fdo_unit_test_log.txt for more information" "0"
 popd >& /dev/null
 
 pushd Providers/SDF/Src/UnitTest >& /dev/null
 TEST_SUITE_NAME="SDF"
 echo "Running suite: $TEST_SUITE_NAME"
 ./UnitTest >& $TEST_LOG_PATH/Sdf_unit_test_log.txt
-check_for_errors $? "Sdf unit test returned an error, please check Sdf_unit_test_log.txt for more information" "0"
+check_for_errors $? "Sdf unit test returned an error, please check $TEST_LOG_PATH/Sdf_unit_test_log.txt for more information" "0"
 popd >& /dev/null
 
 pushd Providers/SQLite/Src/UnitTest >& /dev/null
 TEST_SUITE_NAME="SQLite"
 echo "Running suite: $TEST_SUITE_NAME"
 ./UnitTest >& $TEST_LOG_PATH/SQLite_unit_test_log.txt
-check_for_errors $? "SQLite unit test returned an error, please check SQLite_unit_test_log.txt for more information" "0"
+check_for_errors $? "SQLite unit test returned an error, please check $TEST_LOG_PATH/SQLite_unit_test_log.txt for more information" "0"
 popd >& /dev/null
 
 pushd Providers/OGR/Src/UnitTest >& /dev/null
 TEST_SUITE_NAME="OGR"
 echo "Running suite: $TEST_SUITE_NAME"
 ./UnitTest >& $TEST_LOG_PATH/OGR_unit_test_log.txt
-check_for_errors $? "OGR unit test returned an error, please check OGR_unit_test_log.txt for more information" "0"
+check_for_errors $? "OGR unit test returned an error, please check $TEST_LOG_PATH/OGR_unit_test_log.txt for more information" "0"
 popd >& /dev/null
 
 if [ "$TEST_WMS" == "1" ];
@@ -126,7 +126,7 @@ then
     TEST_SUITE_NAME="WMS"
     echo "Running suite: $TEST_SUITE_NAME"
     ./UnitTest >& $TEST_LOG_PATH/Wms_unit_test_log.txt
-    check_for_errors $? "Wms unit test returned an error, please check Wms_unit_test_log.txt for more information" "0"
+    check_for_errors $? "Wms unit test returned an error, please check $TEST_LOG_PATH/Wms_unit_test_log.txt for more information" "0"
     popd >& /dev/null
 fi
 
@@ -136,7 +136,7 @@ then
     TEST_SUITE_NAME="ODBC"
     echo "Running suite: $TEST_SUITE_NAME"
     ./UnitTestOdbc initfiletest=$TEST_ODBC >& $TEST_LOG_PATH/Odbc_unit_test_log.txt
-    check_for_errors $? "Odbc unit test returned an error, please check Odbc_unit_test_log.txt for more information" "0"
+    check_for_errors $? "Odbc unit test returned an error, please check $TEST_LOG_PATH/Odbc_unit_test_log.txt for more information" "0"
     popd >& /dev/null
 fi
 
@@ -146,7 +146,7 @@ then
     TEST_SUITE_NAME="PostGIS"
     echo "Running suite: $TEST_SUITE_NAME"
     ./UnitTestPostGis initfiletest=$TEST_POSTGIS >& $TEST_LOG_PATH/PostGis_unit_test_log.txt
-    check_for_errors $? "PostGis unit test returned an error, please check Odbc_unit_test_log.txt for more information" "0"
+    check_for_errors $? "PostGis unit test returned an error, please check $TEST_LOG_PATH/PostGis_unit_test_log.txt for more information" "0"
     popd >& /dev/null
 fi
 
@@ -156,7 +156,7 @@ then
     TEST_SUITE_NAME="MySQL"
     echo "Running suite: $TEST_SUITE_NAME"
     ./UnitTestMySql initfiletest=$TEST_MYSQL >& $TEST_LOG_PATH/MySql_unit_test_log.txt
-    check_for_errors $? "MySql unit test returned an error, please check MySql_unit_test_log.txt for more information" "0"
+    check_for_errors $? "MySql unit test returned an error, please check $TEST_LOG_PATH/MySql_unit_test_log.txt for more information" "0"
     popd >& /dev/null
 fi
 
@@ -166,7 +166,7 @@ then
     TEST_SUITE_NAME="King Oracle"
     echo "Running suite: $TEST_SUITE_NAME"
     ./UnitTest >& $TEST_LOG_PATH/Oracle_unit_test_log.txt
-    check_for_errors $? "Oracle unit test returned an error, please check Oracle_unit_test_log.txt for more information" "0"
+    check_for_errors $? "Oracle unit test returned an error, please check $TEST_LOG_PATH/Oracle_unit_test_log.txt for more information" "0"
     popd >& /dev/null
 fi
 
@@ -178,7 +178,7 @@ TEST_SUITE_NAME="GDAL"
 rm providers.xml # Having this local copy sadly doesn't work, so remove it
 echo "Running suite: $TEST_SUITE_NAME"
 ./UnitTest >& $TEST_LOG_PATH/GDAL_unit_test_log.txt
-check_for_errors $? "GDAL unit test returned an error, please check GDAL_unit_test_log.txt for more information" "0"
+check_for_errors $? "GDAL unit test returned an error, please check $TEST_LOG_PATH/GDAL_unit_test_log.txt for more information" "0"
 popd >& /dev/null
 
 pushd Providers/SHP/Src/UnitTest >& /dev/null
@@ -186,7 +186,7 @@ TEST_SUITE_NAME="SHP"
 rm providers.xml # Having this local copy sadly doesn't work, so remove it
 echo "Running suite: $TEST_SUITE_NAME"
 ./UnitTest >& $TEST_LOG_PATH/Shp_unit_test_log.txt
-check_for_errors $? "Shp unit test returned an error, please check Shp_unit_test_log.txt for more information" "0"
+check_for_errors $? "Shp unit test returned an error, please check $TEST_LOG_PATH/Shp_unit_test_log.txt for more information" "0"
 popd >& /dev/null
 
 echo "End unit tests..."
