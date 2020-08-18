@@ -4,7 +4,7 @@ DISTRO_VER=$2
 #DISTRO_NOVER=centos
 #DISTRO_VER=7
 DISTRO=${DISTRO_NOVER}${DISTRO_VER}
-INSTALLER_LABEL="MapGuide Open Source 4.0 Preview 1"
+INSTALLER_LABEL="MapGuide Open Source 4.0 Preview 2"
 . ./fdo_version.sh
 . ./mapguide_version.sh
 echo "Prepare installer staging area"
