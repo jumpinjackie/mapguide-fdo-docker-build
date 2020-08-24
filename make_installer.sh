@@ -13,7 +13,13 @@ mkdir -p staging/mapguideopensource-${MG_VER_TRIPLE}
 echo "Extract tarball contents to staging area"
 tar -zxf artifacts/fdosdk-${FDO_VER}-${DISTRO}-amd64.tar.gz -C staging/fdo-${FDO_VER_TRIPLE}
 tar -zxf artifacts/mapguideopensource-${MG_VER}-${DISTRO}-amd64.tar.gz -C staging/mapguideopensource-${MG_VER_TRIPLE}
-cp templates/distros/${DISTRO_NOVER}/install.sh staging/
+if [ -f "templates/distros/${DISTRO_NOVER}/install_$DISTRO.sh" ];
+then
+    echo "Copying distro override install script"
+    cp "templates/distros/${DISTRO_NOVER}/install_$DISTRO.sh" staging/
+else
+    cp "templates/distros/${DISTRO_NOVER}/install.sh" staging/
+fi
 chmod +x staging/install.sh
 echo "Create self-extracting archive"
 ~/makeself/makeself.sh --quiet --needroot --nochown --keep-umask --sha256 staging/ mapguideopensource-${MG_VER}-${DISTRO}-install.run "${INSTALLER_LABEL}" ./install.sh
