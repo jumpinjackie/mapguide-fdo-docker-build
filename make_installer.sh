@@ -16,7 +16,7 @@ tar -zxf artifacts/mapguideopensource-${MG_VER}-${DISTRO}-amd64.tar.gz -C stagin
 if [ -f "templates/distros/${DISTRO_NOVER}/install_$DISTRO.sh" ];
 then
     echo "Copying distro override install script"
-    cp "templates/distros/${DISTRO_NOVER}/install_$DISTRO.sh" staging/
+    cp "templates/distros/${DISTRO_NOVER}/install_$DISTRO.sh" staging/install.sh
 else
     cp "templates/distros/${DISTRO_NOVER}/install.sh" staging/
 fi

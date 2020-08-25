@@ -160,11 +160,7 @@ done
 echo "[install]: Checking for pre-requisite packages"
 if [ "$HEADLESS" != "1" ]
 then
-    command -v dialog
-    if [ "${?}" -ne 0 ]; then
-        echo "dialog is not installed. This is required for the text-based interactive installer UI. Please install dialog with your system package manager"
-        exit 1
-    fi 
+    yum install -y dialog
 fi
 
 DIALOG=${DIALOG=dialog}
@@ -340,7 +336,7 @@ dialog_coordsys()
 
 install_prerequisites()
 {
-    :
+    yum install -y initscripts redhat-lsb-core libxslt libxml2
 }
 
 install_fdo()
