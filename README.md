@@ -29,11 +29,10 @@ Suppose you want to build MapGuide/FDO for Ubuntu 14.04 (64-bit)
 This will generate a series of `Dockerfile` and `snap.sh` build scripts in:
 
  * `docker/x64/fdo/ubuntu14/build`
- * `docker/x64/fdo/ubuntu14/develop`
+ * `docker/x64/fdo/ubuntu14/develop_thin`
  * `docker/x64/fdo/ubuntu14/run`
- * `docker/x64/fdo/ubuntu14/test`
  * `docker/x64/mapguide/ubuntu14/build`
- * `docker/x64/mapguide/ubuntu14/develop`
+ * `docker/x64/mapguide/ubuntu14/develop_thin`
  * `docker/x64/mapguide/ubuntu14/run`
 
 The `--distro` and `--tag` parameters are composed into the base docker image from which our target environment is built on top of, so in the above example, our docker environment will ultimately be based from the `ubuntu:14.04` docker base image
@@ -45,7 +44,7 @@ A convenience `env_setup_all.sh` is provided that sets up the docker environment
 Assuming you set up the target environment for Ubuntu 14.04 (64-bit), then to build FDO, run:
 
 ```
-docker/x64/fdo/ubuntu14/build/snap.sh
+./build_thin.sh --target fdo --distro ubuntu --tag 14 --cpu x64
 ```
 
 Once FDO is built, the tarballs will be copied to the top-level `artifacts` folder.
@@ -53,26 +52,26 @@ Once FDO is built, the tarballs will be copied to the top-level `artifacts` fold
 To build MapGuide, run:
 
 ```
-docker/x64/mapguide/ubuntu14/build/snap.sh
+./build_thin.sh --target mapguide --distro ubuntu --tag 14 --cpu x64
 ```
 
 NOTE: You must build FDO first (and its SDK tarball present in `artifacts`) before you can build MapGuide.
 
+A convenience `build_all_thin.sh` is provided that will build MapGuide/FDO for all supported distros
+
+All MapGuide/FDO build containers are "thin" in the sense that source code and compiler output is not added to these docker images, only the development tools and libraries are added to the image. Source code and compiler output are read and written to directories referenced outside from the docker host via mounted volumes.
+
+ * `/build_area` is the root of all intermediate compiler output
+ * `/fdo` is the `svn` checkout of FDO trunk
+ * `/mapguide` is the `svn` checkout of MapGuide trunk
+
+All MapGuide/FDO build containers also leverage the use of `ccache` to store their compilation output to a volume mounted ccache cache directory (the `/caches` sub-directory in this repo)
+
+These 2 combined, result in a build pipeline that is very fast for builds after the first build, allowing for a rapid developer/iteration inner-loop.
+
 ## 4. Running test suites
 
-Assuming you set up the target environment for Ubuntu 14.04 (64-bit), then to build FDO, run:
-
-```
-docker/x64/fdo/ubuntu14/test/snap.sh
-```
-
-This will run all the unit test runner executables within the build image (and build/run this base image first if it doesn't exist) and copies all test logs out to the top-level `logs` folder.
-
-If you know the base build image already exists (and don't want to waste time (re-)building a base image that's already there), you can run:
-
-```
-docker/x64/fdo/ubuntu14/test/snap.sh --skip-base-image-build
-```
+TBD
 
 # Supported build environments
 
@@ -91,7 +90,7 @@ docker/x64/fdo/ubuntu14/test/snap.sh --skip-base-image-build
 
 # Known issues
 
-MapGuide will not fully build on Ubuntu 18.04 due to our bundled version of PHP (5.6) requiring OpenSSL <= 1.1.0, which is not not possible on this distro
+MapGuide will not fully build on Ubuntu 18.04 (and likely newer versions) due to our bundled version of PHP (5.6) requiring OpenSSL <= 1.1.0, which is not not possible on this distro
 
  * Ubuntu 18.04 provides OpenSSL 1.1.0
  * Ubuntu 18.04 also provides OpenSSL 1.0, but this cannot be installed side-by-side with the default 1.1.0 package. The 1.1.0 package is also a dependency of several build packages.
