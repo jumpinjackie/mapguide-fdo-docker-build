@@ -39,4 +39,7 @@ BUILD_DISTRO=centos7
 check_build
 ./build_thin.sh --target mapguide --distro centos --tag 7 --cpu x64 2>&1 | tee logs/mapguide_thin_centos7.log
 check_build
+BUILD_DISTRO=generic
+./build_thin.sh --target mapguide --distro generic --cpu x64 2>&1 | tee logs/mapguide_thin_generic.log
+check_build
 docker system prune

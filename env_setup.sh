@@ -40,48 +40,6 @@ EOF
     echo "Wrote: $path/Dockerfile" | indent
 }
 
-write_fdo_develop()
-{
-    path=$1
-    distro_label=$2
-    cpu=$3
-    distro=$4
-
-    if [ -f "templates/distros/$distro/cmd_prepare_fdo_develop_${distro_label}.txt" ]; then
-        echo ">>> Using ${distro_label} args override for prepare_fdo_develop" | indent
-        prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_fdo_develop_${distro_label}.txt")
-    else
-        prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_fdo_develop.txt")
-    fi
-
-    cat > $path/Dockerfile <<EOF
-# This dockerfile makes a snapshot of the development environment
-FROM fdo_${distro_label}_run_${cpu}
-
-# Install build dependencies
-RUN ${prepare_cmd}
-
-# Include the Oracle Instant Client SDK
-COPY sdks/oracle/${cpu}/instantclient_11_2 /opt/oracle/instantclient_11_2
-
-# include the code
-COPY fdo/ /usr/local/src/fdo
-
-# include our last collected cache
-COPY caches/${cpu}/fdo/${distro_label}/.ccache /root/.ccache
-
-# remove intermediate files (to ensure a clean build later)
-RUN rm -rf /usr/local/src/fdo/build
-
-# since fdo is a submodule on the local machine
-# git relocated .git/ to the parent repo, un-submodule it in the image
-RUN rm /usr/local/src/fdo/.git
-COPY .git/modules/fdo /usr/local/src/fdo/.git/
-EOF
-
-    echo "Wrote: $path/Dockerfile" | indent
-}
-
 write_fdo_develop_thin()
 {
     path=$1
@@ -213,11 +171,6 @@ build_fdo_env()
     write_fdo_run $current_path $distro $tag $distro_label
     cp -f templates/scripts/fdo/snap_run.sh $current_path/snap.sh
 
-    current_path="${path_base}/develop"
-    mkdir -p $current_path
-    write_fdo_develop $current_path $distro_label $cpu $distro
-    cp -f templates/scripts/fdo/snap_develop.sh $current_path/snap.sh
-
     current_path="${path_base}/develop_thin"
     mkdir -p $current_path
     write_fdo_develop_thin $current_path $distro_label $cpu $distro
@@ -255,45 +208,6 @@ FROM ${distro}:${tag}
 
 # Be sure to install any runtime dependencies
 RUN ${prepare_cmd}
-EOF
-
-    echo "Wrote: $path/Dockerfile" | indent
-}
-
-write_mapguide_develop()
-{
-    path=$1
-    distro_label=$2
-    cpu=$3
-    distro=$4
-
-    if [ -f "templates/distros/$distro/cmd_prepare_mapguide_develop_${distro_label}.txt" ]; then
-        echo ">>> Using ${distro_label} args override for prepare_mapguide_develop" | indent
-        prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_mapguide_develop_${distro_label}.txt")
-    else
-        prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_mapguide_develop.txt")
-    fi
-
-    cat > $path/Dockerfile <<EOF
-# This dockerfile makes a snapshot of the development environment
-FROM mapguide_${distro_label}_run_${cpu}
-
-# Install build dependencies
-RUN ${prepare_cmd}
-
-# include the code
-COPY mapguide/ /usr/local/src/mapguide
-
-# include our last collected cache
-COPY caches/${cpu}/mapguide/${distro_label}/.ccache /root/.ccache
-
-# remove intermediate files (to ensure a clean build later)
-RUN rm -rf /usr/local/src/mapguide/build
-
-# since mapguide is a submodule on the local machine
-# git relocated .git/ to the parent repo, un-submodule it in the image
-RUN rm /usr/local/src/mapguide/.git
-COPY .git/modules/mapguide /usr/local/src/mapguide/.git/
 EOF
 
     echo "Wrote: $path/Dockerfile" | indent
@@ -427,6 +341,7 @@ build_mapguide_env()
     distro=$1
     cpu=$2
     tag=$3
+    generic=$4
 
     if [ ! -d "templates/distros/$distro" ]; then
         echo "No template confiugrations found for $distro"
@@ -437,13 +352,19 @@ build_mapguide_env()
     echo "Distro: $distro" | indent
     echo "CPU: $cpu" | indent
     echo "Docker base image tag: $tag" | indent
+    echo "Designate as generic?: $generic" | indent
 
     ver_major=$(echo $tag | cut -d. -f1)
     distro_label="${distro}${ver_major}"
 
     echo "Distro label will be: $distro_label" | indent
 
-    path_base="docker/${cpu}/mapguide/${distro_label}"
+    if [ $generic -eq 1 ]; then
+        path_base="docker/${cpu}/mapguide/generic"
+    else
+        path_base="docker/${cpu}/mapguide/${distro_label}"
+    fi
+
     echo "Base path for environment is: $path_base" | indent
 
     mkdir -p "caches/${cpu}/mapguide/${distro_label}/.ccache"
@@ -453,19 +374,22 @@ build_mapguide_env()
     write_mapguide_run $current_path $distro $tag $distro_label
     cp -f templates/scripts/mapguide/snap_run.sh $current_path/snap.sh
 
-    current_path="${path_base}/develop"
-    mkdir -p $current_path
-    write_mapguide_develop $current_path $distro_label $cpu $distro
-    cp -f templates/scripts/mapguide/snap_develop.sh $current_path/snap.sh
-
     current_path="${path_base}/develop_thin"
     mkdir -p $current_path
-    write_mapguide_develop_thin $current_path $distro_label $cpu $distro
+    if [ $generic -eq 1 ]; then
+        write_mapguide_develop_thin $current_path "generic" $cpu $distro
+    else
+        write_mapguide_develop_thin $current_path $distro_label $cpu $distro
+    fi
     cp -f templates/scripts/mapguide/snap_develop_thin.sh $current_path/snap.sh
 
     current_path="${path_base}/build"
     mkdir -p $current_path
-    write_mapguide_build $current_path $distro_label $cpu $distro
+    if [ $generic -eq 1 ]; then
+        write_mapguide_build $current_path "generic" $cpu $distro
+    else
+        write_mapguide_build $current_path $distro_label $cpu $distro
+    fi
     cp -f templates/scripts/mapguide/snap_build.sh $current_path/snap.sh
     cp -f templates/scripts/mapguide/strip_mapguide_binaries.sh $current_path/strip_mapguide_binaries.sh
 
@@ -486,6 +410,7 @@ TARGET=fdo
 DISTRO=ubuntu
 CPU=x64
 TAG=14.04
+GENERIC=0
 while [ $# -gt 0 ]; do    # Until you run out of parameters...
     case "$1" in
         --target)
@@ -504,6 +429,9 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             CPU="$2"
             shift
             ;;
+        --generic)
+            GENERIC=1
+            ;;
         --help)
             echo "Usage: $0 (options)"
             echo "Options:"
@@ -511,6 +439,7 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             echo "  --distro [the distro you are targeting, ubuntu|centos]"
             echo "  --tag [the version tag]"
             echo "  --cpu [x86|x64]"
+            echo "  --generic (Designate this image as the generic linux image. MapGuide-only)"
             echo "  --help [Display usage]"
             exit
             ;;
@@ -523,7 +452,7 @@ case "$TARGET" in
         build_fdo_env $DISTRO $CPU $TAG
         ;;
     mapguide)
-        build_mapguide_env $DISTRO $CPU $TAG
+        build_mapguide_env $DISTRO $CPU $TAG $GENERIC
         ;;
     *)
         echo "Unknown target: $TARGET"
