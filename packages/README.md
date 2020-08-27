@@ -1,0 +1,1 @@
+Drop any MapGuide package files here

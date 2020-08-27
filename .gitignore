@@ -6,6 +6,7 @@ fdo/
 sdks/oracle
 staging/*
 artifacts/*
+packages/*.mgp
 !artifacts/README.md
 caches/*
 !caches/README.md
