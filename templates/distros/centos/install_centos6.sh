@@ -611,12 +611,13 @@ post_install()
 
     echo "[config]: Ensuring key directories exist"
     mkdir -p ${MG_INST}/webserverextensions/apache2/logs
-    mkdir -p ${MG_INST}/webserverextensions/www/TempDir
+    mkdir -p ${MG_INST}/webserverextensions/Temp
     mkdir -p ${MG_INST}/webserverextensions/www/fusion/lib/tcpdf/cache
 
     echo "[config]: Fixing permissions for certain folders"
-    chmod 777 ${MG_INST}/webserverextensions/www/TempDir
+    chmod 770 ${MG_INST}/webserverextensions/Temp
     # daemon is the default user/group the bundled httpd will use
+    chown daemon:daemon ${MG_INST}/webserverextensions/Temp
     chown daemon:daemon ${MG_INST}/webserverextensions/www/fusion/lib/tcpdf/cache
 
     if [ "$HEADLESS" = "1" ] && [ "$NO_SERVICE_INSTALL" = "1" ];
