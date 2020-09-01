@@ -4,6 +4,7 @@ logs
 mapguide/
 fdo/
 sdks/oracle
+sdks/mysql
 staging/*
 artifacts/*
 packages/*.mgp
