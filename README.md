@@ -88,6 +88,30 @@ TBD
 |fdo     |centos|7    | Y | N |
 |fdo     |centos|6    | Y | N |
 
+# FDO Thirdparty matrix
+
+> On Windows, all internal thirdparty libraries are used
+
+| Distro   | GDAL             | OpenSSL         | libcurl         | mysqlclient | mariadbclient   | libpq           | xalan-c          | xerces-c          |
+|----------|------------------|-----------------|-----------------|-------------|-----------------|-----------------|------------------|-------------------|
+| centos6  | Internal/dynamic | Internal/static | Internal/static | N/A         | Internal/static | Internal/static | Internal/dynamic | Internal/dynamic |
+| centos7  | System (EPEL)    | System          | System          | System      | N/A             | System          | System           | System            |
+| ubuntu14 | System           | System          | System          | System      | N/A             | System          | System           | System            |
+| ubuntu16 | System           | System          | System          | System      | N/A             | System          | System           | System            |
+| ubuntu18 | System           | System          | System          | System      | N/A             | System          | System           | System            |
+
+# MapGuide Thirdparty matrix
+
+> On Windows, all internal thirdparty libraries are used
+
+| Distro   | ACE              | dbxml            | berkely db       | xqilla           | geos            | gd              | libpng          | freetype        | libjpeg         | zlib            | xerces-c         |
+|----------|------------------|------------------|------------------|------------------|-----------------|-----------------|-----------------|-----------------|-----------------|-----------------|------------------|
+| centos6  | Internal/dynamic | Internal/dynamic | Internal/dynamic | Internal/dynamic | Internal/static | Internal/static | Internal/static | Internal/static | Internal/static | Internal/static | Internal/dynamic |
+| centos7  | Internal/dynamic | Internal/dynamic | Internal/dynamic | Internal/dynamic | System          | System          | System          | System          | System          | System          | System           |
+| ubuntu14 | System           | Internal/dynamic | Internal/dynamic | Internal/dynamic | System          | System          | System          | System          | System          | System          | System           |
+| ubuntu16 | System           | Internal/dynamic | Internal/dynamic | Internal/dynamic | System          | System          | System          | System          | System          | System          | System           |
+| ubuntu18 | System           | Internal/dynamic | Internal/dynamic | Internal/dynamic | System          | System          | System          | System          | System          | System          | System           |
+
 # Known issues
 
 MapGuide will not fully build on Ubuntu 18.04 (and likely newer versions) due to our bundled version of PHP (5.6) requiring OpenSSL <= 1.1.0, which is not not possible on this distro
