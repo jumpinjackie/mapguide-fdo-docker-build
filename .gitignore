@@ -5,6 +5,7 @@ mapguide/
 fdo/
 sdks/oracle
 sdks/mysql*
+sdks/postgresql*
 staging/*
 artifacts/*
 packages/*.mgp
