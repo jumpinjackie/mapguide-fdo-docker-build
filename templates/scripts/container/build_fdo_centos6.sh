@@ -14,14 +14,28 @@ SDKS_DIR=/tmp/work/sdks
 # Centos 6 special
 . scl_source enable devtoolset-7
 cd $SRC_DIR || exit
-# For Centos 6, we're building all internal thirdparty libs
-./cmake_bootstrap.sh --working-dir $THIRDPARTY_BUILD_DIR --all-internal --build 64 --with-ccache
 # For CentOS-based distros, we build against MySQL/PostgreSQL in /sdks
 # Setting MYSQL_DIR is enough for FindMySQL.cmake to pick it up
 export ORACLE_SDK_HOME=$SDKS_DIR/oracle/x64/instantclient_12_2/sdk
 PG_BUILD_ROOT=/tmp/work/build_area/pgbuild
 MARIADB_BUILD_ROOT=/tmp/work/build_area/mariadb
+ZLIB_BUILD_ROOT=/tmp/work/build_area/zlib
 OPENSSL_LOCAL_DIR=/tmp/work/build_area/fdo_thirdparty/Thirdparty/openssl/_install
+# Build zlib if required
+if [ ! -f /usr/local/lib/libz.a ]; then
+    if [ ! -d $ZLIB_BUILD_ROOT ]; then
+        mkdir -p $ZLIB_BUILD_ROOT
+        echo "Extracting zlib tarball"
+        tar -zxf $SDKS_DIR/zlib-1.2.11.tar.gz -C $ZLIB_BUILD_ROOT
+    fi
+    cd $ZLIB_BUILD_ROOT/zlib-1.2.11 || exit
+    # zlib doesn't add the -fPIC flag by default so we have to CFLAGS hack it in
+    CFLAGS="-fPIC -O3" ./configure --static
+    make && make install
+fi
+# For Centos 6, we're building all internal thirdparty libs
+cd $SRC_DIR || exit
+./cmake_bootstrap.sh --working-dir $THIRDPARTY_BUILD_DIR --all-internal --build 64 --with-ccache
 # Build MariaDB client if required
 if [ ! -f /usr/local/lib/mariadb/libmariadbclient.a ]; then
     if [ ! -d $MARIADB_BUILD_ROOT ]; then
