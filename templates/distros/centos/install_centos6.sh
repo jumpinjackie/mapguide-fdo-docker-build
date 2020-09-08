@@ -437,7 +437,7 @@ install_fdo()
             echo "    <IsManaged>False</IsManaged>" >> ${providersxml}
             echo "    <Version>${FDOVER_MAJOR_MINOR_REV}.0</Version>" >> ${providersxml}
             echo "    <FeatureDataObjectsVersion>${FDOVER_MAJOR_MINOR_REV}.0</FeatureDataObjectsVersion>" >> ${providersxml}
-            echo "    <LibraryPath>libFdoODBC.so</LibraryPath>" >> ${providersxml}
+            echo "    <LibraryPath>libODBCProvider.so</LibraryPath>" >> ${providersxml}
             echo "  </FeatureProvider>" >> ${providersxml}
             echo "Registering PostgreSQL Provider"
             echo "  <FeatureProvider>" >> ${providersxml}
@@ -447,7 +447,7 @@ install_fdo()
             echo "    <IsManaged>False</IsManaged>" >> ${providersxml}
             echo "    <Version>${FDOVER_MAJOR_MINOR_REV}.0</Version>" >> ${providersxml}
             echo "    <FeatureDataObjectsVersion>${FDOVER_MAJOR_MINOR_REV}.0</FeatureDataObjectsVersion>" >> ${providersxml}
-            echo "    <LibraryPath>libFdoPostgreSQL.so</LibraryPath>" >> ${providersxml}
+            echo "    <LibraryPath>libPostgreSQLProvider.so</LibraryPath>" >> ${providersxml}
             echo "  </FeatureProvider>" >> ${providersxml}
             echo "Registering MySQL Provider"
             echo "  <FeatureProvider>" >> ${providersxml}
@@ -457,7 +457,7 @@ install_fdo()
             echo "    <IsManaged>False</IsManaged>" >> ${providersxml}
             echo "    <Version>${FDOVER_MAJOR_MINOR_REV}.0</Version>" >> ${providersxml}
             echo "    <FeatureDataObjectsVersion>${FDOVER_MAJOR_MINOR_REV}.0</FeatureDataObjectsVersion>" >> ${providersxml}
-            echo "    <LibraryPath>libFdoMySQL.so</LibraryPath>" >> ${providersxml}
+            echo "    <LibraryPath>libMySQLProvider.so</LibraryPath>" >> ${providersxml}
             echo "  </FeatureProvider>" >> ${providersxml}
             rdbms_registered=1
             ;;
