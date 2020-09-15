@@ -3,9 +3,7 @@ yum install -y wget centos-release-scl \
 && rpm -ivh epel-release-6-8.noarch.rpm  \
 && yum repolist \
 && yum update -y \
-&& yum install -y redhat-lsb-core ccache devtoolset-7 libtool bison bzip2 curl-devel unixODBC-devel \ 
-openssl-devel mysql-devel postgresql-devel libxslt-devel libxml2-devel cmake java-1.6.0-openjdk-devel \
-ant zlib-devel scons pcre-devel expat-devel \
+&& yum install -y redhat-lsb-core ccache devtoolset-7 libtool bison bzip2 cmake ant scons \
 && wget https://github.com/ninja-build/ninja/releases/download/v1.8.2/ninja-linux.zip \
 && unzip ninja-linux.zip -d /usr/bin \
 && ln -s /usr/bin/ninja /usr/bin/ninja-build
