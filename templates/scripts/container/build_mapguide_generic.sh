@@ -15,6 +15,7 @@ OEM_BUILD_DIR=/tmp/work/build_area/oem
 BUILD_DIR=/tmp/work/build_area/mapguide
 SRC_DIR=/tmp/work/src
 ARTIFACTS_DIR=/tmp/work/artifacts
+MG_VER=${MG_VER_TRIPLE}.${MG_VER_REV}
 
 echo "Building MapGuide Common Libs ${MG_VER_TRIPLE} (v${MG_VER})"
 

@@ -17,6 +17,7 @@ BUILD_DIR=/tmp/work/build_area/mapguide
 SRC_DIR=/tmp/work/src
 ARTIFACTS_DIR=/tmp/work/artifacts
 PATCHES_DIR=/tmp/work/patches
+MG_VER=${MG_VER_TRIPLE}.${MG_VER_REV}
 
 echo "Building MapGuide ${MG_VER_TRIPLE} (v${MG_VER})"
 echo "Using FDO SDK at: ${ARTIFACTS_DIR}/${FDOSDK}"
@@ -48,6 +49,18 @@ check_build
 cd $BUILD_DIR || exit
 cmake --build . --target install
 check_build
+case "$MG_DISTRO" in
+    *ubuntu*)
+        echo "Generating deb packages"
+        cd $SRC_DIR || exit
+        ./cmake_package.sh --format deb --working-dir $BUILD_DIR/mg_deb --output-dir $ARTIFACTS_DIR/$MG_DISTRO --build-number "$MG_VER_REV"
+        ;;
+#    *centos*)
+#        echo "Generating rpm packages"
+#        cd $SRC_DIR || exit
+#        ./cmake_package.sh --format rpm --working-dir $BUILD_DIR/mg_rpm --output-dir $ARTIFACTS_DIR/$MG_DISTRO --build-number "$MG_VER_REV"
+#        ;;
+esac
 cd /usr/local/mapguideopensource-${MG_VER_TRIPLE} || exit
 tar -zcf $ARTIFACTS_DIR/mapguideopensource-$MG_VER-$MG_DISTRO-amd64.tar.gz *
 check_build

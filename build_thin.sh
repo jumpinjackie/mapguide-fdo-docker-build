@@ -114,15 +114,15 @@ build_mapguide_thin()
 
         container_root="/tmp/work"
         if [ "$INTERACTIVE" == "1" ]; then
-            docker run --rm -it -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER=$MG_VER -e MG_VER_TRIPLE=$MG_VER_TRIPLE -e FDOSDK=$fdosdk -v $patches_dir:$container_root/patches -v $ccache_dir:/root/.ccache -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts $container_name /bin/bash
+            docker run --rm -it -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER_REV=$MG_VER_REV -e MG_VER_TRIPLE=$MG_VER_TRIPLE -e FDOSDK=$fdosdk -v $patches_dir:$container_root/patches -v $ccache_dir:/root/.ccache -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts $container_name /bin/bash
         else
             # If a distro-specific override build script exists, use that instead
             if [ -f "${scripts_dir}/build_mapguide_${distro_label}.sh" ]; then
                 echo "Building with override build_mapguide_${distro_label}.sh"
-                docker run --rm -it -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER=$MG_VER -e MG_VER_TRIPLE=$MG_VER_TRIPLE -e FDOSDK=$fdosdk -v $patches_dir:$container_root/patches -v $ccache_dir:/root/.ccache -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts $container_name $container_root/scripts/build_mapguide_${distro_label}.sh
+                docker run --rm -it -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER_REV=$MG_VER_REV -e MG_VER_TRIPLE=$MG_VER_TRIPLE -e FDOSDK=$fdosdk -v $patches_dir:$container_root/patches -v $ccache_dir:/root/.ccache -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts $container_name $container_root/scripts/build_mapguide_${distro_label}.sh
             else
                 echo "Building with standard container build script"
-                docker run --rm -it -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER=$MG_VER -e MG_VER_TRIPLE=$MG_VER_TRIPLE -e FDOSDK=$fdosdk -v $patches_dir:$container_root/patches -v $ccache_dir:/root/.ccache -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts $container_name $container_root/scripts/build_mapguide.sh
+                docker run --rm -it -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER_REV=$MG_VER_REV -e MG_VER_TRIPLE=$MG_VER_TRIPLE -e FDOSDK=$fdosdk -v $patches_dir:$container_root/patches -v $ccache_dir:/root/.ccache -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts $container_name $container_root/scripts/build_mapguide.sh
             fi
         fi
     fi

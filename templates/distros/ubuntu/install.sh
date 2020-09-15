@@ -161,11 +161,6 @@ echo "[install]: Installing pre-requisite packages"
 if [ "$HEADLESS" != "1" ]
 then
     apt-get install -y dialog
-# Install required packages
-#apt-get -y -q install openjdk-7-jre libxml2 dialog libexpat1 libssl1.0.0 odbcinst unixodbc libcurl3 libxslt1.1 libmysqlclient18 libpq5
-#else
-# Install required packages 
-#apt-get -y -q install openjdk-7-jre libxml2 libexpat1 libssl1.0.0 odbcinst unixodbc libcurl3 libxslt1.1 libmysqlclient18 libpq5
 fi
 
 DIALOG=${DIALOG=dialog}
@@ -341,10 +336,12 @@ dialog_coordsys()
 
 install_prerequisites()
 {
-    # TODO: We should be able to compute this list from the output of dpkg-shlibdeps
-    apt-get install -y default-jre libpng12-0 libjpeg62 libxslt1.1 libfreetype6 \
-libpcre3 libldap-2.4-2 libssl1.0.0 libcurl3 libexpat1 libmysqlclient20 unixodbc \
-libpq5 libxalan-c111 libxerces-c3.1 libgdal1i libjsoncpp1 libgd3 libace-6.3.3 libgeos-3.5.0
+    # Only need to check for JRE. All other deps are already embedded in their respective deb package files
+    if [ ${HAVE_TOMCAT} = "1" ]; then
+        apt-get install -y default-jre
+    fi
+    # FIXME: Why did dpkg-shlibdeps not pick up libxslt1.1 as a required dependency of mapguideopensource-httpd???
+    apt-get install -y libxslt1.1
 }
 
 install_fdo()
@@ -361,18 +358,15 @@ install_fdo()
     wfs_registered=0
     wms_registered=0
 
-    # Include core and rdbms packages regardless of choice.
-    # fdo_provider_choice="core rdbms $fdo_provider_choice"
-    # Download and install Ubuntu packages for FDO
-    # for file in $fdo_provider_choice
-    # do
-    #     download_file="${TEMPDIR}/fdo-${file}_${FDOVER}.deb"
-    #     wget -N -O "${download_file}" "${URL}/fdo-${file}_${FDOVER}.deb"
-    #     dpkg -E -G --install "${download_file}"
-    # done
-
-    # Copy FDO directory from installer staging area
-    cp -R fdo-${FDOVER_MAJOR_MINOR_REV} ${FDO_INST}
+    # Include core package regardless of choice.
+    fdo_provider_choice="core $fdo_provider_choice"
+    for file in $fdo_provider_choice
+    do
+        # HACK-ish: The installer script doesn't know about the build number that is baked into these
+        # deb packages so we can't locate the exact package to apt-get install, but we can find it using 
+        # an identifier that should already be unique enough
+        find . -type f | grep "fdo-${file}" | xargs apt-get install -y
+    done
 
     # Nuke the old providers.xml, we're rebuiding it
     providersxml=${FDO_INST}/lib64/providers.xml
@@ -578,19 +572,14 @@ install_fdo()
 
 install_mapguide_packages()
 {
-    # Download Ubuntu packages for MapGuide
-    # mapguide_packages="platformbase coordsys common server webextensions httpd"
-    # if [ "$csmap_choice" = "lite" ]; then
-    #     mapguide_packages="platformbase coordsys-lite common server webextensions httpd"
-    # fi
-    # for file in $mapguide_packages
-    # do
-    #     download_file="${TEMPDIR}/mapguideopensource-${file}_${MGVER}.deb"
-    #     wget -N -O "${download_file}" "${URL}/mapguideopensource-${file}_${MGVER}.deb"
-    #     dpkg -E -G --install "${download_file}"
-    # done
-
-    cp -R mapguideopensource-${MGVER_MAJOR_MINOR_REV} ${MG_INST}
+    mapguide_packages="coordsys common server webextensions httpd"
+    for file in $mapguide_packages
+    do
+        # HACK-ish: The installer script doesn't know about the build number that is baked into these
+        # deb packages so we can't locate the exact package to apt-get install, but we can find it using 
+        # an identifier that should already be unique enough
+        find . -type f | grep "mapguideopensource-${file}" | xargs apt-get install -y
+    done
 }
 
 post_install()

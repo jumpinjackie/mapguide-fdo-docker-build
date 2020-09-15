@@ -8,11 +8,20 @@ INSTALLER_LABEL="MapGuide Open Source 4.0 Preview 2"
 . ./fdo_version.sh
 . ./mapguide_version.sh
 echo "Prepare installer staging area (${DISTRO})"
-mkdir -p staging/fdo-${FDO_VER_TRIPLE}
-mkdir -p staging/mapguideopensource-${MG_VER_TRIPLE}
-echo "Extract tarball contents to staging area"
-tar -zxf artifacts/fdosdk-${FDO_VER}-${DISTRO}-amd64.tar.gz -C staging/fdo-${FDO_VER_TRIPLE}
-tar -zxf artifacts/mapguideopensource-${MG_VER}-${DISTRO}-amd64.tar.gz -C staging/mapguideopensource-${MG_VER_TRIPLE}
+case "$DISTRO" in
+    *ubuntu*)
+        mkdir -p staging
+        echo "Load deb packages into staging area"
+        cp artifacts/${DISTRO}/*.deb staging
+        ;;
+    *)
+        mkdir -p staging/fdo-${FDO_VER_TRIPLE}
+        mkdir -p staging/mapguideopensource-${MG_VER_TRIPLE}
+        echo "Extract tarball contents to staging area"
+        tar -zxf artifacts/fdosdk-${FDO_VER}-${DISTRO}-amd64.tar.gz -C staging/fdo-${FDO_VER_TRIPLE}
+        tar -zxf artifacts/mapguideopensource-${MG_VER}-${DISTRO}-amd64.tar.gz -C staging/mapguideopensource-${MG_VER_TRIPLE}
+        ;;
+esac
 if [ -f "templates/distros/${DISTRO_NOVER}/install_$DISTRO.sh" ];
 then
     echo "Copying distro override install script"

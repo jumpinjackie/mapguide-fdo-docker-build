@@ -26,16 +26,16 @@ case "$FDO_DISTRO" in
         cd $BUILD_DIR || exit
         cmake --build . --target install
         cd $SRC_DIR || exit
-        ./cmake_package.sh --format deb --working-dir $BUILD_DIR/fdo_deb --output-dir $ARTIFACTS_DIR/$FDO_DISTRO --filelist-dir $BUILD_DIR/filelists --oracle-lib-dir ${ORACLE_SDK_HOME}/lib
+        ./cmake_package.sh --format deb --working-dir $BUILD_DIR/fdo_deb --output-dir $ARTIFACTS_DIR/$FDO_DISTRO --filelist-dir $BUILD_DIR/filelists --oracle-lib-dir ${ORACLE_SDK_HOME}/lib --build-number "$FDO_VER_REV"
         ;;
-    *centos*)
-        echo "Generating rpm packages"
-        # Run root install target so we can package its contents
-        cd $BUILD_DIR || exit
-        cmake --build . --target install
-        cd $SRC_DIR || exit
-        ./cmake_package.sh --format rpm --working-dir $BUILD_DIR/fdo_rpm --output-dir $ARTIFACTS_DIR/$FDO_DISTRO --filelist-dir $BUILD_DIR/filelists --oracle-lib-dir ${ORACLE_SDK_HOME}/lib
-        ;;
+#    *centos*)
+#        echo "Generating rpm packages"
+#        # Run root install target so we can package its contents
+#        cd $BUILD_DIR || exit
+#        cmake --build . --target install
+#        cd $SRC_DIR || exit
+#        ./cmake_package.sh --format rpm --working-dir $BUILD_DIR/fdo_rpm --output-dir $ARTIFACTS_DIR/$FDO_DISTRO --filelist-dir $BUILD_DIR/filelists --oracle-lib-dir ${ORACLE_SDK_HOME}/lib --build-number "$FDO_VER_REV"
+#        ;;
 esac
 
 # Now fall back to default CMake tarball packaging

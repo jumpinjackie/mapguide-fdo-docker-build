@@ -17,6 +17,7 @@ BUILD_DIR=/tmp/work/build_area/mapguide
 SRC_DIR=/tmp/work/src
 ARTIFACTS_DIR=/tmp/work/artifacts
 PATCHES_DIR=/tmp/work/patches
+MG_VER=${MG_VER_TRIPLE}.${MG_VER_REV}
 
 echo "Building MapGuide ${MG_VER_TRIPLE} (v${MG_VER})"
 echo "Using FDO SDK at: ${ARTIFACTS_DIR}/${FDOSDK}"
