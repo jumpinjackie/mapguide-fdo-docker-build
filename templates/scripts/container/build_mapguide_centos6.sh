@@ -19,7 +19,7 @@ ARTIFACTS_DIR=/tmp/work/artifacts
 PATCHES_DIR=/tmp/work/patches
 MG_VER=${MG_VER_TRIPLE}.${MG_VER_REV}
 
-echo "Building MapGuide ${MG_VER_TRIPLE} (v${MG_VER})"
+echo "Building MapGuide ${MG_VER_TRIPLE} (v${MG_VER} - ${MG_BUILD_CONFIG})"
 echo "Using FDO SDK at: ${ARTIFACTS_DIR}/${FDOSDK}"
 ccache -s
 
@@ -42,7 +42,7 @@ mkdir -p $OEM_BUILD_DIR
 mkdir -p $BUILD_DIR
 cd $SRC_DIR || exit
 # For Centos 6, we're building all internal thirdparty libs
-./cmake_bootstrap.sh --oem-working-dir $OEM_BUILD_DIR --build 64 --with-ccache --with-all-internal
+./cmake_bootstrap.sh --config $MG_BUILD_CONFIG --oem-working-dir $OEM_BUILD_DIR --build 64 --with-ccache --with-all-internal
 check_build
 ./cmake_linuxapt.sh --prefix /usr/local/mapguideopensource-${MG_VER_TRIPLE} --oem-working-dir $OEM_BUILD_DIR --working-dir $LINUXAPT_BUILD
 check_build

@@ -19,7 +19,7 @@ ARTIFACTS_DIR=/tmp/work/artifacts
 PATCHES_DIR=/tmp/work/patches
 MG_VER=${MG_VER_TRIPLE}.${MG_VER_REV}
 
-echo "Building MapGuide ${MG_VER_TRIPLE} (v${MG_VER})"
+echo "Building MapGuide ${MG_VER_TRIPLE} (v${MG_VER} - ${MG_BUILD_CONFIG})"
 echo "Using FDO SDK at: ${ARTIFACTS_DIR}/${FDOSDK}"
 ccache -s
 
@@ -40,7 +40,7 @@ mkdir -p $OEM_BUILD_DIR
 mkdir -p $BUILD_DIR
 cd $SRC_DIR || exit
 # Our standard default is to assume all thirdparty deps exist as system packages
-./cmake_bootstrap.sh --oem-working-dir $OEM_BUILD_DIR --build 64 --with-ccache --have-system-xerces
+./cmake_bootstrap.sh --config $MG_BUILD_CONFIG --oem-working-dir $OEM_BUILD_DIR --build 64 --with-ccache --have-system-xerces
 check_build
 ./cmake_linuxapt.sh --prefix /usr/local/mapguideopensource-${MG_VER_TRIPLE} --oem-working-dir $OEM_BUILD_DIR --working-dir $LINUXAPT_BUILD
 check_build
@@ -53,7 +53,11 @@ case "$MG_DISTRO" in
     *ubuntu*)
         echo "Generating deb packages"
         cd $SRC_DIR || exit
-        ./cmake_package.sh --format deb --working-dir $BUILD_DIR/mg_deb --output-dir $ARTIFACTS_DIR/$MG_DISTRO --build-number "$MG_VER_REV"
+        CMDEX=
+        if [ "$FDO_BUILD_CONFIG" = "Debug" ]; then
+            CMDEX="--debug"
+        fi
+        ./cmake_package.sh --format deb --working-dir $BUILD_DIR/mg_deb --output-dir $ARTIFACTS_DIR/$MG_DISTRO --build-number "$MG_VER_REV" $CMDEX
         ;;
 #    *centos*)
 #        echo "Generating rpm packages"

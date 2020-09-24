@@ -6,6 +6,7 @@ echo " vMinor - ${FDO_VER_MINOR}"
 echo " vRel - ${FDO_VER_REL}"
 echo " vRev - ${FDO_VER_REV}"
 echo " Distro - ${FDO_DISTRO}"
+echo " Config - ${FDO_BUILD_CONFIG}"
 ccache -s
 THIRDPARTY_BUILD_DIR=/tmp/work/build_area/fdo_thirdparty
 BUILD_DIR=/tmp/work/build_area/fdo
@@ -14,7 +15,7 @@ ARTIFACTS_DIR=/tmp/work/artifacts
 SDKS_DIR=/tmp/work/sdks
 cd $SRC_DIR || exit
 # Our standard default is to assume all thirdparty deps exist as system packages
-./cmake_bootstrap.sh --working-dir $THIRDPARTY_BUILD_DIR --build 64 --with-ccache
+./cmake_bootstrap.sh --config $FDO_BUILD_CONFIG --working-dir $THIRDPARTY_BUILD_DIR --build 64 --with-ccache
 # Oracle Instant Client SDK setup
 export ORACLE_SDK_HOME=$SDKS_DIR/oracle/x64/instantclient_12_2/sdk
 # Main build
@@ -26,7 +27,11 @@ case "$FDO_DISTRO" in
         cd $BUILD_DIR || exit
         cmake --build . --target install
         cd $SRC_DIR || exit
-        ./cmake_package.sh --format deb --working-dir $BUILD_DIR/fdo_deb --output-dir $ARTIFACTS_DIR/$FDO_DISTRO --filelist-dir $BUILD_DIR/filelists --oracle-lib-dir ${ORACLE_SDK_HOME}/lib --build-number "$FDO_VER_REV"
+        CMDEX=
+        if [ "$FDO_BUILD_CONFIG" = "Debug" ]; then
+            CMDEX="--debug"
+        fi
+        ./cmake_package.sh --format deb --working-dir $BUILD_DIR/fdo_deb --output-dir $ARTIFACTS_DIR/$FDO_DISTRO --filelist-dir $BUILD_DIR/filelists --oracle-lib-dir ${ORACLE_SDK_HOME}/lib --build-number "$FDO_VER_REV" $CMDEX
         ;;
 #    *centos*)
 #        echo "Generating rpm packages"

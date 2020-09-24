@@ -5,6 +5,7 @@ echo " vMajor - ${FDO_VER_MAJOR}"
 echo " vMinor - ${FDO_VER_MINOR}"
 echo " vRel - ${FDO_VER_REL}"
 echo " vRev - ${FDO_VER_REV}"
+echo " Config - ${FDO_BUILD_CONFIG}"
 ccache -s
 THIRDPARTY_BUILD_DIR=/tmp/work/build_area/fdo_thirdparty
 BUILD_DIR=/tmp/work/build_area/fdo
@@ -35,7 +36,7 @@ if [ ! -f /usr/local/lib/libz.a ]; then
 fi
 # For Centos 6, we're building all internal thirdparty libs
 cd $SRC_DIR || exit
-./cmake_bootstrap.sh --working-dir $THIRDPARTY_BUILD_DIR --all-internal --build 64 --with-ccache
+./cmake_bootstrap.sh --config $FDO_BUILD_CONFIG --working-dir $THIRDPARTY_BUILD_DIR --all-internal --build 64 --with-ccache
 # Build MariaDB client if required
 if [ ! -f /usr/local/lib/mariadb/libmariadbclient.a ]; then
     if [ ! -d $MARIADB_BUILD_ROOT ]; then
