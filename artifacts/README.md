@@ -1,1 +1,1 @@
-Build artifacts are copied here
+Build artifacts are copied into the respective subdirectories in here

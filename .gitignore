@@ -9,9 +9,11 @@ sdks/mariadb*
 sdks/postgresql*
 sdks/zlib*
 staging/*
-artifacts/*
+artifacts/Debug/*
+artifacts/Release/*
 packages/*.mgp
-!artifacts/README.md
+!artifacts/Debug/README.md
+!artifacts/Release/README.md
 caches/*
 !caches/README.md
 fdo_version.sh
