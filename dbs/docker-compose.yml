@@ -1,0 +1,63 @@
+version: "3"
+services:
+  oracle_xe_11g:
+    image: "wnameless/oracle-xe-11g-r2"
+    ports:
+      - "1521:1521"
+    environment:
+      ORACLE_ALLOW_REMOTE: "true"
+  postgis:
+    image: "mdillon/postgis:9.6"
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: "changeme"
+  postgis_pg11:
+    image: "kartoza/postgis:11.0-2.5"
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASS: "changeme"
+      POSTGRES_MULTIPLE_EXTENSIONS: "postgis"
+      POSTGRES_DB: "template_postgis"
+  postgis_pg12:
+    image: "kartoza/postgis:12.0"
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASS: "changeme"
+      POSTGRES_MULTIPLE_EXTENSIONS: "postgis"
+      POSTGRES_DB: "template_postgis"
+  mariadb:
+    image: "mariadb:10.4"
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: "fdotest"
+  mysql_56:
+    image: "mysql:5.6"
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: "fdotest"
+  mysql_80:
+    image: "mysql:8.0"
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: "fdotest"
+    cap_add:
+      - SYS_NICE  # CAP_SYS_NICE
+  mssql:
+    image: "mcr.microsoft.com/mssql/server:2017-latest"
+    ports:
+      - "1433:1433"
+    environment:
+      SA_PASSWORD: "Sql2016!"
+      ACCEPT_EULA: "Y"
+    volumes:
+      - ./db_tmp:/tmp
