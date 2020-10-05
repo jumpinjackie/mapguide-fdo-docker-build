@@ -78,7 +78,12 @@ if [ ! -f /usr/local/pgsql/lib/libpq.a ]; then
 fi
 # Now for the main build
 cd $SRC_DIR || exit
-./cmake_build.sh --fdo-ver-major ${FDO_VER_MAJOR} --fdo-ver-minor ${FDO_VER_MINOR} --fdo-ver-rel ${FDO_VER_REL} --fdo-ver-rev ${FDO_VER_REV} --build 64 --thirdparty-working-dir $THIRDPARTY_BUILD_DIR --cmake-build-dir $BUILD_DIR --with-sdf --with-shp --with-sqlite --with-ogr --with-gdal --with-wfs --with-wms --with-genericrdbms --with-mariadb-static --with-libpq-static --with-kingoracle --with-oci-version 120 --ninja
+CMDEX=
+if [ "$FDO_BUILD_CONFIG" = "Debug" ]; then
+    echo "Building with ASAN instrumentation"
+    CMDEX="--with-asan"
+fi
+./cmake_build.sh --fdo-ver-major ${FDO_VER_MAJOR} --fdo-ver-minor ${FDO_VER_MINOR} --fdo-ver-rel ${FDO_VER_REL} --fdo-ver-rev ${FDO_VER_REV} --build 64 --thirdparty-working-dir $THIRDPARTY_BUILD_DIR --cmake-build-dir $BUILD_DIR --with-sdf --with-shp --with-sqlite --with-ogr --with-gdal --with-wfs --with-wms --with-genericrdbms --with-mariadb-static --with-libpq-static --with-kingoracle --with-oci-version 120 --ninja $CMDEX
 cd $BUILD_DIR || exit
 cmake --build . --target package
 mv fdosdk*.tar.gz $ARTIFACTS_DIR
