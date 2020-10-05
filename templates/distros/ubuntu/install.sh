@@ -425,6 +425,8 @@ install_fdo()
             echo "    <LibraryPath>libKingOracleProvider.so</LibraryPath>" >> ${providersxml}
             echo "  </FeatureProvider>" >> ${providersxml}
             kingoracle_registered=1
+            # libaio is a dependency of OCI and not the provider itself
+            apt-get install -y libaio1
             ;;
           rdbms)
             if [ $rdbms_registered -eq 1 ];
