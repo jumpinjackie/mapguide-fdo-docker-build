@@ -423,6 +423,7 @@ install_fdo()
             echo "    <LibraryPath>libKingOracleProvider.so</LibraryPath>" >> ${providersxml}
             echo "  </FeatureProvider>" >> ${providersxml}
             kingoracle_registered=1
+            yum install -y libaio
             ;;
           rdbms)
             if [ $rdbms_registered -eq 1 ];
@@ -460,6 +461,7 @@ install_fdo()
             echo "    <LibraryPath>libMySQLProvider.so</LibraryPath>" >> ${providersxml}
             echo "  </FeatureProvider>" >> ${providersxml}
             rdbms_registered=1
+            yum install -y unixODBC
             ;;
           ogr)
             if [ $ogr_registered -eq 1 ];
@@ -570,18 +572,6 @@ install_fdo()
 
 install_mapguide_packages()
 {
-    # Download Ubuntu packages for MapGuide
-    # mapguide_packages="platformbase coordsys common server webextensions httpd"
-    # if [ "$csmap_choice" = "lite" ]; then
-    #     mapguide_packages="platformbase coordsys-lite common server webextensions httpd"
-    # fi
-    # for file in $mapguide_packages
-    # do
-    #     download_file="${TEMPDIR}/mapguideopensource-${file}_${MGVER}.deb"
-    #     wget -N -O "${download_file}" "${URL}/mapguideopensource-${file}_${MGVER}.deb"
-    #     dpkg -E -G --install "${download_file}"
-    # done
-
     cp -R mapguideopensource-${MGVER_MAJOR_MINOR_REV} ${MG_INST}
 }
 
