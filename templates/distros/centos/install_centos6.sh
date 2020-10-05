@@ -414,7 +414,7 @@ install_fdo()
             fi
             echo "Registering King Oracle Provider"
             echo "  <FeatureProvider>" >> ${providersxml}
-            echo "    <Name>OSGeo.KingOracle.${FDOVER_MAJOR_MINOR}</Name>" >> ${providersxml}
+            echo "    <Name>King.Oracle.${FDOVER_MAJOR_MINOR}</Name>" >> ${providersxml}
             echo "    <DisplayName>OSGeo FDO Provider for Oracle</DisplayName>" >> ${providersxml}
             echo "    <Description>Read/write access to spatial and attribute data in Oracle Spatial</Description>" >> ${providersxml}
             echo "    <IsManaged>False</IsManaged>" >> ${providersxml}
