@@ -119,6 +119,15 @@ MapGuide will not fully build on Ubuntu 18.04 (and likely newer versions) due to
  * Ubuntu 18.04 provides OpenSSL 1.1.0
  * Ubuntu 18.04 also provides OpenSSL 1.0, but this cannot be installed side-by-side with the default 1.1.0 package. The 1.1.0 package is also a dependency of several build packages.
 
+# WSL2 Notes
+
+`centos` based images/containers may fail to build/run. To address this, edit `%USERPROFILE%\.wslconfig` as follows:
+
+```
+[wsl2]
+kernelCommandLine = vsyscall=emulate
+```
+
 # Credits
 
 This docker-based build system was heavily inspired by: https://github.com/MatrixManAtYrService/lifecycle-snapshots
