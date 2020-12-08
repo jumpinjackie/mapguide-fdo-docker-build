@@ -1,4 +1,5 @@
 #!/bin/bash
+mkdir -p logs
 for cpu in x64 x86
 do
     for distro in ubuntu18 ubuntu16 ubuntu14 centos7 centos6 generic
