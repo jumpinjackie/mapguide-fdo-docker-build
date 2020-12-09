@@ -1,7 +1,6 @@
 # Build thirpdarty
 RUN THIRDPARTY_BUILD_DIR=/usr/local/src/fdo/build_thirdparty \
 && ccache -s \
-&& . scl_source enable devtoolset-7 \
 && cd /usr/local/src/fdo/ \
 && ./cmake_bootstrap.sh --working-dir $THIRDPARTY_BUILD_DIR --all-internal --build 64 \
 && ccache -s
@@ -9,7 +8,6 @@ RUN THIRDPARTY_BUILD_DIR=/usr/local/src/fdo/build_thirdparty \
 # Main build
 RUN THIRDPARTY_BUILD_DIR=/usr/local/src/fdo/build_thirdparty \
 && ccache -s \
-&& . scl_source enable devtoolset-7 \
 && BUILD_DIR=/usr/local/src/fdo/build \
 && mkdir -p $BUILD_DIR/artifacts \ 
 && cd /usr/local/src/fdo/ \

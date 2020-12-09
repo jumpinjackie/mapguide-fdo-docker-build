@@ -8,6 +8,14 @@ BUILD_THIN_IMAGE=0
 INTERACTIVE=0
 BUILD_CONF=Release
 
+check_build()
+{
+    if [ "$?" -ne 0 ] ; then
+        echo "ERROR building for $BUILD_DISTRO"
+        exit 1
+    fi
+}
+
 indent(){
     sed 's/^/    /'
 }
@@ -56,14 +64,17 @@ build_fdo_thin()
         container_root="/tmp/work"
         if [ "$INTERACTIVE" == "1" ]; then
             docker run --rm -it -e FDO_BUILD_CONFIG=$build_config -e FDO_DISTRO=$distro_label -e FDO_VER_MAJOR=${FDO_VER_MAJOR} -e FDO_VER_MINOR=${FDO_VER_MINOR} -e FDO_VER_REL=${FDO_VER_REL} -e FDO_VER_REV=${FDO_VER_REV} -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -v $ccache_dir:/root/.ccache -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts -v $sdks_dir:$container_root/sdks $container_name /bin/bash
+            check_build
         else
             # If a distro-specific override build script exists, use that instead
             if [ -f "${scripts_dir}/build_fdo_${distro_label}.sh" ]; then
                 echo "Building with override build_fdo_${distro_label}.sh"
                 docker run --rm -it -e FDO_BUILD_CONFIG=$build_config -e FDO_DISTRO=$distro_label -e FDO_VER_MAJOR=${FDO_VER_MAJOR} -e FDO_VER_MINOR=${FDO_VER_MINOR} -e FDO_VER_REL=${FDO_VER_REL} -e FDO_VER_REV=${FDO_VER_REV} -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -v $ccache_dir:/root/.ccache -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts -v $sdks_dir:$container_root/sdks $container_name $container_root/scripts/build_fdo_${distro_label}.sh
+                check_build
             else
                 echo "Building with standard container build script"
                 docker run --rm -it -e FDO_BUILD_CONFIG=$build_config -e FDO_DISTRO=$distro_label -e FDO_VER_MAJOR=${FDO_VER_MAJOR} -e FDO_VER_MINOR=${FDO_VER_MINOR} -e FDO_VER_REL=${FDO_VER_REL} -e FDO_VER_REV=${FDO_VER_REV} -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -v $ccache_dir:/root/.ccache -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts -v $sdks_dir:$container_root/sdks $container_name $container_root/scripts/build_fdo.sh
+                check_build
             fi
         fi
     fi
@@ -119,14 +130,17 @@ build_mapguide_thin()
         container_root="/tmp/work"
         if [ "$INTERACTIVE" == "1" ]; then
             docker run --rm -it -e MG_BUILD_CONFIG=$build_config -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER_REV=$MG_VER_REV -e MG_VER_TRIPLE=$MG_VER_TRIPLE -e FDOSDK=$fdosdk -v $patches_dir:$container_root/patches -v $ccache_dir:/root/.ccache -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts -v $sdks_dir:$container_root/sdks $container_name /bin/bash
+            check_build
         else
             # If a distro-specific override build script exists, use that instead
             if [ -f "${scripts_dir}/build_mapguide_${distro_label}.sh" ]; then
                 echo "Building with override build_mapguide_${distro_label}.sh"
                 docker run --rm -it -e MG_BUILD_CONFIG=$build_config -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER_REV=$MG_VER_REV -e MG_VER_TRIPLE=$MG_VER_TRIPLE -e FDOSDK=$fdosdk -v $patches_dir:$container_root/patches -v $ccache_dir:/root/.ccache -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts -v $sdks_dir:$container_root/sdks $container_name $container_root/scripts/build_mapguide_${distro_label}.sh
+                check_build
             else
                 echo "Building with standard container build script"
                 docker run --rm -it -e MG_BUILD_CONFIG=$build_config -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER_REV=$MG_VER_REV -e MG_VER_TRIPLE=$MG_VER_TRIPLE -e FDOSDK=$fdosdk -v $patches_dir:$container_root/patches -v $ccache_dir:/root/.ccache -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts -v $sdks_dir:$container_root/sdks $container_name $container_root/scripts/build_mapguide.sh
+                check_build
             fi
         fi
     fi
