@@ -52,6 +52,6 @@ cd $BUILD_DIR || exit
 cmake --build . --target install
 check_build
 cd /usr/local/mapguideopensource-${MG_VER_TRIPLE} || exit
-tar -zcf $ARTIFACTS_DIR/mapguideopensource-$MG_VER-centos6-amd64.tar.gz *
+tar -zcf $ARTIFACTS_DIR/mapguideopensource-$MG_VER-$MG_DISTRO-amd64.tar.gz *
 check_build
 ccache -s

@@ -7,13 +7,14 @@ echo " vRel - ${FDO_VER_REL}"
 echo " vRev - ${FDO_VER_REV}"
 echo " Config - ${FDO_BUILD_CONFIG}"
 ccache -s
+ZLIB_VER=1.2.11
+PGSQL_VER=12.6
+MARIADB_CONNECTOR_VER=3.1.12
 THIRDPARTY_BUILD_DIR=/tmp/work/build_area/fdo_thirdparty
 BUILD_DIR=/tmp/work/build_area/fdo
 SRC_DIR=/tmp/work/src
 ARTIFACTS_DIR=/tmp/work/artifacts
 SDKS_DIR=/tmp/work/sdks
-# Centos 6 special
-. scl_source enable devtoolset-7
 cd $SRC_DIR || exit
 # For CentOS-based distros, we build against MySQL/PostgreSQL in /sdks
 # Setting MYSQL_DIR is enough for FindMySQL.cmake to pick it up
@@ -27,24 +28,24 @@ if [ ! -f /usr/local/lib/libz.a ]; then
     if [ ! -d $ZLIB_BUILD_ROOT ]; then
         mkdir -p $ZLIB_BUILD_ROOT
         echo "Extracting zlib tarball"
-        tar -zxf $SDKS_DIR/zlib-1.2.11.tar.gz -C $ZLIB_BUILD_ROOT
+        tar -zxf $SDKS_DIR/zlib-${ZLIB_VER}.tar.gz -C $ZLIB_BUILD_ROOT
     fi
-    cd $ZLIB_BUILD_ROOT/zlib-1.2.11 || exit
+    cd $ZLIB_BUILD_ROOT/zlib-${ZLIB_VER} || exit
     # zlib doesn't add the -fPIC flag by default so we have to CFLAGS hack it in
     CFLAGS="-fPIC -O3" ./configure --static
     make && make install
 fi
-# For Centos 6, we're building all internal thirdparty libs
+# For Centos 7, we're building all internal thirdparty libs
 cd $SRC_DIR || exit
-./cmake_bootstrap.sh --config $FDO_BUILD_CONFIG --working-dir $THIRDPARTY_BUILD_DIR --all-internal --build 64 --with-ccache
+./cmake_bootstrap.sh --config $FDO_BUILD_CONFIG --working-dir $THIRDPARTY_BUILD_DIR --all-internal --build 64 --with-ccache || exit
 # Build MariaDB client if required
 if [ ! -f /usr/local/lib/mariadb/libmariadbclient.a ]; then
     if [ ! -d $MARIADB_BUILD_ROOT ]; then
         mkdir -p $MARIADB_BUILD_ROOT
         echo "Extracting MariaDB tarball"
-        tar -zxf $SDKS_DIR/mariadb-connector-c-3.1.9-src.tar.gz -C $MARIADB_BUILD_ROOT
+        tar -zxf $SDKS_DIR/mariadb-connector-c-${MARIADB_CONNECTOR_VER}-src.tar.gz -C $MARIADB_BUILD_ROOT
     fi 
-    cd $MARIADB_BUILD_ROOT/mariadb-connector-c-3.1.9-src || exit
+    cd $MARIADB_BUILD_ROOT/mariadb-connector-c-${MARIADB_CONNECTOR_VER}-src || exit
     if [ -d ../_build ]; then
         rm -rf ../_build
     fi
@@ -54,7 +55,7 @@ if [ ! -f /usr/local/lib/mariadb/libmariadbclient.a ]; then
     # we have to invasively set all the "private" variables that this module looks for up front
     #
     # Also, possibly because of this, we need to manually set -pthread/-lpthread to avoid a linker error
-    LIBS="-lpthread" CFLAGS="-pthread" cmake ../mariadb-connector-c-3.1.9-src -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DWITH_SSL=OPENSSL -D_OPENSSL_INCLUDEDIR=/tmp/work/build_area/fdo_thirdparty/Thirdparty/openssl/_install/include -D_OPENSSL_LIBDIR=/tmp/work/build_area/fdo_thirdparty/Thirdparty/openssl/_install/lib -D_OPENSSL_VERSION=1.1.1
+    LIBS="-lpthread" CFLAGS="-pthread" cmake ../mariadb-connector-c-${MARIADB_CONNECTOR_VER}-src -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DWITH_SSL=OPENSSL -D_OPENSSL_INCLUDEDIR=/tmp/work/build_area/fdo_thirdparty/Thirdparty/openssl/_install/include -D_OPENSSL_LIBDIR=/tmp/work/build_area/fdo_thirdparty/Thirdparty/openssl/_install/lib -D_OPENSSL_VERSION=1.1.1
     make && make install
 fi
 # Build PostgreSQL client if required
@@ -62,10 +63,10 @@ if [ ! -f /usr/local/pgsql/lib/libpq.a ]; then
     if [ ! -d $PG_BUILD_ROOT ]; then
         mkdir -p $PG_BUILD_ROOT
         echo "Extracting PostgreSQL tarball"
-        tar -zxf $SDKS_DIR/postgresql-12.4.tar.gz -C $PG_BUILD_ROOT    
+        tar -zxf $SDKS_DIR/postgresql-${PGSQL_VER}.tar.gz -C $PG_BUILD_ROOT    
     fi
 
-    cd $PG_BUILD_ROOT/postgresql-12.4 || exit
+    cd $PG_BUILD_ROOT/postgresql-${PGSQL_VER} || exit
     # We sadly have to build everything even though we only want libpq. Fortunately, PostgreSQL
     # is written in C (not C++), so even a full build of everything is fast in the grand scheme.
     #
