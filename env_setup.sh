@@ -29,9 +29,15 @@ write_fdo_run()
 
     prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_run.txt")
 
+    distro_base=$distro
+    if [ "$distro" == "generic" ]; then
+        distro_base="centos"
+        tag="7"
+    fi
+
     cat > $path/Dockerfile <<EOF
 # This dockerfile defines the expected runtime environment before the project is installed
-FROM ${distro}:${tag}
+FROM ${distro_base}:${tag}
 
 # Be sure to install any runtime dependencies
 RUN ${prepare_cmd}
@@ -158,6 +164,9 @@ build_fdo_env()
 
     ver_major=$(echo $tag | cut -d. -f1)
     distro_label="${distro}${ver_major}"
+    if [ "$distro" == "generic" ]; then
+        distro_label="generic"
+    fi
 
     echo "Distro label will be: $distro_label" | indent
 
@@ -200,9 +209,15 @@ write_mapguide_run()
 
     prepare_cmd=$(cat "templates/distros/$distro/cmd_prepare_run.txt")
 
+    distro_base=$distro
+    if [ "$distro" == "generic" ]; then
+        distro_base="centos"
+        tag="7"
+    fi
+
     cat > $path/Dockerfile <<EOF
 # This dockerfile defines the expected runtime environment before the project is installed
-FROM ${distro}:${tag}
+FROM ${distro_base}:${tag}
 
 # Be sure to install any runtime dependencies
 RUN ${prepare_cmd}
@@ -339,7 +354,6 @@ build_mapguide_env()
     distro=$1
     cpu=$2
     tag=$3
-    generic=$4
 
     if [ ! -d "templates/distros/$distro" ]; then
         echo "No template confiugrations found for $distro"
@@ -350,18 +364,16 @@ build_mapguide_env()
     echo "Distro: $distro" | indent
     echo "CPU: $cpu" | indent
     echo "Docker base image tag: $tag" | indent
-    echo "Designate as generic?: $generic" | indent
 
     ver_major=$(echo $tag | cut -d. -f1)
     distro_label="${distro}${ver_major}"
+    if [ "$distro" == "generic" ]; then
+        distro_label="generic"
+    fi
 
     echo "Distro label will be: $distro_label" | indent
 
-    if [ $generic -eq 1 ]; then
-        path_base="docker/${cpu}/mapguide/generic"
-    else
-        path_base="docker/${cpu}/mapguide/${distro_label}"
-    fi
+    path_base="docker/${cpu}/mapguide/${distro_label}"
 
     echo "Base path for environment is: $path_base" | indent
 
@@ -372,20 +384,12 @@ build_mapguide_env()
 
     current_path="${path_base}/develop_thin"
     mkdir -p $current_path
-    if [ $generic -eq 1 ]; then
-        write_mapguide_develop_thin $current_path "generic" $cpu $distro
-    else
-        write_mapguide_develop_thin $current_path $distro_label $cpu $distro
-    fi
+    write_mapguide_develop_thin $current_path $distro_label $cpu $distro
     cp -f templates/scripts/mapguide/snap_develop_thin.sh $current_path/snap.sh
 
     current_path="${path_base}/build"
     mkdir -p $current_path
-    if [ $generic -eq 1 ]; then
-        write_mapguide_build $current_path "generic" $cpu $distro
-    else
-        write_mapguide_build $current_path $distro_label $cpu $distro
-    fi
+    write_mapguide_build $current_path $distro_label $cpu $distro
     cp -f templates/scripts/mapguide/snap_build.sh $current_path/snap.sh
     cp -f templates/scripts/mapguide/strip_mapguide_binaries.sh $current_path/strip_mapguide_binaries.sh
 
@@ -425,17 +429,13 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             CPU="$2"
             shift
             ;;
-        --generic)
-            GENERIC=1
-            ;;
         --help)
             echo "Usage: $0 (options)"
             echo "Options:"
             echo "  --target [mapguide|fdo]"
-            echo "  --distro [the distro you are targeting, ubuntu|centos]"
+            echo "  --distro [the distro you are targeting, ubuntu|centos|generic]"
             echo "  --tag [the version tag]"
             echo "  --cpu [x86|x64]"
-            echo "  --generic (Designate this image as the generic linux image. MapGuide-only)"
             echo "  --help [Display usage]"
             exit
             ;;
@@ -448,7 +448,7 @@ case "$TARGET" in
         build_fdo_env $DISTRO $CPU $TAG
         ;;
     mapguide)
-        build_mapguide_env $DISTRO $CPU $TAG $GENERIC
+        build_mapguide_env $DISTRO $CPU $TAG
         ;;
     *)
         echo "Unknown target: $TARGET"

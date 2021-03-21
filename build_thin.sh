@@ -31,6 +31,10 @@ build_fdo_thin()
     ver_major=$(echo $tag | cut -d. -f1)
     distro_label="${distro}${ver_major}"
 
+    if [ "$distro" = "generic" ]; then
+        distro_label="generic"
+    fi
+
     cpu_label=
     case "$cpu" in
         x86)

@@ -39,7 +39,11 @@ check_build
 check_build
 # Generic
 BUILD_DISTRO=generic
+./build_thin.sh --target fdo --distro generic --cpu x64 2>&1 | tee logs/fdo_thin_generic_release.log
+check_build
 ./build_thin.sh --target mapguide --distro generic --cpu x64 2>&1 | tee logs/mapguide_thin_generic_release.log
+check_build
+./build_thin.sh --target fdo --distro generic --cpu x64 --debug 2>&1 | tee logs/fdo_thin_generic_debug.log
 check_build
 ./build_thin.sh --target mapguide --distro generic --cpu x64 --debug 2>&1 | tee logs/mapguide_thin_generic_debug.log
 check_build
