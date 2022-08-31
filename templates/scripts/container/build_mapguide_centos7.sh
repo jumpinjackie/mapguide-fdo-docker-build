@@ -32,16 +32,12 @@ echo "Installing FDO SDK"
 mkdir -p /usr/local/fdo-${FDO_VER_TRIPLE}
 tar -zxf ${ARTIFACTS_DIR}/${FDOSDK} -C /usr/local/fdo-${FDO_VER_TRIPLE}
 
-echo "Copying atomic.h"
-mkdir -p /usr/include/asm
-cp $PATCHES_DIR/atomic.h /usr/include/asm
-
-# Centos 6 special
-. scl_source enable devtoolset-7
+# Centos 7 special
+. scl_source enable devtoolset-9
 mkdir -p $OEM_BUILD_DIR
 mkdir -p $BUILD_DIR
 cd $SRC_DIR || exit
-# For Centos 6, we're building all internal thirdparty libs
+# For Centos 7, we're building all internal thirdparty libs
 ./cmake_bootstrap.sh --config $MG_BUILD_CONFIG --oem-working-dir $OEM_BUILD_DIR --build 64 --with-ccache --with-all-internal
 check_build
 ./cmake_linuxapt.sh --prefix /usr/local/mapguideopensource-${MG_VER_TRIPLE} --oem-working-dir $OEM_BUILD_DIR --working-dir $LINUXAPT_BUILD

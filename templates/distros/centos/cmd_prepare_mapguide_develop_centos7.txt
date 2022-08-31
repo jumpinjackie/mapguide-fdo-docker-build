@@ -4,8 +4,8 @@ yum install -y wget \
 && yum repolist \
 && yum update -y \
 && yum install -y unzip redhat-lsb-core gcc gcc-c++ ccache libtool bison bzip2 curl-devel unixODBC-devel \ 
-openssl-devel libxslt-devel libxml2-devel cmake java-1.8.0-openjdk-devel \
-ant zlib-devel scons pcre-devel expat-devel \
+openssl-devel libxslt-devel libxml2-devel cmake java-1.8.0-openjdk-devel which pcre2-devel sqlite-devel libpng-devel libjpeg-devel \
+ant zlib-devel scons pcre-devel expat-devel oniguruma-devel libuuid-devel \
 && wget https://github.com/ninja-build/ninja/releases/download/v1.10.2/ninja-linux.zip \
 && unzip ninja-linux.zip -d /usr/bin \
 && ln -s /usr/bin/ninja /usr/bin/ninja-build

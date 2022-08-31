@@ -3,13 +3,13 @@
 FDO_VER_MAJOR=4
 FDO_VER_MINOR=2
 FDO_VER_REL=0
-FDO_VER_REV=`svn info fdo | grep "Revision:" | awk '{print $2}'`
+FDO_VER_REV=$(svn info fdo | grep "Revision:" | awk '{print $2}')
 #FDO_VER_REV=0
 
 MG_VER_MAJOR=4
 MG_VER_MINOR=0
 MG_VER_REL=0
-MG_VER_REV=`svn info mapguide | grep "Revision:" | awk '{print $2}'`
+MG_VER_REV=$(svn info mapguide/MgDev | grep "Revision:" | awk '{print $2}')
 #MG_VER_REV=0
 
 FDO_VER="${FDO_VER_MAJOR}.${FDO_VER_MINOR}.${FDO_VER_REL}"

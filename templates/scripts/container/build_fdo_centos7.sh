@@ -25,7 +25,7 @@ ZLIB_BUILD_ROOT=/tmp/work/build_area/zlib
 OPENSSL_LOCAL_DIR=/tmp/work/build_area/fdo_thirdparty/Thirdparty/openssl/_install
 # Build zlib if required
 if [ ! -f /usr/local/lib/libz.a ]; then
-    if [ ! -d $ZLIB_BUILD_ROOT ]; then
+    if [ ! -d $ZLIB_BUILD_ROOT/zlib-${ZLIB_VER} ]; then
         mkdir -p $ZLIB_BUILD_ROOT
         echo "Extracting zlib tarball"
         tar -zxf $SDKS_DIR/zlib-${ZLIB_VER}.tar.gz -C $ZLIB_BUILD_ROOT
