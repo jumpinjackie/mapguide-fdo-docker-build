@@ -106,6 +106,8 @@ TBD
 
 # Known issues
 
+MapGuide will not currently build on Ubuntu due to incompatibilities against various system-provided libraries.
+
 MapGuide will not fully build on Ubuntu 18.04 (and likely newer versions) due to our bundled version of PHP (5.6) requiring OpenSSL <= 1.1.0, which is not not possible on this distro
 
  * Ubuntu 18.04 provides OpenSSL 1.1.0
@@ -119,6 +121,8 @@ MapGuide will not fully build on Ubuntu 18.04 (and likely newer versions) due to
 [wsl2]
 kernelCommandLine = vsyscall=emulate
 ```
+
+Also, you must use Docker Desktop for Windows as the docker engine when going the WSL2 route. Alternatives like Rancher Desktop are not suitable yet due to various unresolved bugs around volume mounting that breaks building MapGuide/FDO code within dev containers.
 
 # Credits
 
