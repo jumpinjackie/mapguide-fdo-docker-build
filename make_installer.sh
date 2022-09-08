@@ -5,7 +5,7 @@ BUILD_CONF=$3
 #DISTRO_NOVER=centos
 #DISTRO_VER=7
 DISTRO=${DISTRO_NOVER}${DISTRO_VER}
-INSTALLER_LABEL="MapGuide Open Source 4.0 Preview 2"
+INSTALLER_LABEL="MapGuide Open Source 4.0 Preview 4"
 if [ "$BUILD_CONF" = "Debug" ]; then
     INSTALLER_LABEL="$INSTALLER_LABEL - Debug"
 fi
