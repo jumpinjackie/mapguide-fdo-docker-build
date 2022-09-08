@@ -346,6 +346,7 @@ dialog_webtier()
         exit 255;;
     esac
     set_webtier_vars $tempfile
+    rm $tempfile
 }
 
 dialog_coordsys()
@@ -703,7 +704,7 @@ EOF
             echo "[install]: WARNING - mgserver service entry not found"
         fi
     fi
-    if [ "$HAVE_TOMCAT" = "0" ]; 
+    if [ "$HAVE_TOMCAT" = "0" ];
     then
         echo "[install]: Skipping tomcat auto-start"
     else
