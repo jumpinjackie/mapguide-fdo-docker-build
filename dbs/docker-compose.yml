@@ -30,6 +30,15 @@ services:
       POSTGRES_PASS: "changeme"
       POSTGRES_MULTIPLE_EXTENSIONS: "postgis"
       POSTGRES_DB: "template_postgis"
+  postgis_pg14:
+    image: "kartoza/postgis:14-3.3"
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASS: "changeme"
+      POSTGRES_MULTIPLE_EXTENSIONS: "postgis"
+      POSTGRES_DB: "template_postgis"
   mariadb:
     image: "mariadb:10.4"
     ports:
