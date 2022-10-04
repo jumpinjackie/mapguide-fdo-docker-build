@@ -12,7 +12,7 @@ echo " Config - ${FDO_BUILD_CONFIG}"
 echo "Activated devtoolset-9"
 
 ccache -s
-ZLIB_VER=1.2.11
+ZLIB_VER=1.2.12
 PGSQL_VER=12.6
 MARIADB_CONNECTOR_VER=3.1.12
 THIRDPARTY_BUILD_DIR=/tmp/work/build_area/fdo_thirdparty
