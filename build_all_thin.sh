@@ -27,6 +27,20 @@ BUILD_DISTRO=ubuntu18
 check_build
 ./build_thin.sh --target fdo --distro ubuntu --tag 18 --cpu x64 --debug 2>&1 | tee logs/fdo_thin_ubuntu18_debug.log
 check_build
+./build_thin.sh --target mapguide --distro ubuntu --tag 18 --cpu x64 2>&1 | tee logs/mapguide_thin_ubuntu18_release.log
+check_build
+./build_thin.sh --target mapguide --distro ubuntu --tag 18 --cpu x64 --debug 2>&1 | tee logs/mapguide_thin_ubuntu18_debug.log
+check_build
+# Ubuntu 22
+BUILD_DISTRO=ubuntu22
+./build_thin.sh --target fdo --distro ubuntu --tag 22 --cpu x64 2>&1 | tee logs/fdo_thin_ubuntu22_release.log
+check_build
+./build_thin.sh --target fdo --distro ubuntu --tag 22 --cpu x64 --debug 2>&1 | tee logs/fdo_thin_ubuntu22_debug.log
+check_build
+./build_thin.sh --target mapguide --distro ubuntu --tag 22 --cpu x64 2>&1 | tee logs/mapguide_thin_ubuntu22_release.log
+check_build
+./build_thin.sh --target mapguide --distro ubuntu --tag 22 --cpu x64 --debug 2>&1 | tee logs/mapguide_thin_ubuntu22_debug.log
+check_build
 # CentOS 7
 BUILD_DISTRO=centos7
 ./build_thin.sh --target fdo --distro centos --tag 7 --cpu x64 2>&1 | tee logs/fdo_thin_centos7_release.log

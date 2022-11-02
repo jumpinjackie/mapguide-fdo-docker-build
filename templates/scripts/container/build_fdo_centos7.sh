@@ -6,6 +6,11 @@ echo " vMinor - ${FDO_VER_MINOR}"
 echo " vRel - ${FDO_VER_REL}"
 echo " vRev - ${FDO_VER_REV}"
 echo " Config - ${FDO_BUILD_CONFIG}"
+
+# Activate devtoolset-9
+. scl_source enable devtoolset-9
+echo "Activated devtoolset-9"
+
 ccache -s
 ZLIB_VER=1.2.12
 PGSQL_VER=12.6

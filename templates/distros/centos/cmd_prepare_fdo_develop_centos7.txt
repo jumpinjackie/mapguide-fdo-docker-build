@@ -3,7 +3,8 @@ yum install -y wget \
 && rpm -ivh epel-release-latest-7.noarch.rpm \
 && yum repolist \
 && yum update -y \
-&& yum install -y unzip redhat-lsb-core gcc gcc-c++ ccache automake libtool bison unixODBC-devel cmake unzip rpmdevtools rpmlint \
+&& yum install -y unzip redhat-lsb-core centos-release-scl ccache automake libtool bison unixODBC-devel cmake unzip rpmdevtools rpmlint \
+&& yum install -y devtoolset-9 \
 && wget https://github.com/ninja-build/ninja/releases/download/v1.10.2/ninja-linux.zip \
 && unzip ninja-linux.zip -d /usr/bin \
 && ln -s /usr/bin/ninja /usr/bin/ninja-build

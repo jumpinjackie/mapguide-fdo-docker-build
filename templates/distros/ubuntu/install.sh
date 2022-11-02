@@ -376,8 +376,8 @@ install_prerequisites()
     if [ ${HAVE_TOMCAT} = "1" ]; then
         apt-get install -y default-jre
     fi
-    # FIXME: Why did dpkg-shlibdeps not pick up libxslt1.1 as a required dependency of mapguideopensource-httpd???
-    apt-get install -y libxslt1.1
+    # FIXME: Why did dpkg-shlibdeps not pick up these as required dependencies of mapguideopensource-httpd???
+    apt-get install -y libxslt1.1 libonig5
 }
 
 install_fdo()
@@ -638,7 +638,7 @@ post_install()
 
     if [ ${HAVE_TOMCAT} = "1" ]; then
         echo "[config]: Writing workers.properties for mod_jk"
-        cat << EOF > ${MG_INST}/webserverextensions/apache2/conf/workers.properties
+        cat << EOF > ${MG_INST}/webserverextensions/apache2/conf/mapguide/workers.properties
 # Define 1 real worker using ajp13
 worker.list=worker1
 # Set properties for worker1 (ajp13)
