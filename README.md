@@ -19,32 +19,40 @@ git clone https://github.com/jumpinjackie/mapguide-fdo-docker-build`
 
 ## 2. Set up your desired target environment
 
-Suppose you want to build MapGuide/FDO for Ubuntu 14.04 (64-bit)
+Suppose you want to build MapGuide/FDO for Ubuntu 22.04 (64-bit)
 
 ```
-./env_setup.sh --target fdo --distro ubuntu --tag 14.04 --cpu x64
-./env_setup.sh --target mapguide --distro ubuntu --tag 14.04 --cpu x64
+./env_setup.sh --target fdo --distro ubuntu --tag 16.04 --cpu x64
+./env_setup.sh --target mapguide --distro ubuntu --tag 16.04 --cpu x64
 ```
 
 This will generate a series of `Dockerfile` and `snap.sh` build scripts in:
 
- * `docker/x64/fdo/ubuntu14/build`
- * `docker/x64/fdo/ubuntu14/develop_thin`
- * `docker/x64/fdo/ubuntu14/run`
- * `docker/x64/mapguide/ubuntu14/build`
- * `docker/x64/mapguide/ubuntu14/develop_thin`
- * `docker/x64/mapguide/ubuntu14/run`
+ * `docker/x64/fdo/ubuntu22/build`
+ * `docker/x64/fdo/ubuntu22/develop_thin`
+ * `docker/x64/fdo/ubuntu22/run`
+ * `docker/x64/mapguide/ubuntu22/build`
+ * `docker/x64/mapguide/ubuntu22/develop_thin`
+ * `docker/x64/mapguide/ubuntu22/run`
 
-The `--distro` and `--tag` parameters are composed into the base docker image from which our target environment is built on top of, so in the above example, our docker environment will ultimately be based from the `ubuntu:14.04` docker base image
+The `--distro` and `--tag` parameters are composed into the base docker image from which our target environment is built on top of, so in the above example, our docker environment will ultimately be based from the `ubuntu:16.04` docker base image
 
 A convenience `env_setup_all.sh` is provided that sets up the docker environments for all supported distros
 
+The `--distro` and `--tag` combinations we currently recognise in this script are:
+
+ * `centos` and `7`
+ * `ubuntu` and `22.04`
+ * `generic` and no tag
+
+The `generic` distro is a `centos:7` container geared towards building the "common libs subset" of MapGuide, whose `.so` binaries are bundled with a multi-platform .net API binding nuget package.
+
 ## 3. Run the build
 
-Assuming you set up the target environment for Ubuntu 14.04 (64-bit), then to build FDO, run:
+Assuming you set up the target environment for Ubuntu 22.04 (64-bit), then to build FDO, run:
 
 ```
-./build_thin.sh --target fdo --distro ubuntu --tag 14 --cpu x64
+./build_thin.sh --target fdo --distro ubuntu --tag 22 --cpu x64
 ```
 
 Once FDO is built, the tarballs will be copied to the top-level `artifacts` folder.
@@ -52,7 +60,7 @@ Once FDO is built, the tarballs will be copied to the top-level `artifacts` fold
 To build MapGuide, run:
 
 ```
-./build_thin.sh --target mapguide --distro ubuntu --tag 14 --cpu x64
+./build_thin.sh --target mapguide --distro ubuntu --tag 22 --cpu x64
 ```
 
 NOTE: You must build FDO first (and its SDK tarball present in `artifacts`) before you can build MapGuide.
@@ -75,18 +83,20 @@ TBD
 
 # Supported build environments
 
-|target  |distro|tag  |x64|x86|
-|--------|------|-----|---|---|
-|mapguide|centos|7    | Y | N |
-|mapguide|centos|6    | Y | N |
-|mapguide|ubuntu|14.04| Y | N |
-|mapguide|ubuntu|16.04| Y | N |
-|mapguide|ubuntu|18.04| N | N |
-|fdo     |ubuntu|14.04| Y | N |
-|fdo     |ubuntu|16.04| Y | N |
-|fdo     |ubuntu|18.04| Y | N |
-|fdo     |centos|7    | Y | N |
-|fdo     |centos|6    | Y | N |
+|target  |distro|tag  |
+|--------|------|-----|
+|mapguide|centos|7    |
+|mapguide|ubuntu|22.04|
+|fdo     |ubuntu|16.04|
+|fdo     |ubuntu|18.04|
+|fdo     |centos|7    |
+
+Building for 32-bit Linux distros is not supported.
+
+Our canonical distros for building MapGuide releases for Linux are:
+
+ * CentOS 7
+ * Ubuntu 22.04
 
 # FDO Thirdparty matrix
 
@@ -94,11 +104,8 @@ TBD
 
 | Distro   | GDAL             | OpenSSL         | libcurl         | mysqlclient | mariadbclient   | libpq           | xalan-c          | xerces-c          |
 |----------|------------------|-----------------|-----------------|-------------|-----------------|-----------------|------------------|-------------------|
-| centos6  | Internal/dynamic | Internal/static | Internal/static | N/A         | Internal/static | Internal/static | Internal/dynamic | Internal/dynamic |
-| centos7  | System (EPEL)    | System          | System          | System      | N/A             | System          | System           | System            |
-| ubuntu14 | System           | System          | System          | System      | N/A             | System          | System           | System            |
-| ubuntu16 | System           | System          | System          | System      | N/A             | System          | System           | System            |
-| ubuntu18 | System           | System          | System          | System      | N/A             | System          | System           | System            |
+| centos7  | Internal/dynamic | Internal/static | Internal/static | N/A         | Internal/static | Internal/static | Internal/dynamic | Internal/dynamic  |
+| ubuntu22 | System           | System          | System          | System      | N/A             | System          | System           | System            |
 
 # MapGuide Thirdparty matrix
 
@@ -106,18 +113,25 @@ TBD
 
 | Distro   | ACE              | dbxml            | berkely db       | xqilla           | geos            | gd              | libpng          | freetype        | libjpeg         | zlib            | xerces-c         |
 |----------|------------------|------------------|------------------|------------------|-----------------|-----------------|-----------------|-----------------|-----------------|-----------------|------------------|
-| centos6  | Internal/dynamic | Internal/dynamic | Internal/dynamic | Internal/dynamic | Internal/static | Internal/static | Internal/static | Internal/static | Internal/static | Internal/static | Internal/dynamic |
-| centos7  | Internal/dynamic | Internal/dynamic | Internal/dynamic | Internal/dynamic | System          | System          | System          | System          | System          | System          | System           |
-| ubuntu14 | System           | Internal/dynamic | Internal/dynamic | Internal/dynamic | System          | System          | System          | System          | System          | System          | System           |
-| ubuntu16 | System           | Internal/dynamic | Internal/dynamic | Internal/dynamic | System          | System          | System          | System          | System          | System          | System           |
-| ubuntu18 | System           | Internal/dynamic | Internal/dynamic | Internal/dynamic | System          | System          | System          | System          | System          | System          | System           |
+| centos7  | Internal/dynamic | Internal/dynamic | Internal/dynamic | Internal/dynamic | Internal/static | Internal/static | Internal/static | Internal/static | Internal/static | Internal/static | Internal/dynamic |
+| ubuntu22 | System           | Internal/dynamic | Internal/dynamic | Internal/dynamic | Internal/static^| System          | System          | System          | System          | System          | System           |
+
+^ The version of GEOS library shipped with Ubuntu 22.04 has an incompatible C++ API that is too difficult to #ifdef around. Until MapGuide switches to using GEOS's C API we will have to build MapGuide against our internal copy for the foreseeable future
 
 # Known issues
 
-MapGuide will not fully build on Ubuntu 18.04 (and likely newer versions) due to our bundled version of PHP (5.6) requiring OpenSSL <= 1.1.0, which is not not possible on this distro
+MapGuide has not been tested to build on Ubuntu versions older than 22.04
 
- * Ubuntu 18.04 provides OpenSSL 1.1.0
- * Ubuntu 18.04 also provides OpenSSL 1.0, but this cannot be installed side-by-side with the default 1.1.0 package. The 1.1.0 package is also a dependency of several build packages.
+# WSL2 Notes
+
+`centos` based images/containers may fail to build/run. To address this, edit `%USERPROFILE%\.wslconfig` as follows:
+
+```
+[wsl2]
+kernelCommandLine = vsyscall=emulate
+```
+
+Also, you must use Docker Desktop for Windows as the docker engine when going the WSL2 route. Alternatives like Rancher Desktop are not suitable yet due to various unresolved bugs around volume mounting that breaks building MapGuide/FDO code within dev containers.
 
 # Credits
 

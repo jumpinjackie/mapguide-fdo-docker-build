@@ -17,6 +17,7 @@ BUILD_DIR=/tmp/work/build_area/mapguide
 SRC_DIR=/tmp/work/src
 ARTIFACTS_DIR=/tmp/work/artifacts
 PATCHES_DIR=/tmp/work/patches
+MG_VER_TRIPLE=${MG_VER_MAJOR}.${MG_VER_MINOR}.${MG_VER_REL}
 MG_VER=${MG_VER_TRIPLE}.${MG_VER_REV}
 
 echo "Building MapGuide ${MG_VER_TRIPLE} (v${MG_VER} - ${MG_BUILD_CONFIG})"
@@ -36,22 +37,39 @@ echo "Copying atomic.h"
 mkdir -p /usr/include/asm
 cp $PATCHES_DIR/atomic.h /usr/include/asm
 
-# Centos 6 special
-. scl_source enable devtoolset-7
 mkdir -p $OEM_BUILD_DIR
 mkdir -p $BUILD_DIR
 cd $SRC_DIR || exit
-# For Centos 6, we're building all internal thirdparty libs
-./cmake_bootstrap.sh --config $MG_BUILD_CONFIG --oem-working-dir $OEM_BUILD_DIR --build 64 --with-ccache --with-all-internal
+# HACK: I strongly believe that Ubuntu 22.04 ships an unusable libgeos.so as it does not include symbols for the WKTReader 
+# ctor/dtor, despite its headers suggesting that these symbols should be public and in the .so!
+#
+# So as a result, we have to build with internal geos
+./cmake_bootstrap.sh --config $MG_BUILD_CONFIG --oem-working-dir $OEM_BUILD_DIR --build 64 --with-ccache --have-system-xerces --with-internal-geos
 check_build
 ./cmake_linuxapt.sh --prefix /usr/local/mapguideopensource-${MG_VER_TRIPLE} --oem-working-dir $OEM_BUILD_DIR --working-dir $LINUXAPT_BUILD
 check_build
-./cmake_build.sh --oem-working-dir $OEM_BUILD_DIR --cmake-build-dir $BUILD_DIR --ninja
+./cmake_build.sh --oem-working-dir $OEM_BUILD_DIR --cmake-build-dir $BUILD_DIR --mg-ver-major $MG_VER_MAJOR --mg-ver-minor $MG_VER_MINOR --mg-ver-rel $MG_VER_REL --mg-ver-rev $MG_VER_REV --ninja
 check_build
 cd $BUILD_DIR || exit
 cmake --build . --target install
 check_build
+case "$MG_DISTRO" in
+    *ubuntu*)
+        echo "Generating deb packages"
+        cd $SRC_DIR || exit
+        CMDEX=
+        if [ "$FDO_BUILD_CONFIG" = "Debug" ]; then
+            CMDEX="--debug"
+        fi
+        ./cmake_package.sh --format deb --working-dir $BUILD_DIR/mg_deb --output-dir $ARTIFACTS_DIR/$MG_DISTRO --build-number "$MG_VER_REV" $CMDEX
+        ;;
+#    *centos*)
+#        echo "Generating rpm packages"
+#        cd $SRC_DIR || exit
+#        ./cmake_package.sh --format rpm --working-dir $BUILD_DIR/mg_rpm --output-dir $ARTIFACTS_DIR/$MG_DISTRO --build-number "$MG_VER_REV"
+#        ;;
+esac
 cd /usr/local/mapguideopensource-${MG_VER_TRIPLE} || exit
-tar -zcf $ARTIFACTS_DIR/mapguideopensource-$MG_VER-centos6-amd64.tar.gz *
+tar -zcf $ARTIFACTS_DIR/mapguideopensource-$MG_VER-$MG_DISTRO-amd64.tar.gz *
 check_build
 ccache -s

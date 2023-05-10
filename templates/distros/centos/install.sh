@@ -28,6 +28,8 @@ NO_TOMCAT_START=0
 NO_HTTPD_START=0
 INSTALLER_TITLE="MapGuide Open Source installer"
 
+DEFAULT_ENABLE_TOMCAT=N
+
 DEFAULT_SERVER_IP="127.0.0.1"
 
 DEFAULT_ADMIN_PORT=2810
@@ -38,6 +40,8 @@ DEFAULT_HTTPD_PORT=8008
 DEFAULT_TOMCAT_PORT=8009
 
 HAVE_TOMCAT=0
+TOMCAT_AJP_SECRET=mapguide4java
+TOMCAT_AJP_LISTEN_HOST="127.0.0.1"
 
 csmap_choice="full"
 
@@ -133,6 +137,9 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             tomcat_port=$2
             shift
             ;;
+        -with-tomcat|--with-tomcat)
+            HAVE_TOMCAT=1
+            ;;
         -help|--help)
             echo "Usage: $0 (options)"
             echo "Options:"
@@ -145,6 +152,7 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             echo "  --with-kingoracle [Include King Oracle Provider]"
             echo "  --with-wfs [Include WFS Provider]"
             echo "  --with-wms [Include WMS Provider]"
+            echo "  --with-tomcat [Enable Tomcat]"
             echo "  --server-ip [Server IP, default: 127.0.0.1]"
             echo "  --admin-port [Admin Server Port, default: 2810]"
             echo "  --client-port [Client Server Port, default: 2811]"
@@ -161,11 +169,6 @@ echo "[install]: Installing pre-requisite packages"
 if [ "$HEADLESS" != "1" ]
 then
     yum install -y dialog
-# Install required packages
-#apt-get -y -q install openjdk-7-jre libxml2 dialog libexpat1 libssl1.0.0 odbcinst unixodbc libcurl3 libxslt1.1 libmysqlclient18 libpq5
-#else
-# Install required packages 
-#apt-get -y -q install openjdk-7-jre libxml2 libexpat1 libssl1.0.0 odbcinst unixodbc libcurl3 libxslt1.1 libmysqlclient18 libpq5
 fi
 
 DIALOG=${DIALOG=dialog}
@@ -203,7 +206,16 @@ set_webtier_vars()
     set $vars
     webtier_server_ip=${1:-$DEFAULT_SERVER_IP}
     httpd_port=${2:-$DEFAULT_HTTPD_PORT}
-    tomcat_port=${3:-$DEFAULT_TOMCAT_PORT}
+    enable_tomcat=${3:-$DEFAULT_ENABLE_TOMCAT}
+    tomcat_port=${4:-$DEFAULT_TOMCAT_PORT}
+    case $enable_tomcat in
+        y*|Y*)
+            HAVE_TOMCAT=1
+            ;;
+        *)
+            HAVE_TOMCAT=0
+            ;;
+    esac
 }
 
 dump_configuration()
@@ -227,6 +239,7 @@ dump_configuration()
     echo "  FDO: ${fdo_provider_choice}"
     echo "  CS-Map: ${csmap_choice}"
     echo "  Server IP: ${server_ip}"
+    echo " Enable Tomcat: ${HAVE_TOMCAT}"
     echo "********************************************"
 }
 
@@ -298,14 +311,32 @@ dialog_server()
     rm $tempfile
 }
 
+dialog_tomcat()
+{
+    tempfile=$(mktemp 2>/dev/null) || tempfile=/tmp/form.$$
+    dialog --title "Enable Tomcat" \
+           --yesno "Do you want to enable Tomcat to run Java MapGuide applications?" 10 40 2> $tempfile
+    case $? in
+      0)
+        HAVE_TOMCAT=1
+        #echo "Enable tomcat"
+        ;;
+      1)
+        HAVE_TOMCAT=0
+        #echo "Disable tomcat"
+        ;;
+    esac
+}
+
 dialog_webtier()
 {
     tempfile=$(mktemp 2>/dev/null) || tempfile=/tmp/form.$$
     dialog --backtitle "$INSTALLER_TITLE" --title "Web Tier Configuration" \
-            --form "\nSet the port numbers that Apache/Tomcat will listen on" 25 60 16 \
-            "Connect to Server IP:" 1 1 "${DEFAULT_SERVER_IP}"   1 25 25 30 \
-            "Apache Port:"          2 1 "${DEFAULT_HTTPD_PORT}"  2 25 25 30 \
-            "Tomcat Port:"          3 1 "${DEFAULT_TOMCAT_PORT}" 3 25 25 30 2> $tempfile
+            --form "\nSet the port numbers that Apache/Tomcat will listen on.\n\nTomcat only needs to be enabled if you are intending to run Java MapGuide applications" 25 60 16 \
+            "Connect to Server IP:" 1 1 "${DEFAULT_SERVER_IP}"     1 25 25 30 \
+            "Apache Port:"          2 1 "${DEFAULT_HTTPD_PORT}"    2 25 25 30 \
+            "Enable Tomcat (Y/N)?:" 3 1 "${DEFAULT_ENABLE_TOMCAT}" 3 25 1 30 \
+            "Tomcat Port:"          4 1 "${DEFAULT_TOMCAT_PORT}"   4 25 25 30 2> $tempfile
     case $? in
       1)
         echo "Cancelled"
@@ -341,9 +372,17 @@ dialog_coordsys()
 
 install_prerequisites()
 {
-    # Need to ensure epel is installed before others (we need geos/gdal/xalan-c from EPEL)
+    # Our CentOS builds are built against full internal thirdparty sources, so we only need to install deps
+    # needed by web tier components
+
+    # Need to ensure epel is installed before others (we need oniguruma from EPEL)
     yum install -y epel-release
-    yum install -y initscripts redhat-lsb-core gdal geos xalan-c libxslt libxml2 jsoncpp pcre expat xerces-c freetype libjpeg-turbo libpng gd
+    # Now install the rest
+    yum install -y initscripts redhat-lsb-core libxslt libxml2 jsoncpp pcre2 expat libjpeg-turbo libpng gd oniguruma
+
+    if [ ${HAVE_TOMCAT} = "1" ]; then
+        yum install -y java-1.8.0-openjdk
+    fi
 }
 
 install_fdo()
@@ -430,6 +469,8 @@ install_fdo()
             echo "    <LibraryPath>libKingOracleProvider.so</LibraryPath>" >> ${providersxml}
             echo "  </FeatureProvider>" >> ${providersxml}
             kingoracle_registered=1
+            # libaio is a dependency of OCI and not the provider itself
+            yum install -y libaio
             ;;
           rdbms)
             if [ $rdbms_registered -eq 1 ];
@@ -609,9 +650,23 @@ post_install()
     sed -i 's/Listen '"${DEFAULT_HTTPD_PORT}"'/Listen '"${httpd_port}"'/g' ${MG_INST}/webserverextensions/apache2/conf/httpd.conf
 
     if [ ${HAVE_TOMCAT} = "1" ]; then
-        sed -i 's/worker.worker1.port='"${DEFAULT_TOMCAT_PORT}"'/worker.worker1.port='"${tomcat_port}"'/g' ${MG_INST}/webserverextensions/apache2/conf/workers.properties
+        echo "[config]: Writing workers.properties for mod_jk"
+        cat << EOF > ${MG_INST}/webserverextensions/apache2/conf/mapguide/workers.properties
+# Define 1 real worker using ajp13
+worker.list=worker1
+# Set properties for worker1 (ajp13)
+worker.worker1.type=ajp13
+worker.worker1.host=${TOMCAT_AJP_LISTEN_HOST}
+worker.worker1.port=${tomcat_port}
+worker.worker1.lbfactor=50
+worker.worker1.cachesize=10
+worker.worker1.cache_timeout=600
+worker.worker1.socket_keepalive=1
+worker.worker1.recycle_timeout=300
+worker.worker1.secret=${TOMCAT_AJP_SECRET}
+EOF
         echo "[config]: Updating tomcat configs with configuration choices"
-        sed -i 's/Connector port=\"'"${DEFAULT_TOMCAT_PORT}"'\"/Connector port=\"'"${tomcat_port}"'\"/g' ${MG_INST}/webserverextensions/tomcat/conf/server.xml
+        sed -i "s|<!-- Define an AJP 1.3 Connector on port 8009 -->|<Connector protocol=\"AJP/1.3\" address=\"${TOMCAT_AJP_LISTEN_HOST}\" secret=\"${TOMCAT_AJP_SECRET}\" port=\"${tomcat_port}\" redirectPort=\"8443\" />|g" ${MG_INST}/webserverextensions/tomcat/conf/server.xml
     else
         echo "[config]: Skipping tomcat configuration"
     fi
@@ -662,16 +717,56 @@ post_install()
             echo "[install]: WARNING - mgserver service entry not found"
         fi
     fi
-    if [ "$HAVE_TOMCAT" = "0" ]; then
+    if [ "$HAVE_TOMCAT" = "0" ];
+    then
         echo "[install]: Skipping tomcat auto-start"
     else
+        echo "[install]: Tomcat service script"
+        cat << EOF > /etc/init.d/tomcat-mapguide
+#!/bin/bash
+# 
+# tomcat
+#
+# chkconfig: 35
+# description: Start up the Tomcat servlet engine.
+# processname: tomcat
+
+RETVAL=\$?
+CATALINA_HOME="${MG_INST}/webserverextensions/tomcat"
+
+case "\$1" in
+ start)
+        if [ -f \$CATALINA_HOME/bin/startup.sh ];
+          then
+    echo \$"Starting Tomcat"
+            \$CATALINA_HOME/bin/startup.sh
+        fi
+;;
+ stop)
+        if [ -f \$CATALINA_HOME/bin/shutdown.sh ];
+          then
+    echo \$"Stopping Tomcat"
+            \$CATALINA_HOME/bin/shutdown.sh
+        fi
+;;
+ *)
+ echo \$"Usage: \$0 {start|stop}"
+exit 1
+;;
+esac
+
+exit \$RETVAL
+EOF
+        chmod +x /etc/init.d/tomcat-mapguide
         if [ "$HEADLESS" = "1" ] && [ "$NO_TOMCAT_START" = "1" ];
         then
             echo "[install]: Skipping tomcat auto-start as --headless and --no-tomcat-start specified"
         else
-            echo "[install]: Starting tomcat"
-            # This can be allowed to fail
-            sh ${MG_INST}/webserverextensions/tomcat/bin/startup.sh || true
+            # FIXME: Tomcat doesn't want to start from within this 
+            # script (ps -A does not show a running java process afterwards) 
+            # but starts fine without problems afterwards???
+            echo "You can start tomcat by running: "
+            echo "/etc/init.d/tomcat-mapguide start"
         fi
     fi
     echo "DONE!"
