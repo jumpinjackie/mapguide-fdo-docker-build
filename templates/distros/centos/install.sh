@@ -378,7 +378,7 @@ install_prerequisites()
     # Need to ensure epel is installed before others (we need oniguruma from EPEL)
     yum install -y epel-release
     # Now install the rest
-    yum install -y initscripts redhat-lsb-core libxslt libxml2 jsoncpp pcre expat libjpeg-turbo libpng gd oniguruma
+    yum install -y initscripts redhat-lsb-core libxslt libxml2 jsoncpp pcre2 expat libjpeg-turbo libpng gd oniguruma
 
     if [ ${HAVE_TOMCAT} = "1" ]; then
         yum install -y java-1.8.0-openjdk
