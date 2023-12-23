@@ -12,15 +12,17 @@ echo " Config - ${FDO_BUILD_CONFIG}"
 echo "Activated devtoolset-9"
 
 ccache -s
+OPENSSL_VER=3.0.12
 ZLIB_VER=1.2.12
-PGSQL_VER=12.6
-MARIADB_CONNECTOR_VER=3.1.12
+PGSQL_VER=16.1
+MARIADB_CONNECTOR_VER=3.3.8
 THIRDPARTY_BUILD_DIR=/tmp/work/build_area/fdo_thirdparty
 BUILD_DIR=/tmp/work/build_area/fdo
 SRC_DIR=/tmp/work/src
 ARTIFACTS_DIR=/tmp/work/artifacts
 SDKS_DIR=/tmp/work/sdks
 cd $SRC_DIR || exit
+
 # For CentOS-based distros, we build against MySQL/PostgreSQL in /sdks
 # Setting MYSQL_DIR is enough for FindMySQL.cmake to pick it up
 export ORACLE_SDK_HOME=$SDKS_DIR/oracle/x64/instantclient_12_2/sdk
@@ -60,7 +62,7 @@ if [ ! -f /usr/local/lib/mariadb/libmariadbclient.a ]; then
     # we have to invasively set all the "private" variables that this module looks for up front
     #
     # Also, possibly because of this, we need to manually set -pthread/-lpthread to avoid a linker error
-    LIBS="-lpthread" CFLAGS="-pthread" cmake ../mariadb-connector-c-${MARIADB_CONNECTOR_VER}-src -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DWITH_SSL=OPENSSL -D_OPENSSL_INCLUDEDIR=/tmp/work/build_area/fdo_thirdparty/Thirdparty/openssl/_install/include -D_OPENSSL_LIBDIR=/tmp/work/build_area/fdo_thirdparty/Thirdparty/openssl/_install/lib -D_OPENSSL_VERSION=1.1.1
+    LIBS="-lpthread" CFLAGS="-pthread" cmake ../mariadb-connector-c-${MARIADB_CONNECTOR_VER}-src -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DWITH_SSL=OPENSSL -D_OPENSSL_INCLUDEDIR=/tmp/work/build_area/fdo_thirdparty/Thirdparty/openssl/_install/include -D_OPENSSL_LIBDIR=/tmp/work/build_area/fdo_thirdparty/Thirdparty/openssl/_install/lib -D_OPENSSL_VERSION=${OPENSSL_VER}
     make && make install
 fi
 # Build PostgreSQL client if required
@@ -79,7 +81,7 @@ if [ ! -f /usr/local/pgsql/lib/libpq.a ]; then
     # Ref: https://github.com/kvic-z/pixelserv-tls/issues/22
     #
     # Also static build does not add -fPIC, so pass that in through CFLAGS
-    ./configure --with-openssl --without-readline --with-includes=$OPENSSL_LOCAL_DIR/include --with-libraries=$OPENSSL_LOCAL_DIR/lib LIBS="-lpthread" CFLAGS="-fPIC"
+    ./configure --with-openssl --without-icu --without-readline --with-includes=$OPENSSL_LOCAL_DIR/include --with-libraries=$OPENSSL_LOCAL_DIR/lib64 LIBS="-lpthread" CFLAGS="-fPIC"
     make && make install
 fi
 # Now for the main build

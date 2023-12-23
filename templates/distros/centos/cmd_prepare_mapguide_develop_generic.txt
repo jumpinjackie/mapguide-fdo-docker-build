@@ -3,7 +3,7 @@ yum install -y wget \
 && rpm -ivh epel-release-latest-7.noarch.rpm \
 && yum repolist \
 && yum update -y \
-&& yum install -y unzip redhat-lsb-core gcc gcc-c++ ccache libtool bison bzip2 cmake ant scons \
+&& yum install -y unzip redhat-lsb-core gcc gcc-c++ ccache perl-IPC-Cmd libtool bison bzip2 cmake ant scons \
 && wget https://github.com/ninja-build/ninja/releases/download/v1.10.2/ninja-linux.zip \
 && unzip ninja-linux.zip -d /usr/bin \
 && ln -s /usr/bin/ninja /usr/bin/ninja-build

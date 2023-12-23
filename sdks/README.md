@@ -8,9 +8,9 @@ Download Oracle Instant Client (registration required): https://www.oracle.com/d
 
 Download zlib: https://www.zlib.net/
 
-Download postgresql: https://ftp.postgresql.org/pub/source/v12.6/postgresql-12.6.tar.gz
+Download postgresql: https://ftp.postgresql.org/pub/source/v16.1/postgresql-16.1.tar.gz
 
-Download MariaDB Connector/C: https://downloads.mariadb.org/connector-c/3.1.12/
+Download MariaDB Connector/C: https://dlm.mariadb.com/3677127/Connectors/c/connector-c-3.3.8/mariadb-connector-c-3.3.8-src.tar.gz
 
 # Expected structure
 
