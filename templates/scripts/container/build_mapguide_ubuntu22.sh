@@ -40,15 +40,16 @@ cp $PATCHES_DIR/atomic.h /usr/include/asm
 mkdir -p $OEM_BUILD_DIR
 mkdir -p $BUILD_DIR
 cd $SRC_DIR || exit
-# HACK: I strongly believe that Ubuntu 22.04 ships an unusable libgeos.so as it does not include symbols for the WKTReader 
-# ctor/dtor, despite its headers suggesting that these symbols should be public and in the .so!
-#
-# So as a result, we have to build with internal geos
-./cmake_bootstrap.sh --config $MG_BUILD_CONFIG --oem-working-dir $OEM_BUILD_DIR --build 64 --with-ccache --have-system-xerces --with-internal-geos
+./cmake_bootstrap.sh --config $MG_BUILD_CONFIG --oem-working-dir $OEM_BUILD_DIR --build 64 --with-ccache --have-system-xerces
 check_build
 ./cmake_linuxapt.sh --prefix /usr/local/mapguideopensource-${MG_VER_TRIPLE} --oem-working-dir $OEM_BUILD_DIR --working-dir $LINUXAPT_BUILD
 check_build
-./cmake_build.sh --oem-working-dir $OEM_BUILD_DIR --cmake-build-dir $BUILD_DIR --mg-ver-major $MG_VER_MAJOR --mg-ver-minor $MG_VER_MINOR --mg-ver-rel $MG_VER_REL --mg-ver-rev $MG_VER_REV --ninja
+CMDEX=
+if [ "$MG_BUILD_CONFIG" = "Debug" ]; then
+    echo "Building with ASAN instrumentation"
+    CMDEX="--with-asan"
+fi
+./cmake_build.sh --oem-working-dir $OEM_BUILD_DIR --cmake-build-dir $BUILD_DIR --mg-ver-major $MG_VER_MAJOR --mg-ver-minor $MG_VER_MINOR --mg-ver-rel $MG_VER_REL --mg-ver-rev $MG_VER_REV --ninja $CMDEX
 check_build
 cd $BUILD_DIR || exit
 cmake --build . --target install
@@ -58,7 +59,7 @@ case "$MG_DISTRO" in
         echo "Generating deb packages"
         cd $SRC_DIR || exit
         CMDEX=
-        if [ "$FDO_BUILD_CONFIG" = "Debug" ]; then
+        if [ "$MG_BUILD_CONFIG" = "Debug" ]; then
             CMDEX="--debug"
         fi
         ./cmake_package.sh --format deb --working-dir $BUILD_DIR/mg_deb --output-dir $ARTIFACTS_DIR/$MG_DISTRO --build-number "$MG_VER_REV" $CMDEX

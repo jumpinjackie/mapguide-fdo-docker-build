@@ -44,7 +44,12 @@ cd $SRC_DIR || exit
 check_build
 ./cmake_linuxapt.sh --prefix /usr/local/mapguideopensource-${MG_VER_TRIPLE} --oem-working-dir $OEM_BUILD_DIR --working-dir $LINUXAPT_BUILD
 check_build
-./cmake_build.sh --oem-working-dir $OEM_BUILD_DIR --cmake-build-dir $BUILD_DIR --ninja
+CMDEX=
+if [ "$MG_BUILD_CONFIG" = "Debug" ]; then
+    echo "Building with ASAN instrumentation"
+    CMDEX="--with-asan"
+fi
+./cmake_build.sh --oem-working-dir $OEM_BUILD_DIR --cmake-build-dir $BUILD_DIR --ninja $CMDEX
 check_build
 cd $BUILD_DIR || exit
 cmake --build . --target install
@@ -54,7 +59,7 @@ case "$MG_DISTRO" in
         echo "Generating deb packages"
         cd $SRC_DIR || exit
         CMDEX=
-        if [ "$FDO_BUILD_CONFIG" = "Debug" ]; then
+        if [ "$MG_BUILD_CONFIG" = "Debug" ]; then
             CMDEX="--debug"
         fi
         ./cmake_package.sh --format deb --working-dir $BUILD_DIR/mg_deb --output-dir $ARTIFACTS_DIR/$MG_DISTRO --build-number "$MG_VER_REV" $CMDEX
