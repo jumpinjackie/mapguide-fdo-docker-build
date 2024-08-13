@@ -40,7 +40,7 @@ cp $PATCHES_DIR/atomic.h /usr/include/asm
 mkdir -p $OEM_BUILD_DIR
 mkdir -p $BUILD_DIR
 cd $SRC_DIR || exit
-./cmake_bootstrap.sh --config $MG_BUILD_CONFIG --oem-working-dir $OEM_BUILD_DIR --build 64 --with-ccache --have-system-xerces
+./cmake_bootstrap.sh --config $MG_BUILD_CONFIG --oem-working-dir $OEM_BUILD_DIR --build 64 --with-ccache --have-system-xerces --with-internal-geos
 check_build
 ./cmake_linuxapt.sh --prefix /usr/local/mapguideopensource-${MG_VER_TRIPLE} --oem-working-dir $OEM_BUILD_DIR --working-dir $LINUXAPT_BUILD
 check_build
