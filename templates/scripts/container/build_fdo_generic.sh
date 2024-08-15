@@ -7,44 +7,66 @@ echo " vRel - ${FDO_VER_REL}"
 echo " vRev - ${FDO_VER_REV}"
 echo " Config - ${FDO_BUILD_CONFIG}"
 
-# Activate devtoolset-9
-. scl_source enable devtoolset-9
-echo "Activated devtoolset-9"
+# FDO is a library that uses dlopen, so we cannot have static libstdc++ linked in
+export LIBCHECK_ALLOW='libstdc\+\+'
+
+# Activate holy build box (shared library mode)
+source /hbb_shlib/activate
+
+# Activation will insert -static-libstdc++ to various link vars, remove that flag
+export LDFLAGS=$(echo $LDFLAGS | sed 's/\-static\-libstdc++//')
+export SHLIB_LDFLAGS=$(echo $SHLIB_LDFLAGS | sed 's/\-static\-libstdc++//')
+
+# Activation will also insert -fvisiblity=hidden FDO and various internal thirdparty libs we use are not ready for this flag, so remove as well
+export CFLAGS=$(echo $CFLAGS | sed 's/ \-fvisibility=hidden//')
+export CXXFLAGS=$(echo $CXXFLAGS | sed 's/ \-fvisibility=hidden//')
+export SHLIB_CFLAGS=$(echo $SHLIB_CFLAGS | sed 's/ \-fvisibility=hidden//')
+export SHLIB_CXXFLAGS=$(echo $SHLIB_CXXFLAGS | sed 's/ \-fvisibility=hidden//')
+export STATICLIB_CFLAGS=$(echo $STATICLIB_CFLAGS | sed 's/ \-fvisibility=hidden//')
+export STATICLIB_CXXFLAGS=$(echo $STATICLIB_CXXFLAGS | sed 's/ \-fvisibility=hidden//')
 
 ccache -s
-OPENSSL_VER=3.0.12
-ZLIB_VER=1.2.12
 PGSQL_VER=16.1
+UNIXODBC_VER=2.3.12
 MARIADB_CONNECTOR_VER=3.3.8
 THIRDPARTY_BUILD_DIR=/tmp/work/build_area/fdo_thirdparty
 BUILD_DIR=/tmp/work/build_area/fdo
 SRC_DIR=/tmp/work/src
 ARTIFACTS_DIR=/tmp/work/artifacts
 SDKS_DIR=/tmp/work/sdks
-cd $SRC_DIR || exit
+
+# Install ninja if required
+if [ ! -f /usr/bin/ninja ]; then
+    echo "Adding ninja binary to /usr/bin"
+    cp $SDKS_DIR/tools/ninja /usr/bin
+    if [ ! -f /usr/bin/ninja-build ]; then
+        echo "Symlinking ninja-build"
+        ln -s /usr/bin/ninja /usr/bin/ninja-build
+    fi
+fi
 
 # For CentOS-based distros, we build against MySQL/PostgreSQL in /sdks
 # Setting MYSQL_DIR is enough for FindMySQL.cmake to pick it up
 export ORACLE_SDK_HOME=$SDKS_DIR/oracle/x64/instantclient_12_2/sdk
 PG_BUILD_ROOT=/tmp/work/build_area/pgbuild
 MARIADB_BUILD_ROOT=/tmp/work/build_area/mariadb
-ZLIB_BUILD_ROOT=/tmp/work/build_area/zlib
-OPENSSL_LOCAL_DIR=/tmp/work/build_area/fdo_thirdparty/Thirdparty/openssl/_install
-# Build zlib if required
-if [ ! -f /usr/local/lib/libz.a ]; then
-    if [ ! -d $ZLIB_BUILD_ROOT ]; then
-        mkdir -p $ZLIB_BUILD_ROOT
-        echo "Extracting zlib tarball"
-        tar -zxf $SDKS_DIR/zlib-${ZLIB_VER}.tar.gz -C $ZLIB_BUILD_ROOT
+UNIXODBC_BUILD_ROOT=/tmp/work/build_area/unixodbc
+
+cd $SRC_DIR || exit
+# HBB provides OpenSSL and curl, so these can be system-provided. Everything else is internal.
+./cmake_bootstrap.sh --config $FDO_BUILD_CONFIG --working-dir $THIRDPARTY_BUILD_DIR --internal-gdal --internal-cppunit --internal-xerces --internal-xalan --build 64 --with-ccache || exit
+
+# Build UnixODBC if required
+if [ ! -f /usr/local/lib/libodbccr.a ]; then
+    if [ ! -d $UNIXODBC_BUILD_ROOT ]; then
+        mkdir -p $UNIXODBC_BUILD_ROOT
+        echo "Extracting UnixODBC tarball"
+        tar -zxf $SDKS_DIR/unixODBC-${UNIXODBC_VER}.tar.gz -C $UNIXODBC_BUILD_ROOT
     fi
-    cd $ZLIB_BUILD_ROOT/zlib-${ZLIB_VER} || exit
-    # zlib doesn't add the -fPIC flag by default so we have to CFLAGS hack it in
-    CFLAGS="-fPIC -O3" ./configure --static
+    cd $UNIXODBC_BUILD_ROOT/unixODBC-${UNIXODBC_VER} || exit
+    ./configure --enable-static --enable-silent-rules --with-pic
     make && make install
 fi
-# For Centos 7, we're building all internal thirdparty libs
-cd $SRC_DIR || exit
-./cmake_bootstrap.sh --config $FDO_BUILD_CONFIG --working-dir $THIRDPARTY_BUILD_DIR --all-internal --build 64 --with-ccache || exit
 # Build MariaDB client if required
 if [ ! -f /usr/local/lib/mariadb/libmariadbclient.a ]; then
     if [ ! -d $MARIADB_BUILD_ROOT ]; then
@@ -58,12 +80,8 @@ if [ ! -f /usr/local/lib/mariadb/libmariadbclient.a ]; then
     fi
     mkdir -p ../_build
     cd ../_build || exit
-    # The FindOpenSSL.cmake in CMake 2.8 is not flexible enough to pick up our custom built OpenSSL so 
-    # we have to invasively set all the "private" variables that this module looks for up front
-    #
-    # Also, possibly because of this, we need to manually set -pthread/-lpthread to avoid a linker error
-    LIBS="-lpthread" CFLAGS="-pthread" cmake ../mariadb-connector-c-${MARIADB_CONNECTOR_VER}-src -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DWITH_SSL=OPENSSL -D_OPENSSL_INCLUDEDIR=/tmp/work/build_area/fdo_thirdparty/Thirdparty/openssl/_install/include -D_OPENSSL_LIBDIR=/tmp/work/build_area/fdo_thirdparty/Thirdparty/openssl/_install/lib -D_OPENSSL_VERSION=${OPENSSL_VER}
-    make && make install
+    CFLAGS="-pthread" cmake ../mariadb-connector-c-${MARIADB_CONNECTOR_VER}-src -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DWITH_SSL=OPENSSL
+    cmake --build . && cmake --build . --target install
 fi
 # Build PostgreSQL client if required
 if [ ! -f /usr/local/pgsql/lib/libpq.a ]; then
@@ -72,17 +90,21 @@ if [ ! -f /usr/local/pgsql/lib/libpq.a ]; then
         echo "Extracting PostgreSQL tarball"
         tar -zxf $SDKS_DIR/postgresql-${PGSQL_VER}.tar.gz -C $PG_BUILD_ROOT    
     fi
-
     cd $PG_BUILD_ROOT/postgresql-${PGSQL_VER} || exit
-    # We sadly have to build everything even though we only want libpq. Fortunately, PostgreSQL
-    # is written in C (not C++), so even a full build of everything is fast in the grand scheme.
-    #
-    # Note the LIBS="-lpthread" at the end, without it configure can't "detect" static openssl
-    # Ref: https://github.com/kvic-z/pixelserv-tls/issues/22
-    #
-    # Also static build does not add -fPIC, so pass that in through CFLAGS
-    ./configure --with-openssl --without-icu --without-readline --with-includes=$OPENSSL_LOCAL_DIR/include --with-libraries=$OPENSSL_LOCAL_DIR/lib64 LIBS="-lpthread" CFLAGS="-fPIC"
+    CFLAGS="-fPIC" ./configure --with-openssl --without-icu --without-readline --enable-silent-rules --with-pic
+    # Based on this: https://stackoverflow.com/a/29810073
+    # We should be able to build only libpq by building everything inside src/interfaces/libpq
+    cd $PG_BUILD_ROOT/postgresql-${PGSQL_VER}/src/interfaces/libpq || exit
     make && make install
+    # Our CMake detection module will be looking for this lib too, so build/install it too
+    cd $PG_BUILD_ROOT/postgresql-${PGSQL_VER}/src/port || exit
+    make && make install
+    # Our CMake detection module will be looking for this lib too, so build/install it too
+    cd $PG_BUILD_ROOT/postgresql-${PGSQL_VER}/src/common || exit
+    make && make install
+    # There are dependent headers here that need installation too
+    cd $PG_BUILD_ROOT/postgresql-${PGSQL_VER}/src/include || exit
+    make install
 fi
 # Now for the main build
 cd $SRC_DIR || exit

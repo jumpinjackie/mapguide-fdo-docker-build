@@ -31,8 +31,8 @@ write_fdo_run()
 
     distro_base=$distro
     if [ "$distro" == "generic" ]; then
-        distro_base="centos"
-        tag="7"
+        distro_base="ghcr.io/phusion/holy-build-box/hbb-64"
+        tag="latest"
     fi
 
     cat > $path/Dockerfile <<EOF
@@ -211,8 +211,8 @@ write_mapguide_run()
 
     distro_base=$distro
     if [ "$distro" == "generic" ]; then
-        distro_base="centos"
-        tag="7"
+        distro_base="ghcr.io/phusion/holy-build-box/hbb-64"
+        tag="latest"
     fi
 
     cat > $path/Dockerfile <<EOF

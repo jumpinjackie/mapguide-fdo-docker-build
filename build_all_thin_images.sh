@@ -2,7 +2,7 @@
 mkdir -p logs
 for cpu in x64 x86
 do
-    for distro in ubuntu22 ubuntu18 ubuntu16
+    for distro in ubuntu22 generic
     do
         if [ -d ./docker/$cpu/fdo/$distro ];
         then

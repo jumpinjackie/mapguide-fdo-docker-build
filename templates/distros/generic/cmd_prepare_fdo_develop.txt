@@ -1,1 +1,1 @@
-yum install -y centos-release-scl epel-release && yum install -y ccache cmake perl automake libtool ninja-build unixODBC-devel devtoolset-9
+echo "FDO develop image"
