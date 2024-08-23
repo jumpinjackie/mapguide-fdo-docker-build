@@ -3,6 +3,8 @@ logs
 *.run
 mapguide/
 fdo/
+sdks/*.tar.gz
+sdks/*.zip
 sdks/oracle
 sdks/mysql*
 sdks/mariadb*

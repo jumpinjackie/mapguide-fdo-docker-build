@@ -42,7 +42,7 @@ check_build
 ./build_thin.sh --target mapguide --distro ubuntu --tag 22 --cpu x64 --debug 2>&1 | tee logs/mapguide_thin_ubuntu22_debug.log
 check_build
 # CentOS 7
-BUILD_DISTRO=centos7
+#BUILD_DISTRO=centos7
 #./build_thin.sh --target fdo --distro centos --tag 7 --cpu x64 2>&1 | tee logs/fdo_thin_centos7_release.log
 #check_build
 #./build_thin.sh --target mapguide --distro centos --tag 7 --cpu x64 2>&1 | tee logs/mapguide_thin_centos7_release.log
@@ -52,13 +52,13 @@ BUILD_DISTRO=centos7
 #./build_thin.sh --target mapguide --distro centos --tag 7 --cpu x64 --debug 2>&1 | tee logs/mapguide_thin_centos7_debug.log
 #check_build
 # Generic
-BUILD_DISTRO=generic
-#./build_thin.sh --target fdo --distro generic --cpu x64 2>&1 | tee logs/fdo_thin_generic_release.log
-#check_build
-#./build_thin.sh --target mapguide --distro generic --cpu x64 2>&1 | tee logs/mapguide_thin_generic_release.log
-#check_build
-#./build_thin.sh --target fdo --distro generic --cpu x64 --debug 2>&1 | tee logs/fdo_thin_generic_debug.log
-#check_build
-#./build_thin.sh --target mapguide --distro generic --cpu x64 --debug 2>&1 | tee logs/mapguide_thin_generic_debug.log
-#check_build
+#BUILD_DISTRO=generic
+./build_thin.sh --target fdo --distro generic --cpu x64 2>&1 | tee logs/fdo_thin_generic_release.log
+check_build
+./build_thin.sh --target mapguide --distro generic --cpu x64 2>&1 | tee logs/mapguide_thin_generic_release.log
+check_build
+./build_thin.sh --target fdo --distro generic --cpu x64 --debug 2>&1 | tee logs/fdo_thin_generic_debug.log
+check_build
+./build_thin.sh --target mapguide --distro generic --cpu x64 --debug 2>&1 | tee logs/mapguide_thin_generic_debug.log
+check_build
 docker system prune --force
