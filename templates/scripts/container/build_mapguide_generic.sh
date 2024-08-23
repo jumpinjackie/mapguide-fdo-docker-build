@@ -155,17 +155,35 @@ cmake --build . --target install
 check_build
 cd "/usr/local/mapguideopensource-${MG_VER_TRIPLE}" || exit
 if [ "$MG_BUILD_CONFIG" = "Release" ]; then
-    LIBDIRS="lib server/lib webserverextensions/lib lib64 server/lib64 webserverextensions/lib64" 
+    LIBDIRS="lib server/lib webserverextensions/lib lib64 server/lib64 webserverextensions/lib64 webserverextensions/apache2/modules" 
     echo "Stripping symbols from binaries"
     for libdir in ${LIBDIRS}
     do
         # Remove unneeded symbols from files in the lib directories
-        strip_list=$(find "${libdir}/lib*.so*" -type f -print)
+        strip_list=$(find ${libdir}/*.so* -type f -print)
         for file in $strip_list
         do
             strip --strip-unneeded "${file}"
             chmod a-x "${file}"
         done
+    done
+    # Server binaries
+    strip_list=$(find server/bin/* -type f -executable -print)
+    for file in $strip_list
+    do
+        strip --strip-unneeded "${file}"
+    done
+    # mgdevhttpserver
+    strip_list=$(find webserverextensions/bin/* -type f -executable -print)
+    for file in $strip_list
+    do
+        strip --strip-unneeded "${file}"
+    done
+    # apache2
+    strip_list=$(find webserverextensions/apache2/bin/* -type f -executable -print)
+    for file in $strip_list
+    do
+        strip --strip-unneeded "${file}"
     done
 else
     echo "Skip symbol stripping"
