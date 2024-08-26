@@ -737,9 +737,16 @@ EOF
 
     echo "[config]: Fixing permissions for certain folders"
     chmod 770 ${MG_INST}/webserverextensions/Temp
-    # daemon is the default user/group the bundled httpd will use
-    chown daemon:daemon ${MG_INST}/webserverextensions/Temp
-    chown daemon:daemon ${MG_INST}/webserverextensions/www/fusion/lib/tcpdf/cache
+
+    if id "daemon" >/dev/null 2>&1; then
+        echo "[config]: chown-ing some key directories to user 'daemon'"
+        # daemon is the default user/group the bundled httpd will use
+        chown daemon:daemon ${MG_INST}/webserverextensions/Temp
+        chown daemon:daemon ${MG_INST}/webserverextensions/www/fusion/lib/tcpdf/cache
+    else
+        echo "[config]: User 'daemon' does not exist. Will not attempt any chown-ing of certain directories for temporary data"
+        echo "[config]: Some web application behaviour may not work properly"
+    fi
 
     if [ "$HEADLESS" = "1" ] && [ "$NO_SERVICE_INSTALL" = "1" ];
     then
