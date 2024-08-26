@@ -101,7 +101,7 @@ ONIG_BUILD_ROOT=/tmp/work/build_area/onig
 mkdir -p $ONIG_BUILD_ROOT
 tar -zxf $SDKS_DIR/onig.tar.gz -C $ONIG_BUILD_ROOT --strip-components 1
 cd $ONIG_BUILD_ROOT || exit
-./configure --enable-static --disable-shared --enable-silent-rules
+./configure --enable-static --disable-shared --enable-silent-rules --with-pic
 check_build
 make && make install
 check_build
