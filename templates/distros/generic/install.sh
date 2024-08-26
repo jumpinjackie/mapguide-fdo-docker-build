@@ -746,6 +746,7 @@ EOF
         echo "[config]: Skipping service registration as --headless and --no-service-install specified"
     else
         echo "[config]: Registering Services"
+        mkdir -p /etc/init.d
         ln -s ${MG_INST}/server/bin/mapguidectl /etc/init.d/mapguide
         ln -s ${MG_INST}/webserverextensions/apache2/bin/apachectl /etc/init.d/apache-mapguide
         #update-rc.d mapguide defaults 35 65
