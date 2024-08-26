@@ -49,20 +49,8 @@ export ANT_HOME=/opt/ant
 # MapGuide has code that uses dlopen, so we cannot have static libstdc++ linked in
 export LIBCHECK_ALLOW='libstdc\+\+'
 
-# Activate holy build box (shared library mode)
-source /hbb_shlib/activate
-
-# Activation will insert -static-libstdc++ to various link vars, remove that flag
-export LDFLAGS=$(echo $LDFLAGS | sed 's/\-static\-libstdc++//')
-export SHLIB_LDFLAGS=$(echo $SHLIB_LDFLAGS | sed 's/\-static\-libstdc++//')
-
-# Activation will also insert -fvisiblity=hidden MapGuide and various internal thirdparty libs we use are not ready for this flag, so remove as well
-export CFLAGS=$(echo $CFLAGS | sed 's/ \-fvisibility=hidden//')
-export CXXFLAGS=$(echo $CXXFLAGS | sed 's/ \-fvisibility=hidden//')
-export SHLIB_CFLAGS=$(echo $SHLIB_CFLAGS | sed 's/ \-fvisibility=hidden//')
-export SHLIB_CXXFLAGS=$(echo $SHLIB_CXXFLAGS | sed 's/ \-fvisibility=hidden//')
-export STATICLIB_CFLAGS=$(echo $STATICLIB_CFLAGS | sed 's/ \-fvisibility=hidden//')
-export STATICLIB_CXXFLAGS=$(echo $STATICLIB_CXXFLAGS | sed 's/ \-fvisibility=hidden//')
+# Activate holy build box
+source /hbb/activate
 
 # Install PCRE
 PCRE_BUILD_ROOT=/tmp/work/build_area/pcre
@@ -119,7 +107,7 @@ make && make install
 check_build
 
 # Append /usr/local/lib[64]/pkgconfig to PKG_CONFIG_PATH
-export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/local/lib64/pkgconfig:/usr/local/lib/pkgconfig
+export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/local/lib64/pkgconfig:/usr/local/lib/pkgconfig:/hbb_shlib/lib/pkgconfig
 # HACK: Our internal libjpeg doesn't provide a pkg-config file, so provide this for PHP's configure
 # TODO: 
 export JPEG_CFLAGS=-I/usr/local/include
