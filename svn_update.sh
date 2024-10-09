@@ -1,3 +1,3 @@
 #!/bin/sh
 svn update fdo
-svn update mapguide
+svn update mapguide/MgDev
