@@ -6,6 +6,7 @@ services:
       - "1521:1521"
     environment:
       ORACLE_ALLOW_REMOTE: "true"
+      ORACLE_DISABLE_ASYNCH_IO: "true"
   postgis:
     image: "mdillon/postgis:9.6"
     ports:
