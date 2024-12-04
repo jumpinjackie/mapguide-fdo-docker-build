@@ -1,24 +1,7 @@
 #!/bin/bash
 
-# Check if we have docker or podman
-# aliases won't work for us here so variable-ize the relevant executable
-DOCKER=docker
-DOCKER_COMPOSE=docker-compose
-which docker
-if [ $? -eq 1 ]; then
-    echo "Docker not found. Checking if we have podman"
-    which podman
-    if [ $? -eq 1 ]; then
-        echo "FATAL: Docker or podman not found on system. Install one or the other"
-        exit 1
-    else
-        echo "Podman found. Aliasing docker commands to podman"
-        DOCKER=podman
-        DOCKEER_COMPOSE="podman compose"
-    fi
-else
-    echo "Docker found. Using its CLI tools"
-fi
+. ./docker_or_podman.sh
+
 HAVE_SVN=0
 HAVE_SVNHELPER=0
 which svn
