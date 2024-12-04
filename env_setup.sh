@@ -1,16 +1,61 @@
 #!/bin/bash
 
+# Check if we have docker or podman
+# aliases won't work for us here so variable-ize the relevant executable
+DOCKER=docker
+DOCKER_COMPOSE=docker-compose
+which docker
+if [ $? -eq 1 ]; then
+    echo "Docker not found. Checking if we have podman"
+    which podman
+    if [ $? -eq 1 ]; then
+        echo "FATAL: Docker or podman not found on system. Install one or the other"
+        exit 1
+    else
+        echo "Podman found. Aliasing docker commands to podman"
+        DOCKER=podman
+        DOCKEER_COMPOSE="podman compose"
+    fi
+else
+    echo "Docker found. Using its CLI tools"
+fi
+HAVE_SVN=0
+HAVE_SVNHELPER=0
+which svn
+if [ $? -eq 1 ]; then
+    echo "svn client not found. Check if we have the svnhelper image"
+    $DOCKER images | grep svnhelper
+    if [ $? -eq 1 ]; then
+        echo "FATAL: svnhelper image was not found. Build this image with build_svnhelper.sh"
+        exit 1
+    else
+        HAVE_SVNHELPER=1
+    fi
+else
+    HAVE_SVN=1
+    echo "svn client found. Will use directly"
+fi
+
 FDO_VER_MAJOR=4
 FDO_VER_MINOR=2
 FDO_VER_REL=0
+
+if [ "$HAVE_SVNHELPER" -eq "1" ]; then
+FDO_VER_REV=$($DOCKER run -v $PWD/fdo:/tmp/src/fdo svnhelper svn info /tmp/src/fdo | grep "Last Changed Rev:" | awk '{print $4}')
+else
 FDO_VER_REV=$(svn info fdo | grep "Last Changed Rev:" | awk '{print $4}')
 #FDO_VER_REV=0
+fi
 
 MG_VER_MAJOR=4
 MG_VER_MINOR=0
 MG_VER_REL=0
+if [ "$HAVE_SVNHELPER" -eq "1" ]; then
+MG_VER_REV=$($DOCKER run -v $PWD/mapguide/MgDev:/tmp/src/mapguide svnhelper svn info /tmp/src/mapguide | grep "Last Changed Rev:" | awk '{print $4}')
+else
 MG_VER_REV=$(svn info mapguide/MgDev | grep "Last Changed Rev:" | awk '{print $4}')
 #MG_VER_REV=0
+fi
 
 FDO_VER="${FDO_VER_MAJOR}.${FDO_VER_MINOR}.${FDO_VER_REL}"
 FDO_REV=${FDO_VER_REV}
