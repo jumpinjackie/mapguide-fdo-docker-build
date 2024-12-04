@@ -53,8 +53,10 @@ echo "templates" >> "$ROOT/.dockerignore"
 echo "Contents are:"
 cat "$ROOT/.dockerignore" | indent
 
+. $DIR/../../../../../docker_or_podman.sh
+
 cd "$ROOT"
-docker build . -t "$CONTAINER_NAME:latest"
+$DOCKER build . -t "$CONTAINER_NAME:latest"
 
 rm "$ROOT/Dockerfile"
 rm "$ROOT/.dockerignore"

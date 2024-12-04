@@ -6,8 +6,8 @@ DISTRO=`basename $(dirname $DIR)`
 THIS_DIR=`basename $DIR`
 CONTAINER_NAME="${COMPONENT}_${DISTRO}_${THIS_DIR}_${CPU}"
 echo "Taking snapshot '$CONTAINER_NAME'"
-
-docker build "$DIR" -t "$CONTAINER_NAME:latest"
+. $DIR/../../../../../docker_or_podman.sh
+$DOCKER build "$DIR" -t "$CONTAINER_NAME:latest"
 
 echo "To explore '$CONTAINER_NAME' use:"
 echo "docker run --rm -it $CONTAINER_NAME /bin/bash"

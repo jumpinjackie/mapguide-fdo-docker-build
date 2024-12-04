@@ -22,7 +22,9 @@ echo "Taking snapshot: '$CONTAINER_NAME'"
 # git reset --hard
 # git pull origin master
 
-docker build $DIR -t "$CONTAINER_NAME:latest"
+. $DIR/../../../../../docker_or_podman.sh
+
+$DOCKER build $DIR -t "$CONTAINER_NAME:latest"
 
 echo "To explore '$CONTAINER_NAME' run:"
 echo "docker run --rm -it $CONTAINER_NAME /bin/bash"

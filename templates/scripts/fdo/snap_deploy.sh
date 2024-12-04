@@ -9,20 +9,22 @@ indent(){
 echo "Taking 'build' snapshot (required for 'deploy')"
 "$DIR/../build/snap.sh" | indent
 
+. $DIR/../../../../../docker_or_podman.sh
+
 printf "\nExtracting binaries from hellobuild\n"
 # start a container on the build image
-build_container="$(docker run -d hellobuild:latest /bin/bash)"
+build_container="$($DOCKER run -d hellobuild:latest /bin/bash)"
 
 # copy the binary from the container
-docker cp "$build_container:/usr/local/src/hello/build/hello.deb" "$DIR/"
+$DOCKER cp "$build_container:/usr/local/src/hello/build/hello.deb" "$DIR/"
 
 # clean up the container
-docker rm "$build_container" 1> /dev/null
+$DOCKER rm "$build_container" 1> /dev/null
 
 printf "\n"
 
 cd "$DIR"
-docker build . -t "hello" && printf "Done building 'build'\n\n"
+$DOCKER build . -t "hello" && printf "Done building 'build'\n\n"
 
 # clean up binary
 rm "$DIR/hello.deb"

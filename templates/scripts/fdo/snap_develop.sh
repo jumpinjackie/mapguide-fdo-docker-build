@@ -50,7 +50,8 @@ echo "Contents are:"
 cat "$ROOT/.dockerignore" | indent
 
 cd "$ROOT"
-docker build . -t "$CONTAINER_NAME:latest"
+. $DIR/../../../../../docker_or_podman.sh
+$DOCKER build . -t "$CONTAINER_NAME:latest"
 
 rm "$ROOT/Dockerfile"
 rm "$ROOT/.dockerignore"

@@ -36,13 +36,15 @@ else
     echo "Skipping building base image (assuming it is already built and present)"
 fi
 
+. $DIR/../../../../../docker_or_podman.sh
+
 cd "$DIR"
-docker build . -t "$CONTAINER_NAME:latest"
+$DOCKER build . -t "$CONTAINER_NAME:latest"
 if [ "$?" -ne 0 ] ; then
     exit 1
 fi
 echo "Run tests and copy logs"
-docker run --rm -it -v ${HOST_LOG_PATH}:/logs $CONTAINER_NAME cp -r /usr/local/src/fdo/build/logs /logs
+$DOCKER run --rm -it -v ${HOST_LOG_PATH}:/logs $CONTAINER_NAME cp -r /usr/local/src/fdo/build/logs /logs
 if [ "$?" -ne 0 ] ; then
     exit 1
 fi
