@@ -21,3 +21,4 @@ caches/*
 fdo_version.sh
 mapguide_version.sh
 build_area/*
+sdks/tools
