@@ -14,6 +14,8 @@ GET {{endpoint_base}}
     &DEPTH=-1
     &FORMAT={{format_xml}}
 
+>>! ./results/resource_service_api/enumerate_resources_xml.xml
+
 ?? status == 200
 ?? header content-type includes {{format_xml}}
 ###
@@ -30,6 +32,8 @@ GET {{endpoint_base}}
     &RESOURCEID=Library://Samples/Sheboygan/Data/
     &DEPTH=-1
     &FORMAT={{format_json}}
+
+>>! ./results/resource_service_api/enumerate_resources_json.json
 
 ?? status == 200
 ?? header content-type includes {{format_json}}
@@ -49,6 +53,8 @@ GET {{endpoint_base}}
     &FORMAT={{format_json}}
     &CLEAN=1
 
+>>! ./results/resource_service_api/enumerate_resources_json_clean.json
+
 ?? status == 200
 ?? header content-type includes {{format_json}}
 ###
@@ -65,6 +71,8 @@ GET {{endpoint_base}}
     &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
     &FORMAT={{format_xml}}
 
+>>! ./results/resource_service_api/enumerate_resource_refs_xml.xml
+
 ?? status == 200
 ?? header content-type includes {{format_xml}}
 ###
@@ -80,6 +88,8 @@ GET {{endpoint_base}}
     &CLIENTAGENT={{agent}}
     &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
     &FORMAT={{format_json}}
+
+>>! ./results/resource_service_api/enumerate_resource_refs_json.json
 
 ?? status == 200
 ?? header content-type includes {{format_json}}
@@ -98,6 +108,8 @@ GET {{endpoint_base}}
     &FORMAT={{format_json}}
     &CLEAN=1
 
+>>! ./results/resource_service_api/enumerate_resource_refs_json_clean.json
+
 ?? status == 200
 ?? header content-type includes {{format_json}}
 ###
@@ -113,6 +125,8 @@ GET {{endpoint_base}}
     &CLIENTAGENT={{agent}}
     &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
     &FORMAT={{format_xml}}
+
+>>! ./results/resource_service_api/get_resource_content_xml.xml
 
 ?? status == 200
 ?? header content-type includes {{format_xml}}
@@ -131,6 +145,8 @@ GET {{endpoint_base}}
     &CLIENTAGENT={{agent}}
     &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
     &FORMAT={{format_json}}
+
+>>! ./results/resource_service_api/get_resource_content_json.json
 
 ?? status == 200
 ?? header content-type includes {{format_json}}
@@ -151,6 +167,8 @@ GET {{endpoint_base}}
     &FORMAT={{format_json}}
     &CLEAN=1
 
+>>! ./results/resource_service_api/get_resource_content_json_clean.json
+
 ?? status == 200
 ?? header content-type includes {{format_json}}
 ?? body contains OSGeo.SDF
@@ -169,6 +187,8 @@ GET {{endpoint_base}}
     &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
     &FORMAT={{format_xml}}
 
+>>! ./results/resource_service_api/get_resource_header_xml.xml
+
 ?? status == 200
 ?? header content-type includes {{format_xml}}
 ###
@@ -184,6 +204,8 @@ GET {{endpoint_base}}
     &CLIENTAGENT={{agent}}
     &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
     &FORMAT={{format_json}}
+
+>>! ./results/resource_service_api/get_resource_header_json.json
 
 ?? status == 200
 ?? header content-type includes {{format_json}}
@@ -202,6 +224,8 @@ GET {{endpoint_base}}
     &FORMAT={{format_json}}
     &CLEAN=1
 
+>>! ./results/resource_service_api/get_resource_header_json_clean.json
+
 ?? status == 200
 ?? header content-type includes {{format_json}}
 ###
@@ -217,6 +241,8 @@ GET {{endpoint_base}}
     &CLIENTAGENT={{agent}}
     &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
     &FORMAT={{format_xml}}
+
+>>! ./results/resource_service_api/enumerate_resource_data_xml.xml
 
 ?? status == 200
 ?? header content-type includes {{format_xml}}
@@ -234,6 +260,8 @@ GET {{endpoint_base}}
     &CLIENTAGENT={{agent}}
     &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
     &FORMAT={{format_json}}
+
+>>! ./results/resource_service_api/enumerate_resource_data_json.json
 
 ?? status == 200
 ?? header content-type includes {{format_json}}
@@ -253,6 +281,8 @@ GET {{endpoint_base}}
     &FORMAT={{format_json}}
     &CLEAN=1
 
+>>! ./results/resource_service_api/enumerate_resource_data_json_clean.json
+
 ?? status == 200
 ?? header content-type includes {{format_json}}
 ?? body contains Parcels.sdf
@@ -269,6 +299,8 @@ GET {{endpoint_base}}
     &CLIENTAGENT={{agent}}
     &RESOURCEID=Library://Test/Integration/Parcels.FeatureSource
     &FORMAT={{format_xml}}
+
+>>! ./results/resource_service_api/resource_exists_expect_false.txt
 
 ?? status == 200
 ?? header content-type includes text/plain
@@ -304,6 +336,8 @@ GET {{endpoint_base}}
     &RESOURCEID=Library://Test/Integration/Parcels.FeatureSource
     &FORMAT={{format_xml}}
 
+>>! ./results/resource_service_api/resource_exists_after_copy.txt
+
 ?? status == 200
 ?? header content-type includes text/plain
 ?? body contains True
@@ -320,6 +354,8 @@ GET {{endpoint_base}}
     &CLIENTAGENT={{agent}}
     &RESOURCEID=Library://Test/Integration/Parcels2.FeatureSource
     &FORMAT={{format_xml}}
+
+>>! ./results/resource_service_api/resource_exists_before_move.txt
 
 ?? status == 200
 ?? header content-type includes text/plain
@@ -355,6 +391,8 @@ GET {{endpoint_base}}
     &RESOURCEID=Library://Test/Integration/Parcels2.FeatureSource
     &FORMAT={{format_xml}}
 
+>>! ./results/resource_service_api/resource_exists_after_move.txt
+
 ?? status == 200
 ?? header content-type includes text/plain
 ?? body contains True
@@ -371,6 +409,8 @@ GET {{endpoint_base}}
     &CLIENTAGENT={{agent}}
     &RESOURCEID=Library://Test/Integration/Parcels.FeatureSource
     &FORMAT={{format_xml}}
+
+>>! ./results/resource_service_api/resource_exists_after_move_expect_false.txt
 
 ?? status == 200
 ?? header content-type includes text/plain
@@ -403,6 +443,8 @@ GET {{endpoint_base}}
     &CLIENTAGENT={{agent}}
     &RESOURCEID=Library://Test/Integration/Parcels2.FeatureSource
     &FORMAT={{format_xml}}
+
+>>! ./results/resource_service_api/deleted_resource_does_not_exist.txt
 
 ?? status == 200
 ?? header content-type includes text/plain

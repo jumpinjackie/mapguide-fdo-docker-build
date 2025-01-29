@@ -21,5 +21,7 @@ GET {{endpoint_base}}
     &SETDISPLAYDPI=96
     &FORMAT=PNG
 
+>>! ./results/rendering_service_api/get_map_image.png
+
 ?? status == 200
 ?? header content-type == image/png

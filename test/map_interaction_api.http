@@ -15,6 +15,8 @@ GET {{endpoint_base}}
     &TARGETMAPNAME=Sheboygan
     &FORMAT={{format_xml}}
 
+>>! ./results/map_interaction_api/create_runtime_map_xml.xml
+
 ?? status == 200
 ?? header content-type includes {{format_xml}}
 ###
@@ -32,6 +34,8 @@ GET {{endpoint_base}}
     &REQUESTEDFEATURES=0
     &TARGETMAPNAME=Sheboygan
     &FORMAT={{format_json}}
+
+>>! ./results/map_interaction_api/create_runtime_map_json.json
 
 ?? status == 200
 ?? header content-type includes {{format_json}}
@@ -51,6 +55,8 @@ GET {{endpoint_base}}
     &TARGETMAPNAME=Sheboygan
     &FORMAT={{format_json}}
     &CLEAN=1
+
+>>! ./results/map_interaction_api/create_runtime_map_json_clean.json
 
 ?? status == 200
 ?? header content-type includes {{format_json}}
@@ -75,6 +81,8 @@ GET {{endpoint_base}}
     &BEHAVIOR=7
     &FORMAT=PNG
 
+>>! ./results/map_interaction_api/render_dynamic_overlay.png
+
 ?? status == 200
 ?? header content-type == image/png
 ###
@@ -97,6 +105,8 @@ GET {{endpoint_base}}
     &REQUESTDATA=1
     &PERSIST=1
     &FORMAT={{format_json}}
+
+>>! ./results/map_interaction_api/make_polygon_selection.json
 
 ?? status == 200
 ?? header content-type includes {{format_json}}
@@ -121,6 +131,8 @@ GET {{endpoint_base}}
     &SELECTIONCOLOR=0xFF000000
     &BEHAVIOR=7
     &FORMAT=PNG
+
+>>! ./results/map_interaction_api/render_dynamic_overlay_after_selection.png
 
 ?? status == 200
 ?? header content-type == image/png

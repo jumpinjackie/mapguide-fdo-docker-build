@@ -17,6 +17,8 @@ GET {{endpoint_base}}
     &GEOMETRY=POLYGON ((30 10, 40 40, 20 40, 10 20, 30 10))
     &FORMAT=WKT
 
+>>! ./results/geo_processing_api/geoproc_boundary_wkt.txt
+
 ?? status == 200
 ?? header content-type includes text/plain
 ?? body == POLYGON ((30 10, 10 20, 20 40, 40 40, 30 10))
@@ -33,6 +35,8 @@ GET {{endpoint_base}}
     &CLIENTAGENT={{agent}}
     &GEOMETRY=POLYGON ((30 10, 40 40, 20 40, 10 20, 30 10))
     &FORMAT=GEOJSON
+
+>>! ./results/geo_processing_api/geoproc_boundary_geojson.json
 
 ?? status == 200
 ?? header content-type includes {{format_json}}
@@ -52,6 +56,8 @@ GET {{endpoint_base}}
     &DISTANCE=100
     &UNITS=m
     &COORDINATESYSTEM=LL84
+
+>>! ./results/geo_processing_api/geoproc_buffer_wkt.txt
 
 ?? status == 200
 ?? header content-type includes text/plain
@@ -73,6 +79,8 @@ GET {{endpoint_base}}
     &UNITS=m
     &COORDINATESYSTEM=LL84
 
+>>! ./results/geo_processing_api/geoproc_buffer_geojson.json
+
 ?? status == 200
 ?? header content-type includes {{format_json}}
 ###
@@ -88,6 +96,8 @@ GET {{endpoint_base}}
     &CLIENTAGENT={{agent}}
     &GEOMETRY=POLYGON ((30 10, 40 40, 20 40, 10 20, 30 10))
     &FORMAT=WKT
+
+>>! ./results/geo_processing_api/geoproc_convexhull_wkt.txt
 
 ?? status == 200
 ?? header content-type includes text/plain
@@ -105,6 +115,8 @@ GET {{endpoint_base}}
     &GEOMETRY=POLYGON ((30 10, 40 40, 20 40, 10 20, 30 10))
     &FORMAT=GEOJSON
 
+>>! ./results/geo_processing_api/geoproc_convexhull_geojson.json
+
 ?? status == 200
 ?? header content-type includes {{format_json}}
 ###
@@ -120,6 +132,8 @@ GET {{endpoint_base}}
     &CLIENTAGENT={{agent}}
     &GEOMETRY=POLYGON ((30 10, 40 40, 20 40, 10 20, 30 10))
     &FORMAT={{format_xml}}
+
+>>! ./results/geo_processing_api/geoproc_geominfo_xml.xml
 
 ?? status == 200
 ?? header content-type includes {{format_xml}}
@@ -137,11 +151,13 @@ GET {{endpoint_base}}
     &GEOMETRY=POLYGON ((30 10, 40 40, 20 40, 10 20, 30 10))
     &FORMAT={{format_json}}
 
+>>! ./results/geo_processing_api/geoproc_geominfo_geojson.json
+
 ?? status == 200
 ?? header content-type includes {{format_json}}
 ###
 # Tessellate (WKT)
-# @name geoproc_geominfo_wkt
+# @name geoproc_tessellate_wkt
 # @ref create_session
 
 GET {{endpoint_base}}
@@ -153,11 +169,13 @@ GET {{endpoint_base}}
     &GEOMETRY=POLYGON ((30 10, 40 40, 20 40, 10 20, 30 10))
     &FORMAT=WKT
 
+>>! ./results/geo_processing_api/geoproc_tessellate_wkt.txt
+
 ?? status == 200
 ?? header content-type includes text/plain
 ###
 # Tessellate (GeoJSON)
-# @name geoproc_geominfo_geojson
+# @name geoproc_tessellate_geojson
 # @ref create_session
 
 GET {{endpoint_base}}
@@ -168,6 +186,8 @@ GET {{endpoint_base}}
     &CLIENTAGENT={{agent}}
     &GEOMETRY=POLYGON ((30 10, 40 40, 20 40, 10 20, 30 10))
     &FORMAT=GEOJSON
+
+>>! ./results/geo_processing_api/geoproc_tessellate_geojson.json
 
 ?? status == 200
 ?? header content-type includes {{format_json}}
@@ -187,6 +207,8 @@ GET {{endpoint_base}}
     &COORDINATESYSTEM=LL84
     &FORMAT={{format_xml}}
 
+>>! ./results/geo_processing_api/geoproc_distance_xml.xml
+
 ?? status == 200
 ?? header content-type includes {{format_xml}}
 ###
@@ -204,6 +226,8 @@ GET {{endpoint_base}}
     &OTHERGEOMETRY=POINT XYZ (5.0 3.0 2.0)
     &COORDINATESYSTEM=LL84
     &FORMAT={{format_json}}
+
+>>! ./results/geo_processing_api/geoproc_distance_json.json
 
 ?? status == 200
 ?? header content-type includes {{format_json}}
@@ -224,6 +248,8 @@ GET {{endpoint_base}}
     &FORMAT={{format_json}}
     &CLEAN=1
 
+>>! ./results/geo_processing_api/geoproc_distance_json_clean.json
+
 ?? status == 200
 ?? header content-type includes {{format_json}}
 ###
@@ -241,6 +267,8 @@ GET {{endpoint_base}}
     &ALGORITHM=0
     &TOLERANCE=10.0
     &FORMAT=WKT
+
+>>! ./results/geo_processing_api/geoproc_simplify_wkt.txt
 
 ?? status == 200
 ?? header content-type includes text/plain
@@ -260,6 +288,8 @@ GET {{endpoint_base}}
     &ALGORITHM=0
     &TOLERANCE=10.0
     &FORMAT=GEOJSON
+
+>>! ./results/geo_processing_api/geoproc_simplify_geojson.json
 
 ?? status == 200
 ?? header content-type includes {{format_json}}
