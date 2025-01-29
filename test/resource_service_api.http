@@ -1,0 +1,409 @@
+# @import ./_setup.http
+###
+# Enumerate Resources (XML)
+# @name enumerate_resources_xml
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=ENUMERATERESOURCES
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/
+    &DEPTH=-1
+    &FORMAT={{format_xml}}
+
+?? status == 200
+?? header content-type includes {{format_xml}}
+###
+# Enumerate Resources (json)
+# @name enumerate_resources_json
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=ENUMERATERESOURCES
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/
+    &DEPTH=-1
+    &FORMAT={{format_json}}
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Enumerate Resources (json clean)
+# @name enumerate_resources_json_clean
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=ENUMERATERESOURCES
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/
+    &DEPTH=-1
+    &FORMAT={{format_json}}
+    &CLEAN=1
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Enumerate Resource References (XML)
+# @name enumerate_resource_refs_xml
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=ENUMERATERESOURCEREFERENCES
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &FORMAT={{format_xml}}
+
+?? status == 200
+?? header content-type includes {{format_xml}}
+###
+# Enumerate Resource References (json)
+# @name enumerate_resource_refs_json
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=ENUMERATERESOURCEREFERENCES
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &FORMAT={{format_json}}
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Enumerate Resource References (json clean)
+# @name enumerate_resource_refs_json_clean
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=ENUMERATERESOURCEREFERENCES
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &FORMAT={{format_json}}
+    &CLEAN=1
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Get Resource Content (XML)
+# @name get_resource_content_xml
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETRESOURCECONTENT
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &FORMAT={{format_xml}}
+
+?? status == 200
+?? header content-type includes {{format_xml}}
+?? body contains OSGeo.SDF
+?? body contains %MG_DATA_FILE_PATH%Parcels.sdf
+###
+# Get Resource Content (json)
+# @name get_resource_content_json
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETRESOURCECONTENT
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &FORMAT={{format_json}}
+
+?? status == 200
+?? header content-type includes {{format_json}}
+?? body contains OSGeo.SDF
+?? body contains %MG_DATA_FILE_PATH%Parcels.sdf
+###
+# Get Resource Content (json clean)
+# @name get_resource_content_json_clean
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETRESOURCECONTENT
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &FORMAT={{format_json}}
+    &CLEAN=1
+
+?? status == 200
+?? header content-type includes {{format_json}}
+?? body contains OSGeo.SDF
+?? body contains %MG_DATA_FILE_PATH%Parcels.sdf
+###
+# Get Resource Header (XML)
+# @name get_resource_header_xml
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETRESOURCEHEADER
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &FORMAT={{format_xml}}
+
+?? status == 200
+?? header content-type includes {{format_xml}}
+###
+# Get Resource Header (json)
+# @name get_resource_header_json
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETRESOURCEHEADER
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &FORMAT={{format_json}}
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Get Resource Header (json clean)
+# @name get_resource_header_json_clean
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETRESOURCEHEADER
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &FORMAT={{format_json}}
+    &CLEAN=1
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Enumerate Resource Data (XML)
+# @name enumerate_resource_data_xml
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=ENUMERATERESOURCEDATA
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &FORMAT={{format_xml}}
+
+?? status == 200
+?? header content-type includes {{format_xml}}
+?? body contains Parcels.sdf
+###
+# Enumerate Resource Data (json)
+# @name enumerate_resource_data_json
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=ENUMERATERESOURCEDATA
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &FORMAT={{format_json}}
+
+?? status == 200
+?? header content-type includes {{format_json}}
+?? body contains Parcels.sdf
+###
+# Enumerate Resource Data (json clean)
+# @name enumerate_resource_data_json_clean
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=ENUMERATERESOURCEDATA
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &FORMAT={{format_json}}
+    &CLEAN=1
+
+?? status == 200
+?? header content-type includes {{format_json}}
+?? body contains Parcels.sdf
+###
+# Resource exists (expecting false)
+# @name resource_exists_expect_false
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=RESOURCEEXISTS
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Test/Integration/Parcels.FeatureSource
+    &FORMAT={{format_xml}}
+
+?? status == 200
+?? header content-type includes text/plain
+?? body contains False
+###
+# Copy Resource
+# @name copy_resource
+# @ref resource_exists_expect_false
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=COPYRESOURCE
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &SOURCE=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &DESTINATION=Library://Test/Integration/Parcels.FeatureSource
+    &FORMAT={{format_xml}}
+    &OVERWRITE=1
+
+?? status == 200
+###
+# Resource exists (after copy)
+# @name resource_exists_after_copy
+# @ref copy_resource
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=RESOURCEEXISTS
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Test/Integration/Parcels.FeatureSource
+    &FORMAT={{format_xml}}
+
+?? status == 200
+?? header content-type includes text/plain
+?? body contains True
+###
+# Resource exists (before move)
+# @name resource_exists_before_move
+# @ref resource_exists_after_copy
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=RESOURCEEXISTS
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Test/Integration/Parcels2.FeatureSource
+    &FORMAT={{format_xml}}
+
+?? status == 200
+?? header content-type includes text/plain
+?? body contains False
+###
+# Copy Resource
+# @name move_resource
+# @ref resource_exists_before_move
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=MOVERESOURCE
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &SOURCE=Library://Test/Integration/Parcels.FeatureSource
+    &DESTINATION=Library://Test/Integration/Parcels2.FeatureSource
+    &FORMAT={{format_xml}}
+    &OVERWRITE=1
+
+?? status == 200
+###
+# Resource exists (after move)
+# @name resource_exists_after_move
+# @ref move_resource
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=RESOURCEEXISTS
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Test/Integration/Parcels2.FeatureSource
+    &FORMAT={{format_xml}}
+
+?? status == 200
+?? header content-type includes text/plain
+?? body contains True
+###
+# Resource exists (after move, expect false)
+# @name resource_exists_after_move_expect_false
+# @ref move_resource
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=RESOURCEEXISTS
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Test/Integration/Parcels.FeatureSource
+    &FORMAT={{format_xml}}
+
+?? status == 200
+?? header content-type includes text/plain
+?? body contains False
+###
+# Delete moved resource
+# @name delete_moved_resource
+# @ref resource_exists_after_move_expect_false
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=DELETERESOURCE
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Test/Integration/Parcels2.FeatureSource
+    &FORMAT={{format_xml}}
+
+?? status == 200
+###
+# Resource exists (after move, expect false)
+# @name deleted_resource_does_not_exist
+# @ref delete_moved_resource
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=RESOURCEEXISTS
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Test/Integration/Parcels2.FeatureSource
+    &FORMAT={{format_xml}}
+
+?? status == 200
+?? header content-type includes text/plain
+?? body contains False

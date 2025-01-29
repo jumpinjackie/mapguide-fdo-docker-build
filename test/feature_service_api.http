@@ -1,0 +1,684 @@
+# @import ./_setup.http
+
+# TODO: Missing test cases due to use of Sheboygan sample data whose feature providers don't support these capabilities
+# GETLONGTRANSACTIONS
+# ENUMERATEDATASTORES
+# GETSCHEMAMAPPING
+###
+# Get Feature Providers (XML)
+# @name get_feature_providers_xml
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETFEATUREPROVIDERS
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_xml}}
+
+?? status == 200
+?? header content-type includes {{format_xml}}
+?? body contains OSGeo.SDF
+?? body contains OSGeo.SHP
+?? body contains OSGeo.OGR
+?? body contains OSGeo.SQLite
+?? body contains OSGeo.Gdal
+###
+# Get Feature Providers (json)
+# @name get_feature_providers_json
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETFEATUREPROVIDERS
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+
+?? status == 200
+?? header content-type includes {{format_json}}
+?? body contains OSGeo.SDF
+?? body contains OSGeo.SHP
+?? body contains OSGeo.OGR
+?? body contains OSGeo.SQLite
+?? body contains OSGeo.Gdal
+###
+# Get Feature Providers (json clean)
+# @name get_feature_providers_json_clean
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETFEATUREPROVIDERS
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &CLEAN=1
+
+?? status == 200
+?? header content-type includes {{format_json}}
+?? body contains OSGeo.SDF
+?? body contains OSGeo.SHP
+?? body contains OSGeo.OGR
+?? body contains OSGeo.SQLite
+?? body contains OSGeo.Gdal
+###
+# Get Provider Capabilities (XML)
+# @name get_provider_capabilities_xml
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETPROVIDERCAPABILITIES
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_xml}}
+    &PROVIDER=OSGeo.SDF
+
+?? status == 200
+?? header content-type includes {{format_xml}}
+###
+# Get Provider Capabilities (json)
+# @name get_provider_capabilities_json
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETPROVIDERCAPABILITIES
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &PROVIDER=OSGeo.SDF
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Get Provider Capabilities (json clean)
+# @name get_provider_capabilities_json_clean
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETPROVIDERCAPABILITIES
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &PROVIDER=OSGeo.SDF
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Get Connect Values (XML)
+# @name get_connect_values_xml
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETCONNECTIONPROPERTYVALUES
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_xml}}
+    &PROVIDER=OSGeo.SDF
+    &PROPERTY=ReadOnly
+
+?? status == 200
+?? header content-type includes {{format_xml}}
+?? body contains FALSE
+?? body contains TRUE
+###
+# Get Connect Values (json)
+# @name get_connect_values_json
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETCONNECTIONPROPERTYVALUES
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &PROVIDER=OSGeo.SDF
+    &PROPERTY=ReadOnly
+
+?? status == 200
+?? header content-type includes {{format_json}}
+?? body contains FALSE
+?? body contains TRUE
+###
+# Get Connect Values (json clean)
+# @name get_connect_values_json_clean
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETCONNECTIONPROPERTYVALUES
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &PROVIDER=OSGeo.SDF
+    &PROPERTY=ReadOnly
+    &CLEAN=1
+
+?? status == 200
+?? header content-type includes {{format_json}}
+?? body contains FALSE
+?? body contains TRUE
+###
+# Describe Schema (XML)
+# @name describe_schema_xml
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=DESCRIBEFEATURESCHEMA
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_xml}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+
+?? status == 200
+?? header content-type includes {{format_xml}}
+###
+# Describe Schema (json)
+# @name describe_schema_json
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=DESCRIBEFEATURESCHEMA
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Describe Schema (json clean and simple)
+# @name describe_schema_json_clean_and_simple
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=DESCRIBEFEATURESCHEMA
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &CLEAN=1
+    &SIMPLE=1
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Select Features with filter (XML)
+# @name select_features_with_filter_xml
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=SELECTFEATURES
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_xml}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &CLASSNAME=SHP_Schema:Parcels
+    &FILTER=Autogenerated_SDF_ID < 10
+
+?? status == 200
+?? header content-type includes {{format_xml}}
+###
+# Select Features with filter (json)
+# @name select_features_with_filter_json
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=SELECTFEATURES
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &CLASSNAME=SHP_Schema:Parcels
+    &FILTER=Autogenerated_SDF_ID < 10
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Select Features with filter (json clean)
+# @name select_features_with_filter_json_clean
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=SELECTFEATURES
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &CLASSNAME=SHP_Schema:Parcels
+    &FILTER=Autogenerated_SDF_ID < 10
+    &CLEAN=1
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Select Aggregates (XML)
+# @name select_aggregates_xml
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=SELECTAGGREGATES
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_xml}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &COMPUTED_ALIASES=total
+    &COMPUTED_PROPERTIES=count(Autogenerated_SDF_ID)
+    &CLASSNAME=SHP_Schema:Parcels
+    &FILTER=Autogenerated_SDF_ID < 10
+
+?? status == 200
+?? header content-type includes {{format_xml}}
+?? body contains 9
+###
+# Select Aggregates (json)
+# @name select_aggregates_json
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=SELECTAGGREGATES
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &COMPUTED_ALIASES=total
+    &COMPUTED_PROPERTIES=count(Autogenerated_SDF_ID)
+    &CLASSNAME=SHP_Schema:Parcels
+    &FILTER=Autogenerated_SDF_ID < 10
+
+?? status == 200
+?? header content-type includes {{format_json}}
+# FIXME: This is not a clean conversion from XML (PropertyDefinitions is duplicated in values section)
+# ?? body contains 9
+###
+# Select Aggregates (json clean)
+# @name select_aggregates_json_clean
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=SELECTAGGREGATES
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &COMPUTED_ALIASES=total
+    &COMPUTED_PROPERTIES=count(Autogenerated_SDF_ID)
+    &CLASSNAME=SHP_Schema:Parcels
+    &FILTER=Autogenerated_SDF_ID < 10
+    &CLEAN=1
+
+?? status == 200
+?? header content-type includes {{format_json}}
+?? body contains 9
+###
+# Get Spatial Contexts (XML)
+# @name get_spatial_contexts_xml
+# @ref create_session
+
+# FIXME: ACTIVEONLY param should not be required
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETSPATIALCONTEXTS
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_xml}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &ACTIVEONLY=0
+
+?? status == 200
+?? header content-type includes {{format_xml}}
+###
+# Get Spatial Contexts (json)
+# @name get_spatial_contexts_json
+# @ref create_session
+
+# FIXME: ACTIVEONLY param should not be required
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETSPATIALCONTEXTS
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &ACTIVEONLY=0
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Get Spatial Contexts (json clean)
+# @name get_spatial_contexts_json_clean
+# @ref create_session
+
+# FIXME: ACTIVEONLY param should not be required
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETSPATIALCONTEXTS
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &ACTIVEONLY=0
+    &CLEAN=1
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Get Schemas (XML)
+# @name get_schemas_xml
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETSCHEMAS
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_xml}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+
+?? status == 200
+?? header content-type includes {{format_xml}}
+?? body contains SHP_Schema
+###
+# Get Schemas (json)
+# @name get_schemas_json
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETSCHEMAS
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+
+?? status == 200
+?? header content-type includes {{format_json}}
+?? body contains SHP_Schema
+###
+# Get Schemas (json clean)
+# @name get_schemas_json_clean
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETSCHEMAS
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &CLEAN=1
+
+?? status == 200
+?? header content-type includes {{format_json}}
+?? body contains SHP_Schema
+###
+# Get Classes (XML)
+# @name get_classes_xml
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETCLASSES
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_xml}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &SCHEMA=SHP_Schema
+
+?? status == 200
+?? header content-type includes {{format_xml}}
+?? body contains SHP_Schema:Parcels
+###
+# Get Classes (json)
+# @name get_classes_json
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETCLASSES
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &SCHEMA=SHP_Schema
+
+?? status == 200
+?? header content-type includes {{format_json}}
+?? body contains SHP_Schema:Parcels
+###
+# Get Classes (json clean)
+# @name get_classes_json_clean
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETCLASSES
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &SCHEMA=SHP_Schema
+    &CLEAN=1
+
+?? status == 200
+?? header content-type includes {{format_json}}
+?? body contains SHP_Schema:Parcels
+###
+# Get Class Definition (XML)
+# @name get_classdef_xml
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETCLASSDEFINITION
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_xml}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &SCHEMA=SHP_Schema
+    &CLASSNAME=Parcels
+
+?? status == 200
+?? header content-type includes {{format_xml}}
+###
+# Get Class Definition (json)
+# @name get_classdef_json
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETCLASSDEFINITION
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &SCHEMA=SHP_Schema
+    &CLASSNAME=Parcels
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Get Class Definition (json clean)
+# @name get_classdef_json_clean
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETCLASSDEFINITION
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &SCHEMA=SHP_Schema
+    &CLASSNAME=Parcels
+    &CLEAN=1
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Get Identity Properties (XML)
+# @name get_identity_properties_xml
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETIDENTITYPROPERTIES
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_xml}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &SCHEMA=SHP_Schema
+    &CLASSNAME=Parcels
+
+?? status == 200
+?? header content-type includes {{format_xml}}
+?? body contains Autogenerated_SDF_ID
+###
+# Get Identity Properties (json)
+# @name get_identity_properties_json
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETIDENTITYPROPERTIES
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &SCHEMA=SHP_Schema
+    &CLASSNAME=Parcels
+
+?? status == 200
+?? header content-type includes {{format_json}}
+?? body contains Autogenerated_SDF_ID
+###
+# Get Identity Properties (json clean)
+# @name get_identity_properties_json_clean
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETIDENTITYPROPERTIES
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+    &SCHEMA=SHP_Schema
+    &CLASSNAME=Parcels
+    &CLEAN=1
+
+?? status == 200
+?? header content-type includes {{format_json}}
+?? body contains Autogenerated_SDF_ID
+###
+# Test Connection
+# @name test_connection
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=TESTCONNECTION
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_xml}}
+    &RESOURCEID=Library://Samples/Sheboygan/Data/Parcels.FeatureSource
+
+?? status == 200
+?? header content-type includes text/plain
+?? body contains True
+###
+# Get FDO Cache Info (XML)
+# @name get_fdo_cache_info_xml
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETFDOCACHEINFO
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_xml}}
+
+?? status == 200
+?? header content-type includes {{format_xml}}
+###
+# Get FDO Cache Info (json)
+# @name get_fdo_cache_info_json
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETFDOCACHEINFO
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Get FDO Cache Info (json clean)
+# @name get_fdo_cache_info_json_clean
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETFDOCACHEINFO
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &FORMAT={{format_json}}
+    &CLEAN=1
+
+?? status == 200
+?? header content-type includes {{format_json}}

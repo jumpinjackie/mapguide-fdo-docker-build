@@ -78,7 +78,25 @@ These 2 combined, result in a build pipeline that is very fast for builds after 
 
 ## 4. Running test suites
 
-TBD
+Open 2 separate terminal sessions
+
+In terminal 1 (to install the MapGuide installer package into the target distro docker container):
+
+```
+./mapguide_image_install.sh --target [generic|ubuntu] --target-distro [distro] --tag [latest|version]
+```
+
+In terminal 2 (to run the integration test suite):
+
+> NOTE: You must have node.js installed
+
+```
+cd tests
+# Run all test suites
+npx httpyac *_api.http --all --bail
+# Run teardown
+npx httpyac _teardown.http --all --bail
+```
 
 # Supported build environments
 
