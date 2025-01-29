@@ -154,6 +154,7 @@ cd $SRC_DIR || exit
 # For generic, we're building all internal thirdparty libs (except zlib)
 ./cmake_bootstrap.sh --config "$MG_BUILD_CONFIG" --oem-working-dir $OEM_BUILD_DIR --build 64 --with-ccache --with-all-internal  --without-internal-zlib
 check_build
+# For generic, we must build httpd with static openssl
 ./cmake_linuxapt.sh --prefix "/usr/local/mapguideopensource-${MG_VER_TRIPLE}" --oem-working-dir $OEM_BUILD_DIR --working-dir "$LINUXAPT_BUILD" --with-static-openssl
 check_build
 ./cmake_build.sh --oem-working-dir $OEM_BUILD_DIR --cmake-build-dir $BUILD_DIR --mg-ver-major "$MG_VER_MAJOR" --mg-ver-minor "$MG_VER_MINOR" --mg-ver-rel "$MG_VER_REL" --mg-ver-rev "$MG_VER_REV" --ninja
