@@ -29,16 +29,26 @@ install_prereqs()
 {
     case "$DISTRO" in
         ubuntu)
+            echo "No prereqs required to be installed"
             ;;
         debian)
+            apt-get update && apt-get install -y procps
             ;;
         fedora)
-            ;;
-        rockylinux)
+            yum install -y initscripts redhat-lsb libnsl procps libxcrypt-compat
             ;;
         opensuse/leap)
+            zypper install -y gzip tar libnsl1
+            groupadd daemon
+            useradd -g daemon daemon
+            # This is needed to avoid httpd complaining about not being able to find a transcoding service
+            export LANG=en_US.UTF-8
             ;;
         archlinux)
+            pacman -Sy libxcrypt-compat
+            ;;
+        oraclelinux)
+            microdnf install -y gzip procps libxcrypt-compat
             ;;
         *)
             echo "FATAL: I don't know what your distro is"
