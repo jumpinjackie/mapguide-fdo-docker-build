@@ -90,12 +90,14 @@ In terminal 2 (to run the integration test suite):
 
 > NOTE: You must have node.js installed
 
+> `--output headers` option is specified as some test cases output binary response content which certain shells/terminals may try to interpet the content as extra commands. This option was the best one that provides some level of chatter without being too quiet or too verbose.
+
 ```
 cd tests
 # Run all test suites
-npx httpyac *_api.http --all --bail
+npx httpyac *_api.http --all --bail --output headers
 # Run teardown
-npx httpyac _teardown.http --all --bail
+npx httpyac _teardown.http --all --bail --output headers
 ```
 
 # Supported build environments
