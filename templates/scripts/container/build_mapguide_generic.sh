@@ -16,8 +16,10 @@ check_build()
 }
 
 OEM_BUILD_DIR=/tmp/work/build_area/oem
+OEM_COMMON_BUILD_DIR=/tmp/work/build_area/oem_commonlibs
 LINUXAPT_BUILD=/tmp/work/build_area/linuxapt
 BUILD_DIR=/tmp/work/build_area/mapguide
+BUILD_COMMON_DIR=/tmp/work/build_area/mapguide_commonlibs
 SRC_DIR=/tmp/work/src
 FDO_SRC_DIR=/tmp/work/fdo_src
 SDKS_DIR=/tmp/work/sdks
@@ -111,7 +113,7 @@ SQLITE_BUILD_ROOT=/tmp/work/build_area/sqlite3
 mkdir -p $SQLITE_BUILD_ROOT
 tar -zxf $SDKS_DIR/sqlite.tar.gz -C $SQLITE_BUILD_ROOT --strip-components 1
 cd $SQLITE_BUILD_ROOT || exit
-./configure --enable-static --disable-shared --enable-silent-rules
+./configure --enable-static --disable-shared --enable-silent-rules --with-pic
 check_build
 make && make install
 check_build
@@ -169,5 +171,23 @@ fi
 check_build
 cd "/usr/local/mapguideopensource-${MG_VER_TRIPLE}" || exit
 tar -zcf "$ARTIFACTS_DIR/mapguideopensource-$MG_VER-$MG_DISTRO-amd64.tar.gz" *
+check_build
+ccache -s
+
+echo "Building MapGuide Common Libs ${MG_VER_TRIPLE} (v${MG_VER} - ${MG_BUILD_CONFIG})"
+cd $SRC_DIR || exit
+# For generic, we're building all internal thirdparty libs that are required by the common libs subset
+#
+# TODO: In the future, instead of a dedicated build target, we should be able to just pluck the relevant files
+# from the main build and produce our common libs package tarball
+./cmake_bootstrap.sh --config "$MG_BUILD_CONFIG" --oem-working-dir $OEM_COMMON_BUILD_DIR --build 64 --with-ccache --with-all-internal --common-subset-only
+check_build
+./cmake_build.sh --oem-working-dir $OEM_COMMON_BUILD_DIR --cmake-build-dir $BUILD_COMMON_DIR --mg-ver-major "$MG_VER_MAJOR" --mg-ver-minor "$MG_VER_MINOR" --mg-ver-rel "$MG_VER_REL" --mg-ver-rev "$MG_VER_REV" --ninja --common-subset-only
+check_build
+cd $BUILD_COMMON_DIR || exit
+cmake --build . --target install
+check_build
+cd "/usr/local/mapguideopensource-common-${MG_VER_TRIPLE}" || exit
+tar -zcf "$ARTIFACTS_DIR/mapguideopensource-common-$MG_VER-generic-linux-amd64.tar.gz" *
 check_build
 ccache -s
