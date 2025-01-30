@@ -1,0 +1,21 @@
+# @import ./_shared_variables.http
+###
+# Check phpinfo
+# @name check_phpinfo
+
+GET {{endpoint_domain}}/mapguide/phpinfo.php
+
+>>! ./results/post_install_checks/check_phpinfo.html
+
+?? status == 200
+?? body contains MapGuideApi
+?? body contains module_mapguideapi
+###
+# MapGuide PHP API sanity test
+# @name php_sanity
+
+GET {{endpoint_domain}}/mapguide/test.php
+
+>>! ./results/post_install_checks/php_sanity.html
+
+?? status == 200

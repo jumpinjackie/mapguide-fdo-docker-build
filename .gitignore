@@ -23,6 +23,7 @@ mapguide_version.sh
 build_area/*
 test/data/*.mgp
 test/results/**/*.xml
+test/results/**/*.html
 test/results/**/*.json
 test/results/**/*.png
 test/results/**/*.txt
