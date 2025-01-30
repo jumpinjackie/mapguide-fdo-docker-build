@@ -189,7 +189,7 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             echo "Options:"
             echo "  --interactive [Enter the build container with an interactive bash prompt]"
             echo "  --target [mapguide|fdo]"
-            echo "  --distro [the distro you are targeting, ubuntu|centos]"
+            echo "  --distro [the distro you are targeting, ubuntu|generic]"
             echo "  --tag [the version tag]"
             echo "  --cpu [x86|x64]"
             echo "  --debug [Build for debug mode]"
