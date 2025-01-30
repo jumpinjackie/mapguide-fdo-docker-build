@@ -19,3 +19,41 @@ GET {{endpoint_domain}}/mapguide/test.php
 >>! ./results/post_install_checks/php_sanity.html
 
 ?? status == 200
+###
+# Launch PHP AJAX viewer
+# @name php_ajax_viewer
+
+GET {{endpoint_domain}}/mapguide/mapviewerphp/ajaxviewer.php?USERNAME=Anonymous&WEBLAYOUT=Library://Samples/Sheboygan/Layouts/SheboyganPhp.WebLayout
+
+>>! ./results/post_install_checks/php_ajax_viewer.html
+
+?? status = 200
+# Assert enough about the content that can confirm to us this is indeed the rendered HTML of the AJAX viewer PHP script
+?? body contains phpviewersample/overview/overviewmain.php
+?? body contains Sheboygan Map
+?? body contains /mapguide/mapagent/mapagent.fcgi
+?? body contains /viewerfiles/browserdetect.js
+?? body contains /viewerfiles/contextmenu.js
+?? body contains /viewerfiles/util.js
+?? body contains function BasicCommand
+?? body contains function UiTargetCommand
+?? body contains function InvokeUrlCommand
+###
+# Launch JSP AJAX viewer
+# @name jsp_ajax_viewer
+
+GET {{endpoint_domain}}/mapguide/mapviewerjava/ajaxviewer.jsp?USERNAME=Anonymous&WEBLAYOUT=Library://Samples/Sheboygan/Layouts/SheboyganJsp.WebLayout
+
+>>! ./results/post_install_checks/jsp_ajax_viewer.html
+
+?? status = 200
+# Assert enough about the content that can confirm to us this is indeed the rendered HTML of the AJAX viewer PHP script
+?? body contains javaviewersample/overview/overviewmain.jsp
+?? body contains Sheboygan Map
+?? body contains /mapguide/mapagent/mapagent.fcgi
+?? body contains /viewerfiles/browserdetect.js
+?? body contains /viewerfiles/contextmenu.js
+?? body contains /viewerfiles/util.js
+?? body contains function BasicCommand
+?? body contains function UiTargetCommand
+?? body contains function InvokeUrlCommand

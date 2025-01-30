@@ -30,26 +30,27 @@ install_prereqs()
 {
     case "$DISTRO" in
         ubuntu)
-            echo "No prereqs required to be installed"
+            apt-get update && apt-get install -y openjdk-8-jdk
             ;;
         debian)
-            apt-get update && apt-get install -y procps
+            # This may not be a java 8 JDK being installed. Let's see how famous their backwards compatibility is!
+            apt-get update && apt-get install -y procps default-jdk
             ;;
         fedora)
-            yum install -y initscripts redhat-lsb libnsl procps libxcrypt-compat
+            yum install -y initscripts redhat-lsb libnsl procps libxcrypt-compat java-1.8.0-openjdk
             ;;
         opensuse/leap)
-            zypper install -y gzip tar libnsl1
+            zypper install -y gzip tar libnsl1 java-1_8_0-openjdk-devel
             groupadd daemon
             useradd -g daemon daemon
             # This is needed to avoid httpd complaining about not being able to find a transcoding service
             export LANG=en_US.UTF-8
             ;;
         archlinux)
-            pacman -Sy libxcrypt-compat
+            pacman -Sy --noconfirm libxcrypt-compat jdk8-openjdk
             ;;
         oraclelinux)
-            microdnf install -y gzip procps libxcrypt-compat
+            microdnf install -y gzip procps libxcrypt-compat java-1.8.0-openjdk-devel
             ;;
         *)
             echo "FATAL: I don't know what your distro is"
@@ -61,6 +62,22 @@ install_prereqs()
 post_install()
 {
     echo "Performing post-install tasks"
+
+    echo "Checking if we have java ..."
+    if ! command -v java 2>&1 >/dev/null
+    then
+        echo "Java not found. Testing if JAVA_HOME is set"
+        if [ "$JAVA_HOME" = "" ];
+        then
+            echo "FATAL: Could not find java and JAVA_HOME environment variable is not set"
+            exit 1
+        else
+            echo "JAVA_HOME is set to: $JAVA_HOME"
+        fi
+    fi
+
+    # Start tomcat (installer doesn't auto start this)
+    /etc/init.d/tomcat-mapguide start
 
     # Write a file that generates phpinfo
     cat > $INST_PATH/webserverextensions/www/phpinfo.php <<EOF
@@ -204,7 +221,7 @@ install_prereqs
 cp /artifacts/"$PACKAGE" /tmp/installer.run
 # We run mgserver in interactive mode so that the container does not immediately exit, allowing us to fire off our mapagent
 # integration test suite against it from a separate terminal session. Hence the --no-mgserver-start switch
-/tmp/installer.run -- --no-mgserver-start --headless --with-sdf --with-shp --with-sqlite --with-gdal --with-ogr --with-wfs --with-wms
+/tmp/installer.run -- --no-mgserver-start --headless --with-sdf --with-shp --with-sqlite --with-gdal --with-ogr --with-wfs --with-wms --with-tomcat
 post_install
 cd $INST_PATH/server/bin || exit
 # TODO: We should also spin up the bundled mgdevhttpserver and fire off the same mapagent integration test suite against

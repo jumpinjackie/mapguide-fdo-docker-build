@@ -4,6 +4,7 @@ ROOT=$(realpath .)
 ARTIFACTS_ROOT=$ROOT/artifacts/Release
 SCRIPT_ROOT=$ROOT/templates/scripts/container
 TEST_ROOT=$ROOT/test
+SDKS_DIR=$ROOT/sdks
 INTERACTIVE=0
 UBUNTU_VERSION=ubuntu22
 
@@ -25,9 +26,9 @@ install_mapguide_env()
 
     if [ "$INTERACTIVE" == "1" ];
     then
-        docker run --rm -it -p 8008:8008 -v ${TEST_ROOT}:/tests -v ${SCRIPT_ROOT}:/scripts -v ${ARTIFACTS_ROOT}:/artifacts $container_name /bin/bash
+        docker run --rm -it -p 8008:8008 -v ${SDKS_DIR}:/tmp/work/sdks -v ${TEST_ROOT}:/tests -v ${SCRIPT_ROOT}:/scripts -v ${ARTIFACTS_ROOT}:/artifacts $container_name /bin/bash
     else
-        docker run --rm -it -p 8008:8008 -v ${TEST_ROOT}:/tests -v ${SCRIPT_ROOT}:/scripts -v ${ARTIFACTS_ROOT}:/artifacts $container_name /scripts/mapguide_smoke_test.sh --package $package --distro $target_distro
+        docker run --rm -it -p 8008:8008 -v ${SDKS_DIR}:/tmp/work/sdks -v ${TEST_ROOT}:/tests -v ${SCRIPT_ROOT}:/scripts -v ${ARTIFACTS_ROOT}:/artifacts $container_name /scripts/mapguide_smoke_test.sh --package $package --distro $target_distro
     fi
 }
 
