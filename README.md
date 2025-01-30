@@ -35,7 +35,7 @@ This will generate a series of `Dockerfile` and `snap.sh` build scripts in:
  * `docker/x64/mapguide/ubuntu22/develop_thin`
  * `docker/x64/mapguide/ubuntu22/run`
 
-The `--distro` and `--tag` parameters are composed into the base docker image from which our target environment is built on top of, so in the above example, our docker environment will ultimately be based from the `ubuntu:16.04` docker base image
+The `--distro` and `--tag` parameters are composed into the base docker image from which our target environment is built on top of, so in the above example, our docker environment will ultimately be based from the `ubuntu:22.04` docker base image
 
 A convenience `env_setup_all.sh` is provided that sets up the docker environments for all supported distros
 
@@ -44,7 +44,7 @@ The `--distro` and `--tag` combinations we currently recognise in this script ar
  * `ubuntu` and `22.04`
  * `generic` and no tag
 
-The `generic` distro is a [holy-build-box](https://github.com/phusion/holy-build-box) container geared towards building MapGuide and FDO without any system-provided development libraries and allows for maximally portable linux binaries. This distro target also produces the "common libs subset" of MapGuide, whose `.so` binaries are bundled with a multi-platform .net API binding nuget package.
+The `generic` distro is a `rockylinux` container geared towards building MapGuide and FDO without any system-provided development libraries and allows for maximally portable linux binaries. This distro target also produces the "common libs subset" of MapGuide, whose `.so` binaries are bundled with a multi-platform .net API binding nuget package.
 
 ## 3. Run the build
 
@@ -80,7 +80,7 @@ These 2 combined, result in a build pipeline that is very fast for builds after 
 
 Open 2 separate terminal sessions
 
-In terminal 1 (to install the MapGuide installer package into the target distro docker container):
+In terminal 1 (to install the MapGuide installer package into the target distro docker container and start the MapGuide Server in interactive mode):
 
 ```
 ./mapguide_image_install.sh --target [generic|ubuntu] --target-distro [distro] --tag [latest|version]
@@ -90,7 +90,7 @@ In terminal 2 (to run the integration test suite):
 
 > NOTE: You must have node.js installed
 
-> `--output headers` option is specified as some test cases output binary response content which certain shells/terminals may try to interpet the content as extra commands. This option was the best one that provides some level of chatter without being too quiet or too verbose.
+> `--output headers` option is specified as some test cases output binary response content which certain shells/terminals may try to interpet the content as extra commands/control sequences/audio cues. This option was the best one that provides some level of chatter without being too quiet or too verbose.
 
 ```
 cd tests
@@ -115,7 +115,7 @@ Building for 32-bit Linux distros is not supported.
 
 Our canonical distros for building MapGuide releases for Linux are:
 
- * [holy-build-box](https://github.com/phusion/holy-build-box)
+ * Rocky Linux 8 (for `generic`)
  * Ubuntu 22.04
 
 # FDO Thirdparty matrix
