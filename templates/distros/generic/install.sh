@@ -249,7 +249,6 @@ main()
         dialog_server
         dialog_webtier
         dialog_extras
-        #dialog_coordsys
     fi
     dump_configuration
     install_prerequisites
@@ -798,7 +797,6 @@ EOF
 
     if id "$httpd_user" >/dev/null 2>&1; then
         echo "[config]: chown-ing some key directories to user '$httpd_user'"
-        # daemon is the default user/group the bundled httpd will use
         chown ${httpd_user}:${httpd_group} ${MG_INST}/webserverextensions/Temp
         chown ${httpd_user}:${httpd_group} ${MG_INST}/webserverextensions/www/fusion/lib/tcpdf/cache
     else
