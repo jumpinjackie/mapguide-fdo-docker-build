@@ -1,0 +1,138 @@
+# @import ./_setup.http
+###
+# Create Runtime Map (XML)
+# @name create_runtime_map_xml
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=CREATERUNTIMEMAP
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &MAPDEFINITION=Library://Samples/Sheboygan/Maps/Sheboygan.MapDefinition
+    &REQUESTEDFEATURES=0
+    &TARGETMAPNAME=Sheboygan
+    &FORMAT={{format_xml}}
+
+>>! ./results/map_interaction_api/create_runtime_map_xml.xml
+
+?? status == 200
+?? header content-type includes {{format_xml}}
+###
+# Create Runtime Map (json)
+# @name create_runtime_map_json
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=CREATERUNTIMEMAP
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &MAPDEFINITION=Library://Samples/Sheboygan/Maps/Sheboygan.MapDefinition
+    &REQUESTEDFEATURES=0
+    &TARGETMAPNAME=Sheboygan
+    &FORMAT={{format_json}}
+
+>>! ./results/map_interaction_api/create_runtime_map_json.json
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Create Runtime Map (json clean)
+# @name create_runtime_map_json_clean
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=CREATERUNTIMEMAP
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &MAPDEFINITION=Library://Samples/Sheboygan/Maps/Sheboygan.MapDefinition
+    &REQUESTEDFEATURES=0
+    &TARGETMAPNAME=Sheboygan
+    &FORMAT={{format_json}}
+    &CLEAN=1
+
+>>! ./results/map_interaction_api/create_runtime_map_json_clean.json
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Render Dynamic Overlay
+# @name render_dynamic_overlay
+# @ref create_runtime_map_json_clean
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &MAPNAME=Sheboygan
+    &OPERATION=GETDYNAMICMAPOVERLAYIMAGE
+    &VERSION=2.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &SETVIEWCENTERX=-87.723055393737
+    &SETVIEWCENTERY=43.752794398755
+    &SETVIEWSCALE=5581.138153661457
+    &SETDISPLAYWIDTH=750
+    &SETDISPLAYHEIGHT=975
+    &SETDISPLAYDPI=96
+    &BEHAVIOR=7
+    &FORMAT=PNG
+
+>>! ./results/map_interaction_api/render_dynamic_overlay.png
+
+?? status == 200
+?? header content-type == image/png
+###
+# Make polygon selection
+# @name make_polygon_selection
+# @ref create_runtime_map_json_clean
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &MAPNAME=Sheboygan
+    &OPERATION=QUERYMAPFEATURES
+    &VERSION=4.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &GEOMETRY=POLYGON((-87.722774548729 43.754736304645,-87.724326581102 43.753807738268,-87.724193928762 43.75244141917,-87.722190878434 43.752972028529,-87.7221776132 43.754378143328,-87.722774548729 43.754736304645))
+    &SELECTIONVARIANT=INTERSECTS
+    &SELECTIONCOLOR=0xFF000000
+    &SELECTIONFORMAT=PNG8
+    &MAXFEATURES=-1
+    &REQUESTDATA=1
+    &PERSIST=1
+    &FORMAT={{format_json}}
+
+>>! ./results/map_interaction_api/make_polygon_selection.json
+
+?? status == 200
+?? header content-type includes {{format_json}}
+###
+# Render Dynamic Overlay (after selection)
+# @name render_dynamic_overlay_after_selection
+# @ref make_polygon_selection
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &MAPNAME=Sheboygan
+    &OPERATION=GETDYNAMICMAPOVERLAYIMAGE
+    &VERSION=2.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &SETVIEWCENTERX=-87.723055393737
+    &SETVIEWCENTERY=43.752794398755
+    &SETVIEWSCALE=5581.138153661457
+    &SETDISPLAYWIDTH=750
+    &SETDISPLAYHEIGHT=975
+    &SETDISPLAYDPI=96
+    &SELECTIONCOLOR=0xFF000000
+    &BEHAVIOR=7
+    &FORMAT=PNG
+
+>>! ./results/map_interaction_api/render_dynamic_overlay_after_selection.png
+
+?? status == 200
+?? header content-type == image/png

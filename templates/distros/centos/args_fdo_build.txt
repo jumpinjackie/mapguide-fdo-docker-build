@@ -1,1 +1,0 @@
---ninja --with-sdf --with-shp --with-sqlite --with-ogr --with-gdal --with-wfs --with-wms --with-genericrdbms

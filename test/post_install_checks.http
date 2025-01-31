@@ -1,0 +1,149 @@
+# @import ./_shared_variables.http
+###
+# Check phpinfo
+# @name check_phpinfo
+
+GET {{endpoint_domain}}/mapguide/phpinfo.php
+
+>>! ./results/post_install_checks/check_phpinfo.html
+
+?? status == 200
+?? body contains MapGuideApi
+?? body contains module_mapguideapi
+###
+# MapGuide PHP API sanity test
+# @name php_sanity
+
+GET {{endpoint_domain}}/mapguide/test.php
+
+>>! ./results/post_install_checks/php_sanity.html
+
+?? status == 200
+###
+# Launch PHP AJAX viewer
+# @name php_ajax_viewer
+
+GET {{endpoint_domain}}/mapguide/mapviewerphp/ajaxviewer.php?USERNAME=Anonymous&WEBLAYOUT=Library://Samples/Sheboygan/Layouts/SheboyganPhp.WebLayout
+
+>>! ./results/post_install_checks/php_ajax_viewer.html
+
+?? status = 200
+# Assert enough about the content that can confirm to us this is indeed the rendered HTML of the AJAX viewer PHP script
+?? body contains phpviewersample/overview/overviewmain.php
+?? body contains Sheboygan Map
+?? body contains /mapguide/mapagent/mapagent.fcgi
+?? body contains /viewerfiles/browserdetect.js
+?? body contains /viewerfiles/contextmenu.js
+?? body contains /viewerfiles/util.js
+?? body contains function BasicCommand
+?? body contains function UiTargetCommand
+?? body contains function InvokeUrlCommand
+###
+# Launch JSP AJAX viewer
+# @name jsp_ajax_viewer
+
+GET {{endpoint_domain}}/mapguide/mapviewerjava/ajaxviewer.jsp?USERNAME=Anonymous&WEBLAYOUT=Library://Samples/Sheboygan/Layouts/SheboyganJsp.WebLayout
+
+>>! ./results/post_install_checks/jsp_ajax_viewer.html
+
+?? status = 200
+# Assert enough about the content that can confirm to us this is indeed the rendered HTML of the AJAX viewer PHP script
+?? body contains javaviewersample/overview/overviewmain.jsp
+?? body contains Sheboygan Map
+?? body contains /mapguide/mapagent/mapagent.fcgi
+?? body contains /viewerfiles/browserdetect.js
+?? body contains /viewerfiles/contextmenu.js
+?? body contains /viewerfiles/util.js
+?? body contains function BasicCommand
+?? body contains function UiTargetCommand
+?? body contains function InvokeUrlCommand
+###
+# Get WMS 1.0.0 capabilities
+# @name get_wms_capabilities_100
+
+GET {{endpoint_base}}
+    ?REQUEST=GETCAPABILITIES
+    &SERVICE=WMS
+    &VERSION=1.0.0
+    &FORMAT=text/xml
+
+>>! ./results/post_install_checks/get_wms_capabilities_100.xml
+
+?? status == 200
+?? header content-type includes text/xml
+?? body contains {{endpoint_domain}}
+###
+# Get WMS 1.1.0 capabilities
+# @name get_wms_capabilities_110
+
+GET {{endpoint_base}}
+    ?REQUEST=GETCAPABILITIES
+    &SERVICE=WMS
+    &VERSION=1.1.0
+    &FORMAT=text/xml
+
+>>! ./results/post_install_checks/get_wms_capabilities_110.xml
+
+?? status == 200
+?? header content-type includes text/xml
+?? body contains {{endpoint_domain}}
+###
+# Get WMS 1.1.1 capabilities
+# @name get_wms_capabilities_111
+
+GET {{endpoint_base}}
+    ?REQUEST=GETCAPABILITIES
+    &SERVICE=WMS
+    &VERSION=1.1.1
+    &FORMAT=text/xml
+
+>>! ./results/post_install_checks/get_wms_capabilities_111.xml
+
+?? status == 200
+?? header content-type includes text/xml
+?? body contains {{endpoint_domain}}
+###
+# Get WMS 1.3.0 capabilities
+# @name get_wms_capabilities_130
+
+GET {{endpoint_base}}
+    ?REQUEST=GETCAPABILITIES
+    &SERVICE=WMS
+    &VERSION=1.3.0
+    &FORMAT=text/xml
+
+>>! ./results/post_install_checks/get_wms_capabilities_130.xml
+
+?? status == 200
+?? header content-type includes text/xml
+?? body contains {{endpoint_domain}}
+###
+# Get WFS 1.0.0 capabilities
+# @name get_wfs_capabilities_100
+
+GET {{endpoint_base}}
+    ?REQUEST=GETCAPABILITIES
+    &SERVICE=WFS
+    &VERSION=1.0.0
+    &FORMAT=text/xml
+
+>>! ./results/post_install_checks/get_wfs_capabilities_100.xml
+
+?? status == 200
+?? header content-type includes text/xml
+?? body contains {{endpoint_domain}}
+###
+# Get WFS 1.1.0 capabilities
+# @name get_wfs_capabilities_110
+
+GET {{endpoint_base}}
+    ?REQUEST=GETCAPABILITIES
+    &SERVICE=WFS
+    &VERSION=1.1.0
+    &FORMAT=text/xml
+
+>>! ./results/post_install_checks/get_wfs_capabilities_110.xml
+
+?? status == 200
+?? header content-type includes text/xml
+?? body contains {{endpoint_domain}}

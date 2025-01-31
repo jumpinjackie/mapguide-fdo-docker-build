@@ -1,0 +1,27 @@
+# @import ./_setup.http
+
+# TODO: Variants of GETMAPIMAGE
+###
+# Get Map Image
+# @name get_map_image
+# @ref create_session
+
+GET {{endpoint_base}}
+    ?SESSION={{session}}
+    &OPERATION=GETMAPIMAGE
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &MAPDEFINITION=Library://Samples/Sheboygan/Maps/Sheboygan.MapDefinition
+    &SETVIEWCENTERX=-87.73025425093128
+    &SETVIEWCENTERY=43.744459064634064
+    &SETVIEWSCALE=100000
+    &SETDISPLAYWIDTH=585
+    &SETDISPLAYHEIGHT=893
+    &SETDISPLAYDPI=96
+    &FORMAT=PNG
+
+>>! ./results/rendering_service_api/get_map_image.png
+
+?? status == 200
+?? header content-type == image/png

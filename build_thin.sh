@@ -126,6 +126,7 @@ build_mapguide_thin()
         build_area_dir="$PWD/build_area/$cpu/$build_config/$distro_label/mapguide"
         mkdir -p "$build_area_dir"
         src_dir="$PWD/mapguide/MgDev"
+        fdo_src_dir="$PWD/fdo"
         scripts_dir="$PWD/templates/scripts/container"
         artifacts_dir="$PWD/artifacts/$build_config"
         container_name="mapguide_${distro_label}_develop_thin_${cpu}"
@@ -139,17 +140,17 @@ build_mapguide_thin()
         echo "Using image: ${container_name}"
         container_root="/tmp/work"
         if [ "$INTERACTIVE" == "1" ]; then
-            docker run --rm -it -e MG_BUILD_CONFIG=$build_config -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER_MAJOR=$MG_VER_MAJOR -e MG_VER_MINOR=$MG_VER_MINOR -e MG_VER_REL=$MG_VER_REL -e MG_VER_REV=$MG_VER_REV -e FDOSDK=$fdosdk -v $patches_dir:$container_root/patches -v $ccache_dir:/root/.ccache -v $download_tmp_dir:/tmp/download -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts -v $sdks_dir:$container_root/sdks $DOCKER_RUN_EX_ARGS $container_name /bin/bash
+            docker run --rm -it -e MG_BUILD_CONFIG=$build_config -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER_MAJOR=$MG_VER_MAJOR -e MG_VER_MINOR=$MG_VER_MINOR -e MG_VER_REL=$MG_VER_REL -e MG_VER_REV=$MG_VER_REV -e FDOSDK=$fdosdk -v $patches_dir:$container_root/patches -v $ccache_dir:/root/.ccache -v $download_tmp_dir:/tmp/download -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $fdo_src_dir:$container_root/fdo_src -v $artifacts_dir:$container_root/artifacts -v $sdks_dir:$container_root/sdks $DOCKER_RUN_EX_ARGS $container_name /bin/bash
             check_build
         else
             # If a distro-specific override build script exists, use that instead
             if [ -f "${scripts_dir}/build_mapguide_${distro_label}.sh" ]; then
                 echo "Building with override build_mapguide_${distro_label}.sh"
-                docker run --rm -it -e MG_BUILD_CONFIG=$build_config -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER_MAJOR=$MG_VER_MAJOR -e MG_VER_MINOR=$MG_VER_MINOR -e MG_VER_REL=$MG_VER_REL -e MG_VER_REV=$MG_VER_REV -e FDOSDK=$fdosdk -v $patches_dir:$container_root/patches -v $ccache_dir:/root/.ccache -v $download_tmp_dir:/tmp/download -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts -v $sdks_dir:$container_root/sdks $DOCKER_RUN_EX_ARGS $container_name $container_root/scripts/build_mapguide_${distro_label}.sh
+                docker run --rm -it -e MG_BUILD_CONFIG=$build_config -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER_MAJOR=$MG_VER_MAJOR -e MG_VER_MINOR=$MG_VER_MINOR -e MG_VER_REL=$MG_VER_REL -e MG_VER_REV=$MG_VER_REV -e FDOSDK=$fdosdk -v $patches_dir:$container_root/patches -v $ccache_dir:/root/.ccache -v $download_tmp_dir:/tmp/download -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $fdo_src_dir:$container_root/fdo_src -v $artifacts_dir:$container_root/artifacts -v $sdks_dir:$container_root/sdks $DOCKER_RUN_EX_ARGS $container_name $container_root/scripts/build_mapguide_${distro_label}.sh
                 check_build
             else
                 echo "Building with standard container build script"
-                docker run --rm -it -e MG_BUILD_CONFIG=$build_config -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER_MAJOR=$MG_VER_MAJOR -e MG_VER_MINOR=$MG_VER_MINOR -e MG_VER_REL=$MG_VER_REL -e MG_VER_REV=$MG_VER_REV -e FDOSDK=$fdosdk -v $patches_dir:$container_root/patches -v $ccache_dir:/root/.ccache -v $download_tmp_dir:/tmp/download -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts -v $sdks_dir:$container_root/sdks $DOCKER_RUN_EX_ARGS $container_name $container_root/scripts/build_mapguide.sh
+                docker run --rm -it -e MG_BUILD_CONFIG=$build_config -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER_MAJOR=$MG_VER_MAJOR -e MG_VER_MINOR=$MG_VER_MINOR -e MG_VER_REL=$MG_VER_REL -e MG_VER_REV=$MG_VER_REV -e FDOSDK=$fdosdk -v $patches_dir:$container_root/patches -v $ccache_dir:/root/.ccache -v $download_tmp_dir:/tmp/download -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $fdo_src_dir:$container_root/fdo_src -v $artifacts_dir:$container_root/artifacts -v $sdks_dir:$container_root/sdks $DOCKER_RUN_EX_ARGS $container_name $container_root/scripts/build_mapguide.sh
                 check_build
             fi
         fi
@@ -188,7 +189,7 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             echo "Options:"
             echo "  --interactive [Enter the build container with an interactive bash prompt]"
             echo "  --target [mapguide|fdo]"
-            echo "  --distro [the distro you are targeting, ubuntu|centos]"
+            echo "  --distro [the distro you are targeting, ubuntu|generic]"
             echo "  --tag [the version tag]"
             echo "  --cpu [x86|x64]"
             echo "  --debug [Build for debug mode]"
