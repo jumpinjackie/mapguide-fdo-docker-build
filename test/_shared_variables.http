@@ -1,4 +1,6 @@
-@endpoint_domain = http://localhost:8008
+@endpoint_hostname = localhost
+@endpoint_port = 8018
+@endpoint_domain = http://{{endpoint_hostname}}:{{endpoint_port}}
 @endpoint_base = {{endpoint_domain}}/mapguide/mapagent/mapagent.fcgi
 @admin_user = Administrator
 @admin_pass = admin

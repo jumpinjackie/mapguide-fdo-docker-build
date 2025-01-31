@@ -57,3 +57,93 @@ GET {{endpoint_domain}}/mapguide/mapviewerjava/ajaxviewer.jsp?USERNAME=Anonymous
 ?? body contains function BasicCommand
 ?? body contains function UiTargetCommand
 ?? body contains function InvokeUrlCommand
+###
+# Get WMS 1.0.0 capabilities
+# @name get_wms_capabilities_100
+
+GET {{endpoint_base}}
+    ?REQUEST=GETCAPABILITIES
+    &SERVICE=WMS
+    &VERSION=1.0.0
+    &FORMAT=text/xml
+
+>>! ./results/post_install_checks/get_wms_capabilities_100.xml
+
+?? status == 200
+?? header content-type includes text/xml
+?? body contains {{endpoint_domain}}
+###
+# Get WMS 1.1.0 capabilities
+# @name get_wms_capabilities_110
+
+GET {{endpoint_base}}
+    ?REQUEST=GETCAPABILITIES
+    &SERVICE=WMS
+    &VERSION=1.1.0
+    &FORMAT=text/xml
+
+>>! ./results/post_install_checks/get_wms_capabilities_110.xml
+
+?? status == 200
+?? header content-type includes text/xml
+?? body contains {{endpoint_domain}}
+###
+# Get WMS 1.1.1 capabilities
+# @name get_wms_capabilities_111
+
+GET {{endpoint_base}}
+    ?REQUEST=GETCAPABILITIES
+    &SERVICE=WMS
+    &VERSION=1.1.1
+    &FORMAT=text/xml
+
+>>! ./results/post_install_checks/get_wms_capabilities_111.xml
+
+?? status == 200
+?? header content-type includes text/xml
+?? body contains {{endpoint_domain}}
+###
+# Get WMS 1.3.0 capabilities
+# @name get_wms_capabilities_130
+
+GET {{endpoint_base}}
+    ?REQUEST=GETCAPABILITIES
+    &SERVICE=WMS
+    &VERSION=1.3.0
+    &FORMAT=text/xml
+
+>>! ./results/post_install_checks/get_wms_capabilities_130.xml
+
+?? status == 200
+?? header content-type includes text/xml
+?? body contains {{endpoint_domain}}
+###
+# Get WFS 1.0.0 capabilities
+# @name get_wfs_capabilities_100
+
+GET {{endpoint_base}}
+    ?REQUEST=GETCAPABILITIES
+    &SERVICE=WFS
+    &VERSION=1.0.0
+    &FORMAT=text/xml
+
+>>! ./results/post_install_checks/get_wfs_capabilities_100.xml
+
+?? status == 200
+?? header content-type includes text/xml
+?? body contains {{endpoint_domain}}
+###
+# Get WFS 1.1.0 capabilities
+# @name get_wfs_capabilities_110
+
+GET {{endpoint_base}}
+    ?REQUEST=GETCAPABILITIES
+    &SERVICE=WFS
+    &VERSION=1.1.0
+    &FORMAT=text/xml
+
+>>! ./results/post_install_checks/get_wfs_capabilities_110.xml
+
+?? status == 200
+?? header content-type includes text/xml
+?? body contains {{endpoint_domain}}

@@ -2,6 +2,7 @@
 
 PACKAGE=
 DISTRO=
+HTTPD_PORT=8008
 INST_PATH=/usr/local/mapguideopensource-4.0.0
 
 while [ $# -gt 0 ]; do    # Until you run out of parameters...
@@ -14,11 +15,16 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             DISTRO="$2"
             shift
             ;;
+        --httpd-port)
+            HTTPD_PORT="$2"
+            shift
+            ;;
         --help)
             echo "Usage: $0 (options)"
             echo "Options:"
             echo "  --package [Installer package name]"
             echo "  --distro [Installer package name]"
+            echo "  --httpd-port [Port number to use for httpd, default $HTTPD_PORT]"
             echo "  --help [Display usage]"
             exit
             ;;
@@ -221,7 +227,9 @@ install_prereqs
 cp /artifacts/"$PACKAGE" /tmp/installer.run
 # We run mgserver in interactive mode so that the container does not immediately exit, allowing us to fire off our mapagent
 # integration test suite against it from a separate terminal session. Hence the --no-mgserver-start switch
-/tmp/installer.run -- --no-mgserver-start --headless --with-sdf --with-shp --with-sqlite --with-gdal --with-ogr --with-wfs --with-wms --with-tomcat
+#
+# Also mixing up various ports from their defaults to verify all the right ports are configured by the installer
+/tmp/installer.run -- --no-mgserver-start --headless --with-sdf --with-shp --with-sqlite --with-gdal --with-ogr --with-wfs --with-wms --with-tomcat --with-extras-sampledata --with-extras-fonts --httpd-port $HTTPD_PORT --admin-port 2000 --client-port 2001 --site-port 2002 --tomcat-port 8019
 post_install
 cd $INST_PATH/server/bin || exit
 # TODO: We should also spin up the bundled mgdevhttpserver and fire off the same mapagent integration test suite against

@@ -7,6 +7,7 @@ TEST_ROOT=$ROOT/test
 SDKS_DIR=$ROOT/sdks
 INTERACTIVE=0
 UBUNTU_VERSION=ubuntu22
+HTTPD_PORT=8018
 
 install_mapguide_env()
 {
@@ -26,9 +27,9 @@ install_mapguide_env()
 
     if [ "$INTERACTIVE" == "1" ];
     then
-        docker run --rm -it -p 8008:8008 -v ${SDKS_DIR}:/tmp/work/sdks -v ${TEST_ROOT}:/tests -v ${SCRIPT_ROOT}:/scripts -v ${ARTIFACTS_ROOT}:/artifacts $container_name /bin/bash
+        docker run --rm -it -p $HTTPD_PORT:$HTTPD_PORT -v ${SDKS_DIR}:/tmp/work/sdks -v ${TEST_ROOT}:/tests -v ${SCRIPT_ROOT}:/scripts -v ${ARTIFACTS_ROOT}:/artifacts $container_name /bin/bash
     else
-        docker run --rm -it -p 8008:8008 -v ${SDKS_DIR}:/tmp/work/sdks -v ${TEST_ROOT}:/tests -v ${SCRIPT_ROOT}:/scripts -v ${ARTIFACTS_ROOT}:/artifacts $container_name /scripts/mapguide_smoke_test.sh --package $package --distro $target_distro
+        docker run --rm -it -p $HTTPD_PORT:$HTTPD_PORT -v ${SDKS_DIR}:/tmp/work/sdks -v ${TEST_ROOT}:/tests -v ${SCRIPT_ROOT}:/scripts -v ${ARTIFACTS_ROOT}:/artifacts $container_name /scripts/mapguide_smoke_test.sh --package $package --distro $target_distro --httpd-port $HTTPD_PORT
     fi
 }
 
@@ -52,12 +53,17 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             TARGET_DISTRO_TAG="$2"
             shift
             ;;
+        --httpd-port)
+            HTTPD_PORT="$2"
+            shift
+            ;;
         --help)
             echo "Usage: $0 (options)"
             echo "Options:"
             echo "  --target [generic|$UBUNTU_VERSION]"
             echo "  --target-distro [distro image to use]"
             echo "  --tag [distro image tag to use, default: latest]"
+            echo "  --httpd-port [port to use for httpd, default: $HTTPD_PORT]"
             echo "  --help [Display usage]"
             exit
             ;;
