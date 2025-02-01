@@ -46,7 +46,7 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             echo "Usage: $0 (options)"
             echo "Options:"
             echo "  --target [mapguide|fdo]"
-            echo "  --distro [the distro you are targeting, ubuntu|centos]"
+            echo "  --distro [the distro you are targeting, ubuntu|generic]"
             echo "  --cpu [x86|x64]"
             echo "  --help [Display usage]"
             exit

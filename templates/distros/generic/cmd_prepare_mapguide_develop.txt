@@ -1,1 +1,1 @@
-echo "MapGuide develop image"
+yum install -y wget bison flex unzip bzip2

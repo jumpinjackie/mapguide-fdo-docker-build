@@ -1,8 +1,0 @@
-yum install -y wget \
-&& wget http://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm \
-&& rpm -ivh epel-release-latest-7.noarch.rpm \
-&& yum repolist \
-&& yum update -y \
-&& yum install -y redhat-lsb-core ccache perl-IPC-Cmd gcc gcc-c++ bison curl-devel unixODBC-devel libcom_err-devel rpmdevtools rpmlint \ 
-krb5-devel openssl-devel mysql-devel postgresql-devel xerces-c-devel xalan-c-devel gdal-devel \ 
-cppunit-devel cmake ninja-build

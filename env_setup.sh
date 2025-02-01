@@ -59,9 +59,11 @@ write_fdo_run()
 
     distro_base=$distro
     if [ "$distro" == "generic" ]; then
-        distro_base="ghcr.io/phusion/holy-build-box/hbb-64"
-        tag="latest"
+        distro_base="rockylinux"
+        tag="8"
     fi
+
+    echo "Docker base image tag: ${distro_base}:${tag}" | indent
 
     cat > $path/Dockerfile <<EOF
 # This dockerfile defines the expected runtime environment before the project is installed
@@ -181,14 +183,14 @@ build_fdo_env()
     tag=$3
 
     if [ ! -d "templates/distros/$distro" ]; then
-        echo "No template confiugrations found for $distro"
+        echo "No template configurations found for $distro"
         exit 1
     fi
 
     echo "Setting FDO environment for"
     echo "Distro: $distro" | indent
     echo "CPU: $cpu" | indent
-    echo "Docker base image tag: $tag" | indent
+    #echo "Docker base image tag: $tag" | indent
 
     ver_major=$(echo $tag | cut -d. -f1)
     distro_label="${distro}${ver_major}"
@@ -239,9 +241,11 @@ write_mapguide_run()
 
     distro_base=$distro
     if [ "$distro" == "generic" ]; then
-        distro_base="ghcr.io/phusion/holy-build-box/hbb-64"
-        tag="latest"
+        distro_base="rockylinux"
+        tag="8"
     fi
+
+    echo "Docker base image tag: ${distro_base}:${tag}" | indent
 
     cat > $path/Dockerfile <<EOF
 # This dockerfile defines the expected runtime environment before the project is installed
@@ -384,14 +388,14 @@ build_mapguide_env()
     tag=$3
 
     if [ ! -d "templates/distros/$distro" ]; then
-        echo "No template confiugrations found for $distro"
+        echo "No template configurations found for $distro"
         exit 1
     fi
 
     echo "Setting MapGuide environment for"
     echo "Distro: $distro" | indent
     echo "CPU: $cpu" | indent
-    echo "Docker base image tag: $tag" | indent
+    #echo "Docker base image tag: $tag" | indent
 
     ver_major=$(echo $tag | cut -d. -f1)
     distro_label="${distro}${ver_major}"
@@ -438,7 +442,7 @@ TARGET=fdo
 DISTRO=ubuntu
 CPU=x64
 TAG=14.04
-GENERIC=0
+#GENERIC=0
 while [ $# -gt 0 ]; do    # Until you run out of parameters...
     case "$1" in
         --target)
@@ -461,7 +465,7 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             echo "Usage: $0 (options)"
             echo "Options:"
             echo "  --target [mapguide|fdo]"
-            echo "  --distro [the distro you are targeting, ubuntu|centos|generic]"
+            echo "  --distro [the distro you are targeting, ubuntu|generic]"
             echo "  --tag [the version tag]"
             echo "  --cpu [x86|x64]"
             echo "  --help [Display usage]"

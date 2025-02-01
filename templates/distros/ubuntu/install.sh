@@ -21,6 +21,7 @@ MGVER_MAJOR_MINOR_REV=${MGVER_MAJOR_MINOR}.${MGVER_POINT}
 MG_INST=/usr/local/mapguideopensource-${MGVER_MAJOR_MINOR_REV}
 FDO_INST=/usr/local/fdo-${FDOVER_MAJOR_MINOR_REV}
 
+DRY_RUN=0
 HEADLESS=0
 NO_SERVICE_INSTALL=0
 NO_MGSERVER_START=0
@@ -39,6 +40,9 @@ DEFAULT_SITE_PORT=2812
 DEFAULT_HTTPD_PORT=8008
 DEFAULT_TOMCAT_PORT=8009
 
+DEFAULT_HTTPD_USER=daemon
+DEFAULT_HTTPD_GROUP=daemon
+
 HAVE_TOMCAT=0
 TOMCAT_AJP_SECRET=mapguide4java
 TOMCAT_AJP_LISTEN_HOST="127.0.0.1"
@@ -55,7 +59,11 @@ site_port=2812
 httpd_port=8008
 tomcat_port=8009
 
+httpd_user=daemon
+httpd_group=daemon
+
 fdo_provider_choice=""
+extras_choice=""
 
 # Must have root
 if ! [ "$(id -u)" = "0" ]; then
@@ -65,6 +73,9 @@ fi
 
 while [ $# -gt 0 ]; do    # Until you run out of parameters...
     case "$1" in
+        -dry-run|--dry-run)
+            DRY_RUN=1
+            ;;
         -headless|--headless)
             HEADLESS=1
             ;;
@@ -82,35 +93,30 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             ;;
         -with-sdf|--with-sdf)
             fdo_provider_choice="$fdo_provider_choice sdf"
-            #shift
             ;;
         -with-shp|--with-shp)
             fdo_provider_choice="$fdo_provider_choice shp"
-            #shift
             ;;
         -with-sqlite|--with-sqlite)
             fdo_provider_choice="$fdo_provider_choice sqlite"
-            #shift
             ;;
         -with-gdal|--with-gdal)
             fdo_provider_choice="$fdo_provider_choice gdal"
-            #shift
             ;;
         -with-ogr|--with-ogr)
             fdo_provider_choice="$fdo_provider_choice ogr"
-            #shift
+            ;;
+        -with-rdbms|--with-rdbms)
+            fdo_provider_choice="$fdo_provider_choice rdbms"
             ;;
         -with-kingoracle|--with-kingoracle)
             fdo_provider_choice="$fdo_provider_choice kingoracle"
-            #shift
             ;;
         -with-wfs|--with-wfs)
             fdo_provider_choice="$fdo_provider_choice wfs"
-            #shift
             ;;
         -with-wms|--with-wms)
             fdo_provider_choice="$fdo_provider_choice wms"
-            #shift
             ;;
         -server-ip|--server-ip)
             server_ip="$2"
@@ -133,6 +139,14 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             httpd_port=$2
             shift
             ;;
+        -httpd-user|--httpd-user)
+            httpd_user=$2
+            shift
+            ;;
+        -httpd-group|--httpd-group)
+            httpd_group=$2
+            shift
+            ;;
         -tomcat-port|--tomcat-port)
             tomcat_port=$2
             shift
@@ -141,24 +155,33 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             HAVE_TOMCAT=1
             ;;
         -help|--help)
-            echo "Usage: $0 (options)"
+            echo "Usage: installer.run -- (add options here)"
             echo "Options:"
+            echo "  --dry-run [Bail before actual installation, to see what configuration will be applied]"
             echo "  --headless [Install headlessly (skip UI)]"
             echo "  --with-sdf [Include SDF Provider]"
             echo "  --with-shp [Include SHP Provider]"
             echo "  --with-sqlite [Include SQLite Provider]"
             echo "  --with-gdal [Include GDAL Provider]"
             echo "  --with-ogr [Include OGR Provider]"
+            echo "  --with-rdbms [Include RDBMS Providers]"
             echo "  --with-kingoracle [Include King Oracle Provider]"
             echo "  --with-wfs [Include WFS Provider]"
             echo "  --with-wms [Include WMS Provider]"
             echo "  --with-tomcat [Enable Tomcat]"
-            echo "  --server-ip [Server IP, default: 127.0.0.1]"
-            echo "  --admin-port [Admin Server Port, default: 2810]"
-            echo "  --client-port [Client Server Port, default: 2811]"
-            echo "  --site-port [Site Server Port, default: 2812]"
-            echo "  --httpd-port [HTTPD port, default: 8008]"
-            echo "  --tomcat-port [Tomcat Port, default: 8009]"
+            echo "  --no-service-install [Skip service installation]"
+            echo "  --no-mgserver-start [Do not start mgserver after installation]"
+            # Doesn't work atm, don't advertise
+            #echo "  --no-tomcat-start [Do not start tomcat after installation]"
+            echo "  --no-httpd-start [Do not start httpd after installation]"
+            echo "  --server-ip [Server IP, default: $DEFAULT_SERVER_IP]"
+            echo "  --admin-port [Admin Server Port, default: $DEFAULT_ADMIN_PORT]"
+            echo "  --client-port [Client Server Port, default: $DEFAULT_CLIENT_PORT]"
+            echo "  --site-port [Site Server Port, default: $DEFAULT_SITE_PORT]"
+            echo "  --httpd-port [HTTPD port, default: $DEFAULT_HTTPD_PORT]"
+            echo "  --tomcat-port [Tomcat Port, default: $DEFAULT_TOMCAT_PORT]"
+            echo "  --httpd-user [Run HTTPD under this user, default: $DEFAULT_HTTPD_USER]"
+            echo "  --httpd-group [Tomcat Port, default: $DEFAULT_HTTPD_GROUP]"
             exit
             ;;
     esac
@@ -181,7 +204,7 @@ main()
         dialog_fdo_provider
         dialog_server
         dialog_webtier
-        #dialog_coordsys
+        dialog_extras
     fi
     dump_configuration
     install_prerequisites
@@ -208,6 +231,8 @@ set_webtier_vars()
     httpd_port=${2:-$DEFAULT_HTTPD_PORT}
     enable_tomcat=${3:-$DEFAULT_ENABLE_TOMCAT}
     tomcat_port=${4:-$DEFAULT_TOMCAT_PORT}
+    httpd_user=${5:-$DEFAULT_HTTPD_USER}
+    httpd_group=${6:-$DEFAULT_HTTPD_GROUP}
     case $enable_tomcat in
         y*|Y*)
             HAVE_TOMCAT=1
@@ -238,9 +263,19 @@ dump_configuration()
     echo " Other choices"
     echo "  FDO: ${fdo_provider_choice}"
     echo "  CS-Map: ${csmap_choice}"
+    echo "  Extras: ${extras_choice}"
     echo "  Server IP: ${server_ip}"
     echo " Enable Tomcat: ${HAVE_TOMCAT}"
+    echo " Run httpd under user: ${httpd_user}"
+    echo " Run httpd under group: ${httpd_group}"
+    echo " No service install: ${NO_SERVICE_INSTALL}"
+    echo " No mgserver start: ${NO_MGSERVER_START}"
+    echo " No httpd start: ${NO_HTTPD_START}"
+    echo " No tomcat start: ${NO_TOMCAT_START}"
     echo "********************************************"
+    if [ "$DRY_RUN" = "1" ]; then
+        exit 0
+    fi
 }
 
 dialog_welcome()
@@ -288,6 +323,7 @@ dialog_fdo_provider()
         echo "Cancelled"
         exit 255;;
     esac
+    rm $tempfile
 }
 
 dialog_server()
@@ -326,6 +362,7 @@ dialog_tomcat()
         #echo "Disable tomcat"
         ;;
     esac
+    rm $tempfile
 }
 
 dialog_webtier()
@@ -336,7 +373,9 @@ dialog_webtier()
             "Connect to Server IP:" 1 1 "${DEFAULT_SERVER_IP}"     1 25 25 30 \
             "Apache Port:"          2 1 "${DEFAULT_HTTPD_PORT}"    2 25 25 30 \
             "Enable Tomcat (Y/N)?:" 3 1 "${DEFAULT_ENABLE_TOMCAT}" 3 25 1 30 \
-            "Tomcat Port:"          4 1 "${DEFAULT_TOMCAT_PORT}"   4 25 25 30 2> $tempfile
+            "Tomcat Port:"          4 1 "${DEFAULT_TOMCAT_PORT}"   4 25 25 30 \
+            "Run httpd as user:"    5 1 "${DEFAULT_HTTPD_USER}"   5 25 25 30 \
+            "Run httpd as group:"   6 1 "${DEFAULT_HTTPD_GROUP}"   6 25 25 30 2> $tempfile
     case $? in
       1)
         echo "Cancelled"
@@ -349,17 +388,15 @@ dialog_webtier()
     rm $tempfile
 }
 
-dialog_coordsys()
+dialog_extras()
 {
-    tempfile=$(mktemp 2>/dev/null) || tempfile=/tmp/test$$
-    trap 'rm -f $tempfile' 0 1 2 5 15
-
-    dialog --backtitle "$INSTALLER_TITLE" \
-            --title "Coordinate System Configuration" --clear \
-            --radiolist "Choose the CS-Map profile you want for this MapGuide Installation" 20 80 5 \
-            "full" "Download/Install the full set of data files" ON \
-            "lite" "Download/Install the lite configuration (no grid files)" off  2> $tempfile
-    csmap_choice=$(cat $tempfile)
+    tempfile=$(mktemp 2>/dev/null) || tempfile=/tmp/form.$$
+    $DIALOG --backtitle "$INSTALLER_TITLE" \
+            --title "Extra Features" --clear \
+            --checklist "Check the extra features you want to enable/install" 20 61 5 \
+            noserviceinstall "do not install services" OFF \
+            nomgserverstart "do not start mgserver" OFF \
+            nohttpdstart "do not start httpd" OFF 2> $tempfile
     case $? in
       1)
         echo "Cancelled"
@@ -368,6 +405,24 @@ dialog_coordsys()
         echo "Cancelled"
         exit 255;;
     esac
+    extras_choice=$(cat $tempfile | sed s/\"//g)
+    for extra in $extras_choice
+    do
+        case $extra in
+            noserviceinstall)
+                NO_SERVICE_INSTALL=1
+                ;;
+            nomgserverstart)
+                NO_MGSERVER_START=1
+                ;;
+            nohttpdstart)
+                NO_HTTPD_START=1
+                ;;
+        esac
+    done
+    # re-read to trim these extraneous options
+    extras_choice=$(cat $tempfile | sed s/noserviceinstall//g | sed s/nomgserverstart//g | sed s/nohttpdstart//g | sed s/\"//g)
+    rm $tempfile
 }
 
 install_prerequisites()
@@ -635,6 +690,11 @@ post_install()
     sed -i 's/Port.*= '"${DEFAULT_SITE_PORT}"'/Port = '"${site_port}"'/g' ${MG_INST}/webserverextensions/www/webconfig.ini
     echo "[config]: Updating httpd.conf with configuration choices"
     sed -i 's/Listen '"${DEFAULT_HTTPD_PORT}"'/Listen '"${httpd_port}"'/g' ${MG_INST}/webserverextensions/apache2/conf/httpd.conf
+    sed -i 's/User '"${DEFAULT_HTTPD_USER}"'/User '"${httpd_user}"'/g' ${MG_INST}/webserverextensions/apache2/conf/httpd.conf
+    sed -i 's/Group '"${DEFAULT_HTTPD_GROUP}"'/Group '"${httpd_group}"'/g' ${MG_INST}/webserverextensions/apache2/conf/httpd.conf
+    echo "[config]: Updating OGC configuration files with configuration choices"
+    sed -i 's/'"localhost:${DEFAULT_HTTPD_PORT}"'/'"localhost:${httpd_port}"'/g' ${MG_INST}/server/Wfs/OgcWfsService.config.awd
+    sed -i 's/'"localhost:${DEFAULT_HTTPD_PORT}"'/'"localhost:${httpd_port}"'/g' ${MG_INST}/server/Wms/OgcWmsService.config.awd
 
     if [ ${HAVE_TOMCAT} = "1" ]; then
         echo "[config]: Writing workers.properties for mod_jk"
@@ -665,9 +725,15 @@ EOF
 
     echo "[config]: Fixing permissions for certain folders"
     chmod 770 ${MG_INST}/webserverextensions/Temp
-    # daemon is the default user/group the bundled httpd will use
-    chown daemon:daemon ${MG_INST}/webserverextensions/Temp
-    chown daemon:daemon ${MG_INST}/webserverextensions/www/fusion/lib/tcpdf/cache
+
+    if id "$httpd_user" >/dev/null 2>&1; then
+        echo "[config]: chown-ing some key directories to user '$httpd_user'"
+        chown ${httpd_user}:${httpd_group} ${MG_INST}/webserverextensions/Temp
+        chown ${httpd_user}:${httpd_group} ${MG_INST}/webserverextensions/www/fusion/lib/tcpdf/cache
+    else
+        echo "[config]: User '$httpd_user' does not exist. Will not attempt any chown-ing of certain directories for temporary data"
+        echo "[config]: Some web application behaviour may not work properly"
+    fi
 
     if [ "$HEADLESS" = "1" ] && [ "$NO_SERVICE_INSTALL" = "1" ];
     then

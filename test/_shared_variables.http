@@ -1,0 +1,11 @@
+@endpoint_hostname = localhost
+@endpoint_port = 8018
+@endpoint_domain = http://{{endpoint_hostname}}:{{endpoint_port}}
+@endpoint_base = {{endpoint_domain}}/mapguide/mapagent/mapagent.fcgi
+@admin_user = Administrator
+@admin_pass = admin
+@locale = en
+@agent = MapGuide Integration Test Suite
+@boundary_marker = WebKitFormBoundary
+@format_xml = text/xml
+@format_json = application/json

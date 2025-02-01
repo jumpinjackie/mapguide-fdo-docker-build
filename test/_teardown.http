@@ -1,0 +1,65 @@
+# @import ./_setup.http
+###
+# Delete Samples
+# @name delete_samples
+
+GET {{endpoint_base}}
+    ?USERNAME={{admin_user}}
+    &PASSWORD={{admin_pass}}
+    &OPERATION=DELETERESOURCE
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Samples/
+    &FORMAT={{format_xml}}
+
+?? status == 200
+###
+# Delete Test Resources
+# @name delete_tests
+
+GET {{endpoint_base}}
+    ?USERNAME={{admin_user}}
+    &PASSWORD={{admin_pass}}
+    &OPERATION=DELETERESOURCE
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Test/Integration/
+    &FORMAT={{format_xml}}
+
+?? status == 200
+###
+# Expect Samples Deleted
+# @name delete_samples_expected
+# @ref delete_samples
+
+GET {{endpoint_base}}
+    ?USERNAME={{admin_user}}
+    &PASSWORD={{admin_pass}}
+    &OPERATION=RESOURCEEXISTS
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Samples/
+    &FORMAT={{format_xml}}
+
+?? status == 200
+?? body contains False
+###
+# Expect Tests Deleted
+# @name delete_tests_expected
+# @ref delete_tests
+
+GET {{endpoint_base}}
+    ?USERNAME={{admin_user}}
+    &PASSWORD={{admin_pass}}
+    &OPERATION=RESOURCEEXISTS
+    &VERSION=1.0.0
+    &LOCALE={{locale}}
+    &CLIENTAGENT={{agent}}
+    &RESOURCEID=Library://Test/Integration/
+    &FORMAT={{format_xml}}
+
+?? status == 200
+?? body contains False

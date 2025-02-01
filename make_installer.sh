@@ -2,12 +2,18 @@
 DISTRO_NOVER=$1
 DISTRO_VER=$2
 BUILD_CONF=$3
-#DISTRO_NOVER=centos
-#DISTRO_VER=7
 DISTRO=${DISTRO_NOVER}${DISTRO_VER}
 INSTALLER_LABEL="MapGuide Open Source 4.0 Beta 2"
 if [ "$BUILD_CONF" = "Debug" ]; then
     INSTALLER_LABEL="$INSTALLER_LABEL - Debug"
+fi
+which ~/makeself/makeself.sh
+if [ $? -eq 1 ]; then
+    echo "Could not find the required makeself.sh"
+    abs_location=$(realpath ~)
+    clone_location=$(dirname "$abs_location/makeself")
+    echo "Make sure that the git repo (https://github.com/megastep/makeself) is cloned into $clone_location"
+    exit 1
 fi
 . ./fdo_version.sh
 . ./mapguide_version.sh
