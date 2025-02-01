@@ -36,17 +36,17 @@ install_prereqs()
 {
     case "$DISTRO" in
         ubuntu)
-            apt-get update && apt-get install -y openjdk-8-jdk
+            apt-get update && apt-get install -y openjdk-8-jdk file
             ;;
         debian)
             # This may not be a java 8 JDK being installed. Let's see how famous their backwards compatibility is!
-            apt-get update && apt-get install -y procps default-jdk
+            apt-get update && apt-get install -y procps default-jdk file
             ;;
         fedora)
-            yum install -y initscripts redhat-lsb libnsl procps libxcrypt-compat java-1.8.0-openjdk
+            yum install -y initscripts redhat-lsb libnsl procps libxcrypt-compat java-1.8.0-openjdk file
             ;;
         opensuse/leap)
-            zypper install -y gzip tar libnsl1 java-1_8_0-openjdk-devel
+            zypper install -y gzip tar libnsl1 java-1_8_0-openjdk-devel file
             groupadd daemon
             useradd -g daemon daemon
             # This is needed to avoid httpd complaining about not being able to find a transcoding service
@@ -56,7 +56,7 @@ install_prereqs()
             pacman -Sy --noconfirm libxcrypt-compat jdk8-openjdk
             ;;
         oraclelinux)
-            microdnf install -y gzip procps libxcrypt-compat java-1.8.0-openjdk-devel
+            microdnf install -y gzip procps libxcrypt-compat java-1.8.0-openjdk-devel findutils file
             ;;
         *)
             echo "FATAL: I don't know what your distro is"
@@ -218,6 +218,9 @@ try {
 EOF
 
     # TODO: Do an equivalent for Java
+
+    # Check deps of all binaries and libraries
+    /scripts/dep_check.sh
 }
 
 # Pre-flight checks
@@ -229,7 +232,7 @@ cp /artifacts/"$PACKAGE" /tmp/installer.run
 # integration test suite against it from a separate terminal session. Hence the --no-mgserver-start switch
 #
 # Also mixing up various ports from their defaults to verify all the right ports are configured by the installer
-/tmp/installer.run -- --no-mgserver-start --headless --with-sdf --with-shp --with-sqlite --with-gdal --with-ogr --with-wfs --with-wms --with-tomcat --with-extras-sampledata --with-extras-fonts --httpd-port $HTTPD_PORT --admin-port 2000 --client-port 2001 --site-port 2002 --tomcat-port 8019
+/tmp/installer.run -- --no-mgserver-start --headless --with-sdf --with-shp --with-sqlite --with-gdal --with-ogr --with-wfs --with-wms --with-tomcat --httpd-port $HTTPD_PORT --admin-port 2000 --client-port 2001 --site-port 2002 --tomcat-port 8019
 post_install
 cd $INST_PATH/server/bin || exit
 # TODO: We should also spin up the bundled mgdevhttpserver and fire off the same mapagent integration test suite against
