@@ -11,6 +11,8 @@ check_build()
     fi
 }
 
+. ./docker_or_podman.sh
+
 # # Ubuntu 16
 # BUILD_DISTRO=ubuntu16
 # ./build_thin.sh --target fdo --distro ubuntu --tag 16 --cpu x64 2>&1 | tee logs/fdo_thin_ubuntu16_release.log
@@ -50,4 +52,4 @@ check_build
 check_build
 ./build_thin.sh --target mapguide --distro generic --cpu x64 --debug 2>&1 | tee logs/mapguide_thin_generic_debug.log
 check_build
-docker system prune --force
+$DOCKER system prune --force
