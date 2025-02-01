@@ -60,7 +60,7 @@ if [ ! -f /usr/local/lib/libodbccr.a ]; then
         tar -zxf $SDKS_DIR/unixODBC-${UNIXODBC_VER}.tar.gz -C $UNIXODBC_BUILD_ROOT
     fi
     cd $UNIXODBC_BUILD_ROOT/unixODBC-${UNIXODBC_VER} || exit
-    ./configure --enable-static --enable-silent-rules --with-pic
+    ./configure --disable-shared --enable-static --enable-silent-rules --with-pic
     make && make install
 fi
 
