@@ -51,6 +51,12 @@ if [ "$MG_BUILD_CONFIG" = "Debug" ]; then
 fi
 ./cmake_build.sh --oem-working-dir $OEM_BUILD_DIR --cmake-build-dir $BUILD_DIR --mg-ver-major $MG_VER_MAJOR --mg-ver-minor $MG_VER_MINOR --mg-ver-rel $MG_VER_REL --mg-ver-rev $MG_VER_REV --ninja $CMDEX
 check_build
+echo "Preparing test pack"
+./prepare_test_pack.sh --output /tmp/mgtest
+check_build
+cd /tmp/mgtest || exit
+tar -zcf $ARTIFACTS_DIR/mapguide-test-pack-"$MG_DISTRO".tar.gz .
+check_build
 cd $BUILD_DIR || exit
 cmake --build . --target install
 check_build
@@ -60,7 +66,7 @@ case "$MG_DISTRO" in
         cd $SRC_DIR || exit
         CMDEX=
         if [ "$MG_BUILD_CONFIG" = "Debug" ]; then
-            CMDEX="--debug"
+            CMDEX="--debug"  
         fi
         ./cmake_package.sh --format deb --working-dir $BUILD_DIR/mg_deb --output-dir $ARTIFACTS_DIR/$MG_DISTRO --build-number "$MG_VER_REV" $CMDEX
         ;;
