@@ -35,6 +35,10 @@ Download ant: https://dlcdn.apache.org//ant/binaries/apache-ant-1.10.14-bin.tar.
 
  * Save tarball as: `ant.tar.gz`
 
+Download bison: https://ftp.gnu.org/gnu/bison/bison-3.8.2.tar.gz
+
+ * Save tarball as: `bison.tar.gz`
+
 Download pcre2: https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.44/pcre2-10.44.tar.gz
 
  * Save tarball as: `pcre2.tar.gz`

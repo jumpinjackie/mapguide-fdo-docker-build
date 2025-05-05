@@ -74,6 +74,17 @@ if [ ! -f /usr/local/lib/libz.a ]; then
     make && make install
 fi
 
+# Install Bison
+BISON_BUILD_ROOT=/tmp/work/build_area/bison
+mkdir -p $BISON_BUILD_ROOT
+tar -zxf $SDKS_DIR/bison.tar.gz -C $BISON_BUILD_ROOT --strip-components 1
+check_build
+cd $BISON_BUILD_ROOT || exit
+./configure
+check_build
+make && make install
+check_build
+
 # Install PCRE
 PCRE_BUILD_ROOT=/tmp/work/build_area/pcre
 mkdir -p $PCRE_BUILD_ROOT

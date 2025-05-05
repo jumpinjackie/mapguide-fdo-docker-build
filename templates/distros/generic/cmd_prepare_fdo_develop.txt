@@ -1,1 +1,1 @@
-echo "FDO develop image"
+yum install -y bison

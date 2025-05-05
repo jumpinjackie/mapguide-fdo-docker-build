@@ -1,4 +1,4 @@
 yum clean all -y \
 && yum update -y \
 && yum install -y epel-release wget which file findutils \
-&& yum install -y gcc gcc-c++ automake ccache cmake libtool bison flex perl-IPC-Cmd
+&& yum install -y gcc gcc-c++ automake ccache cmake libtool flex perl-IPC-Cmd
