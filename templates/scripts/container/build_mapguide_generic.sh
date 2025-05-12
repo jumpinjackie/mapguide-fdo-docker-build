@@ -168,23 +168,27 @@ cd $SRC_DIR || exit
 ./cmake_bootstrap.sh --config "$MG_BUILD_CONFIG" --oem-working-dir $OEM_BUILD_DIR --build 64 --with-ccache --with-all-internal  --without-internal-zlib
 check_build
 # For generic, we must build httpd with static openssl
-./cmake_linuxapt.sh --prefix "/usr/local/mapguideopensource-${MG_VER_TRIPLE}" --oem-working-dir $OEM_BUILD_DIR --working-dir "$LINUXAPT_BUILD" --with-static-openssl
+# For generic, we must also build PHP with shared mbstring extension as this is the only way
+# to build PHP 8.3+ on our rockylinux distro: https://github.com/php/php-src/issues/12774
+./cmake_linuxapt.sh --prefix "/usr/local/mapguideopensource-${MG_VER_TRIPLE}" --oem-working-dir $OEM_BUILD_DIR --working-dir "$LINUXAPT_BUILD" --with-static-openssl --with-php-shared-mbstring
 check_build
 ./cmake_build.sh --oem-working-dir $OEM_BUILD_DIR --cmake-build-dir $BUILD_DIR --mg-ver-major "$MG_VER_MAJOR" --mg-ver-minor "$MG_VER_MINOR" --mg-ver-rel "$MG_VER_REL" --mg-ver-rev "$MG_VER_REV" --ninja
-check_build
-echo "Preparing test pack"
-./prepare_test_pack.sh --output /tmp/mgtest
-check_build
-cd /tmp/mgtest || exit
-tar -zcf $ARTIFACTS_DIR/mapguide-test-pack-"$MG_DISTRO".tar.gz .
 check_build
 cd $BUILD_DIR || exit
 # TODO: This shouldn't be necessary once we've pivoted MapGuide to be CPack-driven as we can toggle CPACK_STRIP_FILES=TRUE
 if [ "$MG_BUILD_CONFIG" = "Release" ]; then
 cmake --install . --strip
+check_build
 else
 cmake --install .
+check_build
 fi
+cd $SRC_DIR || exit
+echo "Preparing test pack"
+./prepare_test_pack.sh --output /tmp/mgtest
+check_build
+cd /tmp/mgtest || exit
+tar -zcf $ARTIFACTS_DIR/mapguide-test-pack-"$MG_DISTRO".tar.gz .
 check_build
 cd "/usr/local/mapguideopensource-${MG_VER_TRIPLE}" || exit
 tar -zcf "$ARTIFACTS_DIR/mapguideopensource-$MG_VER-$MG_DISTRO-amd64.tar.gz" *
