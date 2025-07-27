@@ -11,6 +11,7 @@ check_build()
     fi
 }
 
+export PATH=$PATH:$HOME/.dotnet
 OEM_BUILD_DIR=/tmp/work/build_area/oem
 LINUXAPT_BUILD=/tmp/work/build_area/linuxapt
 BUILD_DIR=/tmp/work/build_area/mapguide

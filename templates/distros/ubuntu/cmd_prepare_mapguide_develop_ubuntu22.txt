@@ -2,4 +2,7 @@ apt-get update && apt-get install -y \
 lsb-release build-essential automake autotools-dev libpng-dev libjpeg-dev libxslt-dev libfreetype6-dev libpcre3-dev openjdk-8-jdk \
 ant libldap-dev libssl-dev libcurl4-openssl-dev libexpat-dev libmysqlclient-dev unixodbc-dev \
 unzip bison libpq-dev libcppunit-dev libxalan-c-dev libxerces-c-dev libgdal-dev wget lintian \
-libjsoncpp-dev libgd-dev libace-dev libjsoncpp-dev cmake ccache ninja-build libonig-dev patchelf
+libjsoncpp-dev libgd-dev libace-dev libjsoncpp-dev cmake ccache ninja-build libonig-dev patchelf \
+&& wget https://dot.net/v1/dotnet-install.sh \
+&& chmod +x dotnet-install.sh \
+&& ./dotnet-install.sh --channel LTS
