@@ -102,6 +102,31 @@ npx httpyac post_install_checks.http --all --bail --output headers
 npx httpyac _teardown.http --all --bail --output headers
 ```
 
+# A special note for Ubuntu 22.04 docker hosts
+
+ASAN in llvm 14 provided in ubuntu 22.04 is incompatible with high-entropy ASLR in much newer
+kernels to random crashes: https://reviews.llvm.org/D148280
+
+This issue is most prevalent in debug builds as the build process has a random, but high chance
+of crashing and infinitely looping with `AddressSanitizer:DEADLYSIGNAL`
+
+To workaround this, restore the older entropy setting like so
+
+> sudo sysctl vm.mmap_rnd_bits=28
+
+To check if your entroy is at the right level, run the following command:
+
+> sudo sysctl -a | grep vm.mmap.rnd
+
+It should report something like this
+
+```
+vm.mmap_rnd_bits = 28
+vm.mmap_rnd_compat_bits = 8
+```
+
+This setting does not persist, so it must be done and checked before starting a build
+
 # Supported build environments
 
 |target  |distro|tag  |
