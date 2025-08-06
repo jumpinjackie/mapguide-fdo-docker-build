@@ -127,6 +127,8 @@ vm.mmap_rnd_compat_bits = 8
 
 This setting does not persist, so it must be done and checked before starting a build
 
+More information on this issue can be found here: https://llbit.github.io/programming/2024/03/19/aslr-asan-problem.html
+
 # Supported build environments
 
 |target  |distro|tag  |
