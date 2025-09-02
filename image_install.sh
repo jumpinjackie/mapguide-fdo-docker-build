@@ -1,6 +1,7 @@
 #!/bin/bash
 DISTRO=ubuntu22
 DOCKER_IMAGE=ubuntu:22.04
+PORT_MAPPINGS=""
 
 while [ $# -gt 0 ]; do    # Until you run out of parameters...
     case "$1" in
@@ -12,11 +13,16 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             DOCKER_IMAGE="$2"
             shift
             ;;
+        --port-mappings)
+            PORT_MAPPINGS="$PORT_MAPPINGS -p $2"
+            shift
+            ;;
         --help)
             echo "Usage: $0 (options)"
             echo "Options:"
             echo "  --distro [The installer to install into image. Default: $DISTRO]"
             echo "  --docker-image [The docker image to use. Default: $DOCKER_IMAGE]"
+            echo "  --port-mappings [Extra port mappings for docker run, e.g. 1234:5678]"
             echo "  --help [Display usage]"
             exit
             ;;
@@ -40,4 +46,4 @@ echo "Setting up container from image ($DOCKER_IMAGE)"
 echo "To run the installer package from within the container, execute the following inside the container:"
 echo "    /tmp/artifacts/$INSTALL_PKG"
 echo "NOTE: Depending on the distro, you may need to install some prerequiste packages first"
-docker run -p 8008:8008 -v "$PWD/artifacts/Release:/tmp/artifacts" -it "$DOCKER_IMAGE" "/bin/bash"
+docker run -p 8008:8008 $PORT_MAPPINGS -v "$PWD/artifacts/Release:/tmp/artifacts" -it "$DOCKER_IMAGE" "/bin/bash"
