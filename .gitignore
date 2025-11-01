@@ -1,8 +1,9 @@
 docker
 logs
 *.run
-mapguide/
-fdo/
+sdks/container_download
+/mapguide/MgDev
+/fdo/
 sdks/*.tar.gz
 sdks/*.zip
 sdks/oracle
