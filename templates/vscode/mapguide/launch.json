@@ -1,0 +1,60 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "(gdb) Launch Portable UnitTest",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/tmp/work/build_area/mapguide/Portable/UnitTest/UnitTest",
+            "stopAtEntry": false,
+            "cwd": "/tmp/work/build_area/mapguide/Portable/UnitTest",
+            "args": [
+                "[FeatureService]"
+            ],
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "(gdb) Launch mgserver test from built location",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/tmp/work/build_area/mapguide/Server/src/Core/mgserver",
+            "stopAtEntry": false,
+            "cwd": "/tmp/work/build_area/mapguide/Server/src/Core",
+            "args": [
+                "test",
+                "MdfModel"
+            ],
+            "environment": [
+                {
+                    "name": "LD_LIBRARY_PATH",
+                    "value": "/usr/local/fdo-4.2.0/lib64:/tmp/work/build_area/mapguide/Server/src/Core"
+                },
+                {
+                    "name": "LC_ALL",
+                    "value": "C"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ]
+}

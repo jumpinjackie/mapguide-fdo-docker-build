@@ -1,0 +1,357 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "(gdb) Launch FDO Core Unit Test Suite",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/home/user/build_area/fdo/Fdo/UnitTest/UnitTest",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "/home/user/build_area/fdo/Fdo/UnitTest",
+            "environment": [
+                {
+                    "name": "NLSPATH",
+                    "value": "/home/user/build_area/fdo/nls/linux/en_US/%N"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "(gdb) Launch SDF Unit Test Suite",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/home/user/build_area/fdo/Providers/SDF/Src/UnitTest/UnitTest",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "/home/user/build_area/fdo/Providers/SDF/Src/UnitTest",
+            "environment": [
+                {
+                    "name": "NLSPATH",
+                    "value": "/home/user/build_area/fdo/nls/linux/en_US/%N"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "(gdb) Launch SHP Unit Test Suite",
+            "type": "cppdbg",
+            "preLaunchTask": "FdoShpUnitTestPreStart",
+            "request": "launch",
+            "program": "/home/user/build_area/fdo/Providers/SHP/Src/UnitTest/UnitTest",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "/home/user/build_area/fdo/Providers/SHP/Src/UnitTest",
+            "environment": [
+                {
+                    "name": "NLSPATH",
+                    "value": "/home/user/build_area/fdo/nls/linux/en_US/%N"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "(gdb) Launch GDAL Unit Test Suite",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/home/user/build_area/fdo/Providers/GDAL/Src/UnitTest/UnitTest",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "/home/user/build_area/fdo/Providers/GDAL/Src/UnitTest",
+            "environment": [
+                {
+                    "name": "NLSPATH",
+                    "value": "/home/user/build_area/fdo/nls/linux/en_US/%N"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "(gdb) Launch OGR Unit Test Suite",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/home/user/build_area/fdo/Providers/OGR/Src/UnitTest/UnitTest",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "/home/user/build_area/fdo/Providers/OGR/Src/UnitTest",
+            "environment": [
+                {
+                    "name": "NLSPATH",
+                    "value": "/home/user/build_area/fdo/nls/linux/en_US/%N"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "(gdb) Launch SQLite Unit Test Suite",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/home/user/build_area/fdo/Providers/SQLite/Src/UnitTest/UnitTest",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "/home/user/build_area/fdo/Providers/SQLite/Src/UnitTest",
+            "environment": [
+                {
+                    "name": "NLSPATH",
+                    "value": "/home/user/build_area/fdo/nls/linux/en_US/%N"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "(gdb) Launch MySQL Unit Test Suite",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/home/user/build_area/fdo/Providers/GenericRdbms/Src/UnitTest/UnitTestMySql",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "/home/user/build_area/fdo/Providers/GenericRdbms/Src/UnitTest",
+            "environment": [
+                {
+                    "name": "NLSPATH",
+                    "value": "/home/user/build_area/fdo/nls/linux/en_US/%N"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "(gdb) Launch ODBC Unit Test Suite",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/home/user/build_area/fdo/Providers/GenericRdbms/Src/UnitTest/UnitTestOdbc",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "/home/user/build_area/fdo/Providers/GenericRdbms/Src/UnitTest",
+            "environment": [
+                {
+                    "name": "NLSPATH",
+                    "value": "/home/user/build_area/fdo/nls/linux/en_US/%N"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "(gdb) Launch PostgreSQL Unit Test Suite",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/home/user/build_area/fdo/Providers/GenericRdbms/Src/UnitTest/UnitTestPostGis",
+            "args": ["SchemaMgrTests"],
+            "stopAtEntry": false,
+            "cwd": "/home/user/build_area/fdo/Providers/GenericRdbms/Src/UnitTest",
+            "environment": [
+                {
+                    "name": "NLSPATH",
+                    "value": "/home/user/build_area/fdo/nls/linux/en_US/%N"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "(gdb) Launch KingOracle Unit Test Suite",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/home/user/build_area/fdo/Providers/KingOracle/src/KgOraUnitTest/UnitTest",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "/home/user/build_area/fdo/Providers/KingOracle/src/KgOraUnitTest",
+            "environment": [
+                {
+                    "name": "NLSPATH",
+                    "value": "/home/user/build_area/fdo/nls/linux/en_US/%N"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "(gdb) Launch WMS Unit Test Suite",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/home/user/build_area/fdo/Providers/WMS/Src/UnitTest/UnitTest",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "/home/user/build_area/fdo/Providers/WMS/Src/UnitTest",
+            "environment": [
+                {
+                    "name": "NLSPATH",
+                    "value": "/home/user/build_area/fdo/nls/linux/en_US/%N"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "(gdb) Launch WFS Unit Test Suite",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/home/user/build_area/fdo/Providers/WFS/Src/UnitTest/UnitTest",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "/home/user/build_area/fdo/Providers/WFS/Src/UnitTest",
+            "environment": [
+                {
+                    "name": "NLSPATH",
+                    "value": "/home/user/build_area/fdo/nls/linux/en_US/%N"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ]
+}
