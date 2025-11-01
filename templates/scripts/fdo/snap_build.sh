@@ -2,6 +2,9 @@
 ORIG=$(pwd)                                                                                                       
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"                                                           
 ROOT="$(realpath $DIR/../../../../..)"
+
+# Determine container command (podman preferred)
+. "$ROOT"/container_engine.sh
 PROJ="$ROOT/fdo/"
 STAGE="$ROOT/artifacts"
 
@@ -23,24 +26,24 @@ echo "Taking a 'develop' snapshot first (required for '$CONTAINER_NAME')"
 "$DIR/../develop/snap.sh" | indent
 
 cd "$DIR"
-docker build . -t "$CONTAINER_NAME:latest"
+"$DOCKER_CMD" build . -t "$CONTAINER_NAME:latest"
 if [ "$?" -ne 0 ] ; then
     exit 1
 fi
 echo "Copying SDK tarball to artifacts"
-docker run --rm -it -v ${ROOT}:/artifacts $CONTAINER_NAME cp -r /usr/local/src/fdo/build/artifacts /artifacts
+"$DOCKER_CMD" run --rm -it -v ${ROOT}:/artifacts $CONTAINER_NAME cp -r /usr/local/src/fdo/build/artifacts /artifacts
 if [ "$?" -ne 0 ] ; then
     exit 1
 fi
 echo "Copying ccache output to: ${CCACHE_LOCATION}"
-docker run --rm -it -v ${CCACHE_LOCATION}:/tmp/cache $CONTAINER_NAME cp -r /root/.ccache /tmp/cache
+"$DOCKER_CMD" run --rm -it -v ${CCACHE_LOCATION}:/tmp/cache $CONTAINER_NAME cp -r /root/.ccache /tmp/cache
 if [ "$?" -ne 0 ] ; then
     exit 1
 fi
 
 echo "things to try:"
-echo "docker run --rm -it $CONTAINER_NAME /bin/bash"
-echo "docker run --rm -it $CONTAINER_NAME ls /usr/local/src/fdo/build"
+echo "$DOCKER_CMD run --rm -it $CONTAINER_NAME /bin/bash"
+echo "$DOCKER_CMD run --rm -it $CONTAINER_NAME ls /usr/local/src/fdo/build"
 echo
 
 cd "$ORIG"

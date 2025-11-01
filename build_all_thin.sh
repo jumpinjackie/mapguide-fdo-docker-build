@@ -50,4 +50,8 @@ check_build
 check_build
 ./build_thin.sh --target mapguide --distro generic --cpu x64 --debug 2>&1 | tee logs/mapguide_thin_generic_debug.log
 check_build
-docker system prune --force
+
+# Use podman if available, otherwise docker
+. ./container_engine.sh
+
+"$DOCKER_CMD" system prune --force

@@ -1,6 +1,8 @@
 #!/bin/bash
 
 ROOT=$(realpath .)
+# Determine container command (podman preferred)
+. ./container_engine.sh
 ARTIFACTS_ROOT=$ROOT/artifacts/Release
 SCRIPT_ROOT=$ROOT/templates/scripts/container
 TEST_ROOT=$ROOT/test
@@ -27,9 +29,9 @@ install_mapguide_env()
 
     if [ "$INTERACTIVE" == "1" ];
     then
-        docker run --rm -it -p $HTTPD_PORT:$HTTPD_PORT -v ${SDKS_DIR}:/tmp/work/sdks -v ${TEST_ROOT}:/tests -v ${SCRIPT_ROOT}:/scripts -v ${ARTIFACTS_ROOT}:/artifacts $container_name /bin/bash
+        "$DOCKER_CMD" run --rm -it -p $HTTPD_PORT:$HTTPD_PORT -v ${SDKS_DIR}:/tmp/work/sdks -v ${TEST_ROOT}:/tests -v ${SCRIPT_ROOT}:/scripts -v ${ARTIFACTS_ROOT}:/artifacts $container_name /bin/bash
     else
-        docker run --rm -it -p $HTTPD_PORT:$HTTPD_PORT -v ${SDKS_DIR}:/tmp/work/sdks -v ${TEST_ROOT}:/tests -v ${SCRIPT_ROOT}:/scripts -v ${ARTIFACTS_ROOT}:/artifacts $container_name /scripts/mapguide_smoke_test.sh --package $package --distro $target_distro --httpd-port $HTTPD_PORT
+        "$DOCKER_CMD" run --rm -it -p $HTTPD_PORT:$HTTPD_PORT -v ${SDKS_DIR}:/tmp/work/sdks -v ${TEST_ROOT}:/tests -v ${SCRIPT_ROOT}:/scripts -v ${ARTIFACTS_ROOT}:/artifacts $container_name /scripts/mapguide_smoke_test.sh --package $package --distro $target_distro --httpd-port $HTTPD_PORT
     fi
 }
 

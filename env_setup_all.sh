@@ -9,4 +9,8 @@
 # Generic is an image based on rockylinux
 ./env_setup.sh --target fdo --distro generic --cpu x64
 ./env_setup.sh --target mapguide --distro generic --cpu x64
-docker system prune
+
+# Use podman if available, otherwise docker
+. ./container_engine.sh
+
+"$DOCKER_CMD" system prune

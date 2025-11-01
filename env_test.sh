@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Use podman if available, otherwise docker
+. ./container_engine.sh
+
 ROOT=$(realpath .)
 SCRIPT_ROOT=$ROOT/templates/scripts/container
 
@@ -11,7 +14,7 @@ test_fdo_env()
     container_name="fdo_${distro}_build_${cpu}"
     log_path=$ROOT/logs/test/$container_name
 
-    docker run -e NLSPATH="/usr/local/src/fdo/build/nls/linux/en_US/%N" --rm -it -v ${log_path}:/logs -v ${SCRIPT_ROOT}:/scripts $container_name /scripts/run_fdo_tests.sh --log-path /logs --fdo-build-dir /usr/local/src/fdo/build
+    "$DOCKER_CMD" run -e NLSPATH="/usr/local/src/fdo/build/nls/linux/en_US/%N" --rm -it -v ${log_path}:/logs -v ${SCRIPT_ROOT}:/scripts $container_name /scripts/run_fdo_tests.sh --log-path /logs --fdo-build-dir /usr/local/src/fdo/build
 }
 
 test_mapguide_env()
@@ -22,7 +25,7 @@ test_mapguide_env()
     container_name="mapguide_${distro}_build_${cpu}"
     log_path=$ROOT/logs/test/$container_name
 
-    docker run --rm -it -v ${log_path}:/logs -v ${SCRIPT_ROOT}:/scripts $container_name /scripts/run_mapguide_tests.sh --log-path /logs --mapguide-build-dir /usr/local/src/mapguide/build
+    "$DOCKER_CMD" run --rm -it -v ${log_path}:/logs -v ${SCRIPT_ROOT}:/scripts $container_name /scripts/run_mapguide_tests.sh --log-path /logs --mapguide-build-dir /usr/local/src/mapguide/build
 }
 
 TARGET=fdo
