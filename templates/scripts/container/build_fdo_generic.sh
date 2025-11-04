@@ -12,7 +12,7 @@ echo " Config - ${FDO_BUILD_CONFIG}"
 #############################################################
 
 ccache -s
-ZLIB_VER=1.2.12
+ZLIB_VER=1.3.1
 PGSQL_VER=16.1
 UNIXODBC_VER=2.3.12
 MARIADB_CONNECTOR_VER=3.3.8
