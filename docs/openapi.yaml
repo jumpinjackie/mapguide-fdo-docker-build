@@ -3234,7 +3234,6 @@ paths:
             type: string
             enum: ["1.0.0", "3.0.0"]
             default: "1.0.0"
-
         - $ref: '#/components/parameters/Session'
         - $ref: '#/components/parameters/Locale'
         - $ref: '#/components/parameters/ClientAgent'
@@ -3255,44 +3254,12 @@ paths:
           schema:
             type: integer
             enum: [0, 1]
-        - name: SELECTION
-          in: query
-          required: false
-          description: Selection geometry XML
-          schema:
-            type: string
-        - name: SELECTIONVARIANT
-          in: query
-          required: false
-          description: Selection rendering variant
-          schema:
-            type: string
-            enum: [NORMAL, HATCH, SOLID]
         - name: SELECTIONCOLOR
           in: query
           required: false
           description: Selection highlight color (hex RRGGBBAA). Only supported for VERSION=3.0.0.
           schema:
             type: string
-        - name: BEHAVIOR
-          in: query
-          required: false
-          description: Rendering behavior
-          schema:
-            type: integer
-        - name: SELECTIONFORMAT
-          in: query
-          required: false
-          description: Selection image format
-          schema:
-            type: string
-        - name: REQUESTDATA
-          in: query
-          required: false
-          description: Request map data alongside image
-          schema:
-            type: integer
-            enum: [0, 1]
         - name: SETVIEWCENTERX
           in: query
           required: false
@@ -3311,6 +3278,13 @@ paths:
           description: View scale denominator
           schema:
             type: number
+        - name: SETDISPLAYDPI
+          in: query
+          required: false
+          description: Display DPI
+          schema:
+            type: integer
+            default: 96
         - name: SETDISPLAYWIDTH
           in: query
           required: false
@@ -3323,13 +3297,30 @@ paths:
           description: Display height in pixels
           schema:
             type: integer
-        - name: SETDISPLAYDPI
+        - name: SHOWLAYERS
           in: query
           required: false
-          description: Display DPI
+          description: Comma-separated layer names or IDs to show
           schema:
-            type: integer
-            default: 96
+            type: string
+        - name: HIDELAYERS
+          in: query
+          required: false
+          description: Comma-separated layer names or IDs to hide
+          schema:
+            type: string
+        - name: SHOWGROUPS
+          in: query
+          required: false
+          description: Comma-separated group names or IDs to show
+          schema:
+            type: string
+        - name: HIDEGROUPS
+          in: query
+          required: false
+          description: Comma-separated group names or IDs to hide
+          schema:
+            type: string
       responses:
         '200':
           $ref: '#/components/responses/ImagePngResponse'
@@ -3409,36 +3400,11 @@ paths:
             type: string
             enum: ["1.0.0", "2.0.0", "2.1.0"]
             default: "1.0.0"
-
         - $ref: '#/components/parameters/Session'
         - $ref: '#/components/parameters/Locale'
         - $ref: '#/components/parameters/ClientAgent'
         - $ref: '#/components/parameters/MapName'
         - $ref: '#/components/parameters/ImageFormat'
-        - name: SELECTION
-          in: query
-          required: false
-          description: Selection geometry XML
-          schema:
-            type: string
-        - name: LAYERNAMES
-          in: query
-          required: false
-          description: Comma-separated layer names to include
-          schema:
-            type: string
-        - name: LAYERATTRIBUTEFILTER
-          in: query
-          required: false
-          description: Layer attribute filter
-          schema:
-            type: string
-        - name: BEHAVIOR
-          in: query
-          required: false
-          description: Rendering behavior. Only supported for VERSION=2.0.0 or 2.1.0.
-          schema:
-            type: integer
         - name: KEEPSELECTION
           in: query
           required: false
@@ -3446,34 +3412,79 @@ paths:
           schema:
             type: integer
             enum: [0, 1]
-        - name: CLIP
+        - name: BEHAVIOR
           in: query
           required: false
+          description: Rendering behavior. Only supported for VERSION=2.0.0 or 2.1.0.
           schema:
             type: integer
-            enum: [0, 1]
-        - name: SELECTIONVARIANT
-          in: query
-          required: false
-          schema:
-            type: string
         - name: SELECTIONCOLOR
           in: query
           required: false
           description: Selection highlight color (hex RRGGBBAA). Only supported for VERSION=2.0.0 or 2.1.0.
           schema:
             type: string
-        - name: SELECTIONFORMAT
+        - name: SETVIEWCENTERX
           in: query
           required: false
+          description: View center X coordinate
           schema:
-            type: string
-        - name: REQUESTDATA
+            type: number
+        - name: SETVIEWCENTERY
           in: query
           required: false
+          description: View center Y coordinate
+          schema:
+            type: number
+        - name: SETVIEWSCALE
+          in: query
+          required: false
+          description: View scale denominator
+          schema:
+            type: number
+        - name: SETDISPLAYDPI
+          in: query
+          required: false
+          description: Display DPI
           schema:
             type: integer
-            enum: [0, 1]
+            default: 96
+        - name: SETDISPLAYWIDTH
+          in: query
+          required: false
+          description: Display width in pixels
+          schema:
+            type: integer
+        - name: SETDISPLAYHEIGHT
+          in: query
+          required: false
+          description: Display height in pixels
+          schema:
+            type: integer
+        - name: SHOWLAYERS
+          in: query
+          required: false
+          description: Comma-separated layer names or IDs to show
+          schema:
+            type: string
+        - name: HIDELAYERS
+          in: query
+          required: false
+          description: Comma-separated layer names or IDs to hide
+          schema:
+            type: string
+        - name: SHOWGROUPS
+          in: query
+          required: false
+          description: Comma-separated group names or IDs to show
+          schema:
+            type: string
+        - name: HIDEGROUPS
+          in: query
+          required: false
+          description: Comma-separated group names or IDs to hide
+          schema:
+            type: string
       responses:
         '200':
           $ref: '#/components/responses/ImagePngResponse'
@@ -3505,16 +3516,15 @@ paths:
             type: string
             enum: ["1.0.0", "2.6.0", "4.0.0"]
             default: "1.0.0"
-
         - $ref: '#/components/parameters/Session'
         - $ref: '#/components/parameters/Locale'
         - $ref: '#/components/parameters/ClientAgent'
         - $ref: '#/components/parameters/Format'
         - $ref: '#/components/parameters/MapName'
-        - name: LAYERNAME
+        - name: LAYERNAMES
           in: query
           required: false
-          description: Layer name to query
+          description: Comma-separated layer names to query
           schema:
             type: string
         - name: LAYERDEFINITION
@@ -3560,6 +3570,26 @@ paths:
           description: Selection highlight color
           schema:
             type: string
+        - name: PERSIST
+          in: query
+          required: false
+          description: Persist selection to session
+          schema:
+            type: integer
+            enum: [0, 1]
+        - name: REQUESTDATA
+          in: query
+          required: false
+          description: Request map data alongside query results (VERSION >= 2.6.0)
+          schema:
+            type: integer
+            enum: [0, 1]
+        - name: SELECTIONFORMAT
+          in: query
+          required: false
+          description: Selection image format (VERSION >= 2.6.0)
+          schema:
+            type: string
       responses:
         '200':
           $ref: '#/components/responses/XmlResponse'
@@ -3595,28 +3625,66 @@ paths:
         - $ref: '#/components/parameters/Locale'
         - $ref: '#/components/parameters/ClientAgent'
         - $ref: '#/components/parameters/Format'
-        - $ref: "#/components/parameters/Clean"
         - $ref: '#/components/parameters/MapName'
-        - name: KEEPSELECTION
+        - name: SETVIEWCENTERX
           in: query
           required: false
+          description: View center X coordinate
+          schema:
+            type: number
+        - name: SETVIEWCENTERY
+          in: query
+          required: false
+          description: View center Y coordinate
+          schema:
+            type: number
+        - name: SETVIEWSCALE
+          in: query
+          required: false
+          description: View scale denominator
+          schema:
+            type: number
+        - name: SETDISPLAYDPI
+          in: query
+          required: false
+          description: Display DPI
           schema:
             type: integer
-            enum: [0, 1]
-        - name: CLIP
+            default: 96
+        - name: SETDISPLAYWIDTH
           in: query
           required: false
+          description: Display width in pixels
           schema:
             type: integer
-            enum: [0, 1]
-        - name: SELECTIONVARIANT
+        - name: SETDISPLAYHEIGHT
           in: query
           required: false
+          description: Display height in pixels
+          schema:
+            type: integer
+        - name: SHOWLAYERS
+          in: query
+          required: false
+          description: Comma-separated layer names or IDs to show
           schema:
             type: string
-        - name: SELECTIONCOLOR
+        - name: HIDELAYERS
           in: query
           required: false
+          description: Comma-separated layer names or IDs to hide
+          schema:
+            type: string
+        - name: SHOWGROUPS
+          in: query
+          required: false
+          description: Comma-separated group names or IDs to show
+          schema:
+            type: string
+        - name: HIDEGROUPS
+          in: query
+          required: false
+          description: Comma-separated group names or IDs to hide
           schema:
             type: string
       responses:
@@ -3654,7 +3722,6 @@ paths:
             type: string
             enum: ["1.0.0", "1.2.0"]
             default: "1.0.0"
-
         - $ref: '#/components/parameters/Session'
         - $ref: '#/components/parameters/Locale'
         - $ref: '#/components/parameters/ClientAgent'
