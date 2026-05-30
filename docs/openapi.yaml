@@ -1,0 +1,5173 @@
+openapi: "3.0.3"
+info:
+  title: MapGuide MapAgent API
+  description: |
+    HTTP API for MapGuide Open Source, served by the MapAgent FastCGI endpoint.
+    
+    All operations are dispatched to the single endpoint `/mapguide/mapagent/mapagent.fcgi` using
+    the `OPERATION` query parameter. Parameters can be passed via query string (GET) or form body (POST).
+    
+    **Authentication**: Most operations require either a session token (`SESSION` parameter) or
+    HTTP Basic Authentication (`USERNAME` + `PASSWORD`). Create a session with `CREATESESSION` first.
+    
+    **Response formats**: Operations that return structured data support `FORMAT=text/xml` (default)
+    and `FORMAT=application/json`. Version 4.0.0+ with `CLEAN=1` returns direct JSON serialization.
+    
+    **Source of truth**: This spec is derived from the C++ handler registry in
+    `HttpRequest.cpp::InitializeStaticData()`. Operations present in HTML test forms but lacking
+    a registered C++ handler (Server Admin, ExecuteSqlQuery, SchemaReport) are intentionally excluded.
+  version: "4.0.0"
+  contact:
+    name: MapGuide Open Source
+    url: https://mapguide.osgeo.org
+  license:
+    name: LGPL-2.1
+    url: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+
+servers:
+  - url: /mapguide/mapagent/mapagent.fcgi
+    description: Relative to the host serving this spec
+
+tags:
+  - name: Session
+    description: Session lifecycle management
+  - name: Site
+    description: Server info, users, and groups
+  - name: Resource
+    description: Repository and resource CRUD, resource data, packages
+  - name: Feature
+    description: FDO feature source queries, schema discovery, spatial contexts
+  - name: Drawing
+    description: DWF drawing retrieval, layer/section enumeration
+  - name: Mapping
+    description: Runtime map creation, plots, legend images
+  - name: Rendering
+    description: Map images, dynamic overlays, feature queries on rendered maps
+  - name: Tile
+    description: Tiled map image retrieval and cache management
+  - name: KML
+    description: KML map and feature layer generation
+  - name: CoordinateSystem
+    description: CS-Map coordinate system transformations and enumeration
+  - name: GeoProcessing
+    description: Spatial geometry operations (buffer, distance, etc.)
+  - name: WebApplication
+    description: Application template, widget, and container enumeration
+
+components:
+  securitySchemes:
+    SessionAuth:
+      type: apiKey
+      in: query
+      name: SESSION
+      description: Session token obtained from CREATESESSION
+    BasicAuth:
+      type: http
+      scheme: basic
+      description: HTTP Basic Authentication using USERNAME and PASSWORD
+
+  parameters:
+    Session:
+      name: SESSION
+      in: query
+      required: false
+      description: Session token from CREATESESSION. Required for authenticated operations.
+      schema:
+        type: string
+    Locale:
+      name: LOCALE
+      in: query
+      required: false
+      description: Language locale
+      schema:
+        type: string
+        default: "en"
+    ClientAgent:
+      name: CLIENTAGENT
+      in: query
+      required: false
+      description: Client agent identifier
+      schema:
+        type: string
+    Format:
+      name: FORMAT
+      in: query
+      required: false
+      description: Response format for data operations
+      schema:
+        type: string
+        enum: ["text/xml", "application/json"]
+        default: "text/xml"
+    Clean:
+      name: CLEAN
+      in: query
+      required: false
+      description: Request clean/direct JSON serialization (v4.0.0+)
+      schema:
+        type: integer
+        enum: [0, 1]
+        default: 0
+    ImageFormat:
+      name: FORMAT
+      in: query
+      required: false
+      description: Output image format
+      schema:
+        type: string
+        enum: ["PNG", "GIF", "JPG", "PNG8", "TIFF"]
+        default: "PNG"
+    ResourceId:
+      name: RESOURCEID
+      in: query
+      required: true
+      description: Resource identifier (e.g. Library://Samples/Sheboygan/Data/Parcels.FeatureSource)
+      schema:
+        type: string
+    MapDefinition:
+      name: MAPDEFINITION
+      in: query
+      required: false
+      description: Map definition resource path
+      schema:
+        type: string
+        example: "Library://Samples/Sheboygan/Maps/Sheboygan.MapDefinition"
+    MapName:
+      name: MAPNAME
+      in: query
+      required: false
+      description: Runtime map name
+      schema:
+        type: string
+    Provider:
+      name: PROVIDER
+      in: query
+      required: true
+      description: FDO provider name (e.g. OSGeo.SDF, OSGeo.SHP)
+      schema:
+        type: string
+    ConnectionString:
+      name: CONNECTIONSTRING
+      in: query
+      required: false
+      description: FDO connection string
+      schema:
+        type: string
+    Schema:
+      name: SCHEMA
+      in: query
+      required: true
+      description: Feature schema name
+      schema:
+        type: string
+    ClassName:
+      name: CLASSNAME
+      in: query
+      required: true
+      description: Feature class name
+      schema:
+        type: string
+
+  responses:
+    XmlResponse:
+      description: Successful XML response
+      content:
+        text/xml:
+          schema:
+            type: string
+    JsonResponse:
+      description: Successful JSON response
+      content:
+        application/json:
+          schema:
+            type: object
+    TextResponse:
+      description: Successful plain text response
+      content:
+        text/plain:
+          schema:
+            type: string
+    ImagePngResponse:
+      description: PNG image
+      content:
+        image/png:
+          schema:
+            type: string
+            format: binary
+    HtmlResponse:
+      description: HTML page
+      content:
+        text/html:
+          schema:
+            type: string
+    EmptyResponse:
+      description: Operation completed successfully (no content)
+    UnauthorizedError:
+      description: Authentication required
+      content:
+        text/xml:
+          schema:
+            type: string
+    BadRequestError:
+      description: Invalid request parameters
+
+paths:
+
+  # ═══════════════════════════════════════════════════════════════
+  # SESSION OPERATIONS
+  # ═══════════════════════════════════════════════════════════════
+
+  /mapagent.fcgi#CreateSession:
+    post:
+      tags: [Session]
+      summary: Create a new session
+      description: Creates an authenticated session and returns the session ID. No prior authentication required.
+      operationId: CreateSession
+      security: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [CREATESESSION]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: USERNAME
+          in: query
+          required: false
+          description: Username (defaults to Anonymous if not provided)
+          schema:
+            type: string
+            default: Anonymous
+        - name: PASSWORD
+          in: query
+          required: false
+          description: Password
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                OPERATION:
+                  type: string
+                  enum: [CREATESESSION]
+                VERSION:
+                  type: string
+                USERNAME:
+                  type: string
+                PASSWORD:
+                  type: string
+                LOCALE:
+                  type: string
+                CLIENTAGENT:
+                  type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/TextResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetSessionTimeout:
+    get:
+      tags: [Session]
+      summary: Get session timeout
+      description: Returns the configured session timeout value.
+      operationId: GetSessionTimeout
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETSESSIONTIMEOUT]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ═══════════════════════════════════════════════════════════════
+  # SITE OPERATIONS
+  # ═══════════════════════════════════════════════════════════════
+
+  /mapagent.fcgi#GetSiteVersion:
+    get:
+      tags: [Site]
+      summary: Get site version
+      description: Returns the MapGuide server version information.
+      operationId: GetSiteVersion
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETSITEVERSION]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetSiteInfo:
+    get:
+      tags: [Site]
+      summary: Get site information
+      description: Returns site configuration and status information.
+      operationId: GetSiteInfo
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETSITEINFO]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetSiteStatus:
+    get:
+      tags: [Site]
+      summary: Get site status
+      description: Returns current site operational status. No authentication required.
+      operationId: GetSiteStatus
+      security: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETSITESTATUS]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+
+  /mapagent.fcgi#EnumerateUsers:
+    get:
+      tags: [Site]
+      summary: Enumerate users
+      description: Lists users, optionally filtered by group.
+      operationId: EnumerateUsers
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [ENUMERATEUSERS]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: GROUP
+          in: query
+          required: false
+          description: Filter users by group name
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#EnumerateGroups:
+    get:
+      tags: [Site]
+      summary: Enumerate groups
+      description: Lists all user groups.
+      operationId: EnumerateGroups
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [ENUMERATEGROUPS]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ═══════════════════════════════════════════════════════════════
+  # RESOURCE OPERATIONS — Repositories
+  # ═══════════════════════════════════════════════════════════════
+
+  /mapagent.fcgi#EnumerateRepositories:
+    get:
+      tags: [Resource]
+      summary: Enumerate repositories
+      description: Lists available repositories, optionally filtered by type.
+      operationId: EnumerateRepositories
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [ENUMERATEREPOSITORIES]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: TYPE
+          in: query
+          required: false
+          description: Repository type filter
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#CreateRepository:
+    post:
+      tags: [Resource]
+      summary: Create repository
+      description: Creates a new repository.
+      operationId: CreateRepository
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [CREATEREPOSITORY]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/ResourceId'
+        - name: TYPE
+          in: query
+          required: false
+          description: Repository type
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptyResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#DeleteRepository:
+    post:
+      tags: [Resource]
+      summary: Delete repository
+      description: Deletes an existing repository.
+      operationId: DeleteRepository
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [DELETEREPOSITORY]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptyResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#UpdateRepository:
+    post:
+      tags: [Resource]
+      summary: Update repository
+      description: Updates repository content and/or header.
+      operationId: UpdateRepository
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [UPDATEREPOSITORY]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/ResourceId'
+        - name: CONTENT
+          in: query
+          required: false
+          description: Repository content XML
+          schema:
+            type: string
+        - name: HEADER
+          in: query
+          required: false
+          description: Repository header XML
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptyResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetRepositoryContent:
+    get:
+      tags: [Resource]
+      summary: Get repository content
+      description: Returns the content of a repository.
+      operationId: GetRepositoryContent
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETREPOSITORYCONTENT]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetRepositoryHeader:
+    get:
+      tags: [Resource]
+      summary: Get repository header
+      description: Returns the header/metadata of a repository.
+      operationId: GetRepositoryHeader
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETREPOSITORYHEADER]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ═══════════════════════════════════════════════════════════════
+  # RESOURCE OPERATIONS — Resources
+  # ═══════════════════════════════════════════════════════════════
+
+  /mapagent.fcgi#EnumerateResources:
+    get:
+      tags: [Resource]
+      summary: Enumerate resources
+      description: Lists resources under a given path, with optional depth, type, and filter.
+      operationId: EnumerateResources
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [ENUMERATERESOURCES]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Parent resource path
+          schema:
+            type: string
+        - name: DEPTH
+          in: query
+          required: false
+          description: Recursion depth (-1 for infinite)
+          schema:
+            type: integer
+            default: 1
+        - name: TYPE
+          in: query
+          required: false
+          description: Resource type filter
+          schema:
+            type: string
+        - name: COMPUTECHILDREN
+          in: query
+          required: false
+          description: Whether to compute child counts
+          schema:
+            type: integer
+            enum: [0, 1]
+            default: 0
+        - name: FILTER
+          in: query
+          required: false
+          description: Name filter pattern
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#ResourceExists:
+    get:
+      tags: [Resource]
+      summary: Check if resource exists
+      description: Returns "true" or "false" as plain text.
+      operationId: ResourceExists
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [RESOURCEEXISTS]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/TextResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#SetResource:
+    post:
+      tags: [Resource]
+      summary: Set/update resource
+      description: Creates or updates a resource with XML content and optional header.
+      operationId: SetResource
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [SETRESOURCE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/ResourceId'
+        - name: CONTENT
+          in: query
+          required: true
+          description: Resource content XML
+          schema:
+            type: string
+        - name: HEADER
+          in: query
+          required: false
+          description: Resource header XML
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptyResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#DeleteResource:
+    post:
+      tags: [Resource]
+      summary: Delete resource
+      description: Deletes an existing resource.
+      operationId: DeleteResource
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [DELETERESOURCE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptyResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#MoveResource:
+    post:
+      tags: [Resource]
+      summary: Move resource
+      description: Moves a resource from source to destination, optionally overwriting and cascading.
+      operationId: MoveResource
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [MOVERESOURCE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: SOURCE
+          in: query
+          required: true
+          description: Source resource path
+          schema:
+            type: string
+        - name: DESTINATION
+          in: query
+          required: true
+          description: Destination resource path
+          schema:
+            type: string
+        - name: OVERWRITE
+          in: query
+          required: false
+          description: Overwrite existing destination
+          schema:
+            type: integer
+            enum: [0, 1]
+            default: 0
+        - name: CASCADE
+          in: query
+          required: false
+          description: Cascade the move to children
+          schema:
+            type: integer
+            enum: [0, 1]
+            default: 0
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptyResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#CopyResource:
+    post:
+      tags: [Resource]
+      summary: Copy resource
+      description: Copies a resource from source to destination, optionally overwriting.
+      operationId: CopyResource
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [COPYRESOURCE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: SOURCE
+          in: query
+          required: true
+          description: Source resource path
+          schema:
+            type: string
+        - name: DESTINATION
+          in: query
+          required: true
+          description: Destination resource path
+          schema:
+            type: string
+        - name: OVERWRITE
+          in: query
+          required: false
+          description: Overwrite existing destination
+          schema:
+            type: integer
+            enum: [0, 1]
+            default: 0
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptyResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetResourceContent:
+    get:
+      tags: [Resource]
+      summary: Get resource content
+      description: Returns the XML content of a resource.
+      operationId: GetResourceContent
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETRESOURCECONTENT]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetResourceHeader:
+    get:
+      tags: [Resource]
+      summary: Get resource header
+      description: Returns the header/metadata XML of a resource.
+      operationId: GetResourceHeader
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETRESOURCEHEADER]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#EnumerateResourceReferences:
+    get:
+      tags: [Resource]
+      summary: Enumerate resource references
+      description: Lists all resources referenced by a given resource.
+      operationId: EnumerateResourceReferences
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [ENUMERATERESOURCEREFERENCES]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#ChangeResourceOwner:
+    post:
+      tags: [Resource]
+      summary: Change resource owner
+      description: Changes the owner of a resource, optionally including descendants.
+      operationId: ChangeResourceOwner
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [CHANGERESOURCEOWNER]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/ResourceId'
+        - name: OWNER
+          in: query
+          required: true
+          description: New owner username
+          schema:
+            type: string
+        - name: INCLUDEDESCENDANTS
+          in: query
+          required: false
+          description: Apply to descendant resources
+          schema:
+            type: integer
+            enum: [0, 1]
+            default: 0
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptyResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#InheritPermissionsFrom:
+    post:
+      tags: [Resource]
+      summary: Inherit permissions
+      description: Inherits permissions from a source resource.
+      operationId: InheritPermissionsFrom
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [INHERITPERMISSIONSFROM]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Target resource to apply inherited permissions to
+          schema:
+            type: string
+        - name: SOURCE
+          in: query
+          required: true
+          description: Source resource to inherit permissions from
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptyResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ═══════════════════════════════════════════════════════════════
+  # RESOURCE OPERATIONS — Resource Data
+  # ═══════════════════════════════════════════════════════════════
+
+  /mapagent.fcgi#EnumerateResourceData:
+    get:
+      tags: [Resource]
+      summary: Enumerate resource data
+      description: Lists binary resource data items attached to a resource.
+      operationId: EnumerateResourceData
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [ENUMERATERESOURCEDATA]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#SetResourceData:
+    post:
+      tags: [Resource]
+      summary: Set resource data
+      description: Uploads binary data to attach to a resource.
+      operationId: SetResourceData
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [SETRESOURCEDATA]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/ResourceId'
+        - name: DATANAME
+          in: query
+          required: true
+          description: Name for the data item
+          schema:
+            type: string
+        - name: DATATYPE
+          in: query
+          required: true
+          description: MIME type of the data
+          schema:
+            type: string
+        - name: DATALENGTH
+          in: query
+          required: false
+          description: Length of data in bytes
+          schema:
+            type: integer
+        - name: DATA
+          in: query
+          required: true
+          description: Base64-encoded binary data or file path
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptyResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#DeleteResourceData:
+    post:
+      tags: [Resource]
+      summary: Delete resource data
+      description: Removes a binary data item from a resource.
+      operationId: DeleteResourceData
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [DELETERESOURCEDATA]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/ResourceId'
+        - name: DATANAME
+          in: query
+          required: true
+          description: Name of the data item to delete
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptyResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#RenameResourceData:
+    post:
+      tags: [Resource]
+      summary: Rename resource data
+      description: Renames a binary data item, optionally overwriting an existing one.
+      operationId: RenameResourceData
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [RENAMERESOURCEDATA]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/ResourceId'
+        - name: OLDDATANAME
+          in: query
+          required: true
+          description: Current name of the data item
+          schema:
+            type: string
+        - name: NEWDATANAME
+          in: query
+          required: true
+          description: New name for the data item
+          schema:
+            type: string
+        - name: OVERWRITE
+          in: query
+          required: false
+          description: Overwrite existing item with new name
+          schema:
+            type: integer
+            enum: [0, 1]
+            default: 0
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptyResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetResourceData:
+    get:
+      tags: [Resource]
+      summary: Get resource data
+      description: Retrieves binary data attached to a resource.
+      operationId: GetResourceData
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETRESOURCEDATA]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/ResourceId'
+        - name: DATANAME
+          in: query
+          required: true
+          description: Name of the data item to retrieve
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Binary resource data
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#EnumerateUnmanagedData:
+    get:
+      tags: [Resource]
+      summary: Enumerate unmanaged data
+      description: Lists unmanaged (file-based) data under a resource path.
+      operationId: EnumerateUnmanagedData
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [ENUMERATEUNMANAGEDDATA]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - $ref: '#/components/parameters/ResourceId'
+        - name: PATH
+          in: query
+          required: false
+          description: Sub-path for unmanaged data
+          schema:
+            type: string
+        - name: RECURSIVE
+          in: query
+          required: false
+          description: Recursively enumerate
+          schema:
+            type: integer
+            enum: [0, 1]
+            default: 0
+        - name: TYPE
+          in: query
+          required: false
+          description: Type filter
+          schema:
+            type: string
+        - name: FILTER
+          in: query
+          required: false
+          description: Name filter pattern
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ═══════════════════════════════════════════════════════════════
+  # RESOURCE OPERATIONS — Packages
+  # ═══════════════════════════════════════════════════════════════
+
+  /mapagent.fcgi#ApplyResourcePackage:
+    post:
+      tags: [Resource]
+      summary: Apply resource package
+      description: Uploads and applies a MapGuide Package (.mgp) file.
+      operationId: ApplyResourcePackage
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [APPLYRESOURCEPACKAGE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [OPERATION, VERSION, PACKAGE]
+              properties:
+                OPERATION:
+                  type: string
+                  enum: [APPLYRESOURCEPACKAGE]
+                VERSION:
+                  type: string
+                SESSION:
+                  type: string
+                USERNAME:
+                  type: string
+                PASSWORD:
+                  type: string
+                LOCALE:
+                  type: string
+                CLIENTAGENT:
+                  type: string
+                MAX_FILE_SIZE:
+                  type: integer
+                  description: Maximum allowed file size in bytes
+                PACKAGE:
+                  type: string
+                  format: binary
+                  description: The .mgp package file to upload
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptyResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ═══════════════════════════════════════════════════════════════
+  # FEATURE OPERATIONS
+  # ═══════════════════════════════════════════════════════════════
+
+  /mapagent.fcgi#GetFeatureProviders:
+    get:
+      tags: [Feature]
+      summary: Get feature providers
+      description: Lists all available FDO feature providers.
+      operationId: GetFeatureProviders
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETFEATUREPROVIDERS]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetProviderCapabilities:
+    get:
+      tags: [Feature]
+      summary: Get provider capabilities
+      description: Returns the capabilities of a specific FDO provider.
+      operationId: GetProviderCapabilities
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETPROVIDERCAPABILITIES]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - $ref: '#/components/parameters/Provider'
+        - $ref: '#/components/parameters/ConnectionString'
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetConnectionPropertyValues:
+    get:
+      tags: [Feature]
+      summary: Get connection property values
+      description: Returns enumerable values for a specific connection property.
+      operationId: GetConnectionPropertyValues
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETCONNECTIONPROPERTYVALUES]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - $ref: '#/components/parameters/Provider'
+        - $ref: '#/components/parameters/ConnectionString'
+        - name: PROPERTY
+          in: query
+          required: true
+          description: Connection property name
+          schema:
+            type: string
+            example: ReadOnly
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#DescribeFeatureSchema:
+    get:
+      tags: [Feature]
+      summary: Describe feature schema
+      description: Returns the feature schema for a feature source, optionally filtered by schema and class names.
+      operationId: DescribeFeatureSchema
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [DESCRIBEFEATURESCHEMA]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Feature source resource ID
+          schema:
+            type: string
+        - name: SCHEMA
+          in: query
+          required: false
+          description: Schema name filter
+          schema:
+            type: string
+        - name: CLASSNAMES
+          in: query
+          required: false
+          description: Comma-separated class name filter
+          schema:
+            type: string
+        - name: SIMPLE
+          in: query
+          required: false
+          description: Request simplified output (v4.0.0+)
+          schema:
+            type: integer
+            enum: [0, 1]
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#SelectFeatures:
+    get:
+      tags: [Feature]
+      summary: Select features
+      description: Queries features from a feature source with optional filter, property list, and transformation. Supports GeoJSON output via FORMAT=application/json.
+      operationId: SelectFeatures
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [SELECTFEATURES]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: FORMAT
+          in: query
+          required: false
+          description: Response format (text/xml for XML, application/json for GeoJSON)
+          schema:
+            type: string
+            enum: ["text/xml", "application/json", "GEOJSON"]
+            default: "text/xml"
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Feature source resource ID
+          schema:
+            type: string
+        - name: CLASSNAME
+          in: query
+          required: true
+          description: Feature class name
+          schema:
+            type: string
+        - name: FILTER
+          in: query
+          required: false
+          description: FDO filter expression
+          schema:
+            type: string
+        - name: PROPERTIES
+          in: query
+          required: false
+          description: Comma-separated property names to return
+          schema:
+            type: string
+        - name: COMPUTED_PROPERTIES
+          in: query
+          required: false
+          description: Computed property expressions
+          schema:
+            type: string
+        - name: COMPUTED_ALIASES
+          in: query
+          required: false
+          description: Aliases for computed properties
+          schema:
+            type: string
+        - name: TRANSFORMTO
+          in: query
+          required: false
+          description: Target coordinate system code
+          schema:
+            type: string
+            example: LL84
+        - name: PRECISION
+          in: query
+          required: false
+          description: Coordinate precision
+          schema:
+            type: integer
+            default: 7
+      responses:
+        '200':
+          description: Feature data (XML or GeoJSON)
+          content:
+            text/xml:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#SelectAggregates:
+    get:
+      tags: [Feature]
+      summary: Select aggregates (spatial query)
+      description: Performs a spatial feature query and returns aggregated results.
+      operationId: SelectAggregates
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [SELECTAGGREGATES]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Feature source resource ID
+          schema:
+            type: string
+        - name: CLASSNAME
+          in: query
+          required: true
+          description: Feature class name
+          schema:
+            type: string
+        - name: FILTER
+          in: query
+          required: false
+          description: FDO filter expression
+          schema:
+            type: string
+        - name: PROPERTIES
+          in: query
+          required: false
+          description: Comma-separated property names to return
+          schema:
+            type: string
+        - name: GEOMETRY
+          in: query
+          required: true
+          description: WKT geometry for spatial filter
+          schema:
+            type: string
+        - name: GEOMPROPERTY
+          in: query
+          required: true
+          description: Geometry property name
+          schema:
+            type: string
+        - name: SPATIALOP
+          in: query
+          required: true
+          description: Spatial operation
+          schema:
+            type: string
+            enum: [Intersects, Contains, Within, EnvelopeIntersects]
+        - name: OTHERGEOMETRY
+          in: query
+          required: false
+          description: Second WKT geometry for binary spatial operations
+          schema:
+            type: string
+        - name: ACTIVEONLY
+          in: query
+          required: false
+          description: Only return active features
+          schema:
+            type: integer
+            enum: [0, 1]
+        - name: TRANSFORMTO
+          in: query
+          required: false
+          description: Target coordinate system code
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetSpatialContexts:
+    get:
+      tags: [Feature]
+      summary: Get spatial contexts
+      description: Returns spatial context information for a feature source.
+      operationId: GetSpatialContexts
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETSPATIALCONTEXTS]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Feature source resource ID
+          schema:
+            type: string
+        - name: ACTIVEONLY
+          in: query
+          required: false
+          description: Only return active spatial contexts
+          schema:
+            type: integer
+            enum: [0, 1]
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetLongTransactions:
+    get:
+      tags: [Feature]
+      summary: Get long transactions
+      description: Returns long transaction information for a feature source.
+      operationId: GetLongTransactions
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETLONGTRANSACTIONS]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Feature source resource ID
+          schema:
+            type: string
+        - name: ACTIVEONLY
+          in: query
+          required: false
+          description: Only return active long transactions
+          schema:
+            type: integer
+            enum: [0, 1]
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#TestConnection:
+    get:
+      tags: [Feature]
+      summary: Test connection
+      description: Tests a feature source connection. Returns "true" or "false" as plain text.
+      operationId: TestConnection
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [TESTCONNECTION]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: RESOURCEID
+          in: query
+          required: false
+          description: Feature source resource ID
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Provider'
+        - $ref: '#/components/parameters/ConnectionString'
+      responses:
+        '200':
+          $ref: '#/components/responses/TextResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#EnumerateDataStores:
+    get:
+      tags: [Feature]
+      summary: Enumerate data stores
+      description: Lists available data stores for a provider and connection.
+      operationId: EnumerateDataStores
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [ENUMERATEDATASTORES]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: RESOURCEID
+          in: query
+          required: false
+          description: Feature source resource ID
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Provider'
+        - $ref: '#/components/parameters/ConnectionString'
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetSchemaMapping:
+    get:
+      tags: [Feature]
+      summary: Get schema mapping
+      description: Returns schema mapping information for a provider and connection.
+      operationId: GetSchemaMapping
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETSCHEMAMAPPING]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - $ref: '#/components/parameters/Provider'
+        - $ref: '#/components/parameters/ConnectionString'
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetSchemas:
+    get:
+      tags: [Feature]
+      summary: Get schemas
+      description: Lists available schemas for a feature source.
+      operationId: GetSchemas
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETSCHEMAS]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Feature source resource ID
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetClasses:
+    get:
+      tags: [Feature]
+      summary: Get classes
+      description: Lists available feature classes for a schema.
+      operationId: GetClasses
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETCLASSES]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Feature source resource ID
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Schema'
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetClassDefinition:
+    get:
+      tags: [Feature]
+      summary: Get class definition
+      description: Returns the full class definition for a feature class.
+      operationId: GetClassDefinition
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETCLASSDEFINITION]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Feature source resource ID
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Schema'
+        - $ref: '#/components/parameters/ClassName'
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetIdentityProperties:
+    get:
+      tags: [Feature]
+      summary: Get identity properties
+      description: Returns identity properties for a feature class.
+      operationId: GetIdentityProperties
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETIDENTITYPROPERTIES]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Feature source resource ID
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Schema'
+        - $ref: '#/components/parameters/ClassName'
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetFdoCacheInfo:
+    get:
+      tags: [Feature]
+      summary: Get FDO cache info
+      description: Returns FDO data cache information.
+      operationId: GetFdoCacheInfo
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETFDOCACHEINFO]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ═══════════════════════════════════════════════════════════════
+  # DRAWING OPERATIONS
+  # ═══════════════════════════════════════════════════════════════
+
+  /mapagent.fcgi#DescribeDrawing:
+    get:
+      tags: [Drawing]
+      summary: Describe drawing
+      description: Returns metadata about a DWF drawing resource.
+      operationId: DescribeDrawing
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [DESCRIBEDRAWING]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Drawing resource ID
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetDrawing:
+    get:
+      tags: [Drawing]
+      summary: Get drawing
+      description: Returns the DWF drawing file.
+      operationId: GetDrawing
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETDRAWING]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Drawing resource ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: DWF drawing file
+          content:
+            application/dwf:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#EnumerateDrawingSections:
+    get:
+      tags: [Drawing]
+      summary: Enumerate drawing sections
+      description: Lists sections within a DWF drawing.
+      operationId: EnumerateDrawingSections
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [ENUMERATEDRAWINGSECTIONS]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Drawing resource ID
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetDrawingSection:
+    get:
+      tags: [Drawing]
+      summary: Get drawing section
+      description: Returns a specific section from a DWF drawing.
+      operationId: GetDrawingSection
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETDRAWINGSECTION]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Drawing resource ID
+          schema:
+            type: string
+        - name: SECTION
+          in: query
+          required: true
+          description: Section name
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Drawing section data
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#EnumerateDrawingSectionResources:
+    get:
+      tags: [Drawing]
+      summary: Enumerate drawing section resources
+      description: Lists resources within a drawing section.
+      operationId: EnumerateDrawingSectionResources
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [ENUMERATEDRAWINGSECTIONRESOURCES]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Drawing resource ID
+          schema:
+            type: string
+        - name: SECTION
+          in: query
+          required: true
+          description: Section name
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetDrawingSectionResource:
+    get:
+      tags: [Drawing]
+      summary: Get drawing section resource
+      description: Returns a specific resource from a drawing section.
+      operationId: GetDrawingSectionResource
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETDRAWINGSECTIONRESOURCE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Drawing resource ID
+          schema:
+            type: string
+        - name: RESOURCENAME
+          in: query
+          required: true
+          description: Section resource name
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Drawing section resource data
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#EnumerateDrawingLayers:
+    get:
+      tags: [Drawing]
+      summary: Enumerate drawing layers
+      description: Lists layers within a drawing section.
+      operationId: EnumerateDrawingLayers
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [ENUMERATEDRAWINGLAYERS]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Drawing resource ID
+          schema:
+            type: string
+        - name: SECTION
+          in: query
+          required: true
+          description: Section name
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetDrawingLayer:
+    get:
+      tags: [Drawing]
+      summary: Get drawing layer
+      description: Returns a specific layer from a drawing section.
+      operationId: GetDrawingLayer
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETDRAWINGLAYER]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Drawing resource ID
+          schema:
+            type: string
+        - name: SECTION
+          in: query
+          required: true
+          description: Section name
+          schema:
+            type: string
+        - name: LAYER
+          in: query
+          required: true
+          description: Layer name
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Drawing layer data
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetDrawingCoordinateSpace:
+    get:
+      tags: [Drawing]
+      summary: Get drawing coordinate space
+      description: Returns coordinate space information for a drawing.
+      operationId: GetDrawingCoordinateSpace
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETDRAWINGCOORDINATESPACE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: RESOURCEID
+          in: query
+          required: true
+          description: Drawing resource ID
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ═══════════════════════════════════════════════════════════════
+  # MAPPING OPERATIONS
+  # ═══════════════════════════════════════════════════════════════
+
+  /mapagent.fcgi#CreateRuntimeMap:
+    get:
+      tags: [Mapping]
+      summary: Create runtime map
+      description: Creates a runtime map from a map definition with optional layer customization.
+      operationId: CreateRuntimeMap
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [CREATERUNTIMEMAP]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["2.6.0", "3.0.0", "4.0.0"]
+            default: "2.6.0"
+
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/MapDefinition'
+        - name: REQUESTEDFEATURES
+          in: query
+          required: false
+          description: Number of features to request per layer
+          schema:
+            type: integer
+        - name: ICONSPERSCALERANGE
+          in: query
+          required: false
+          description: Maximum icons per scale range
+          schema:
+            type: integer
+        - name: TARGETMAPNAME
+          in: query
+          required: false
+          description: Target name for the runtime map
+          schema:
+            type: string
+        - name: ICONFORMAT
+          in: query
+          required: false
+          description: Icon image format
+          schema:
+            type: string
+            enum: ["PNG", "GIF", "JPG"]
+        - name: ICONWIDTH
+          in: query
+          required: false
+          description: Icon width in pixels
+          schema:
+            type: integer
+        - name: ICONHEIGHT
+          in: query
+          required: false
+          description: Icon height in pixels
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#DescribeRuntimeMap:
+    get:
+      tags: [Mapping]
+      summary: Describe runtime map
+      description: Returns the structure and layer information of a runtime map.
+      operationId: DescribeRuntimeMap
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [DESCRIBERUNTIMEMAP]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["2.6.0", "3.0.0", "4.0.0"]
+            default: "2.6.0"
+
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/MapDefinition'
+        - $ref: '#/components/parameters/MapName'
+        - name: REQUESTEDFEATURES
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: ICONSPERSCALERANGE
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: TARGETMAPNAME
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: ICONFORMAT
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: ICONWIDTH
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: ICONHEIGHT
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetPlot:
+    get:
+      tags: [Mapping]
+      summary: Get plot (DWF)
+      description: Generates a DWF plot of a map using a specified layout.
+      operationId: GetPlot
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETPLOT]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/MapDefinition'
+        - $ref: '#/components/parameters/MapName'
+        - name: LAYOUT
+          in: query
+          required: true
+          description: Plot layout resource ID
+          schema:
+            type: string
+        - name: WIDTH
+          in: query
+          required: false
+          description: Plot width
+          schema:
+            type: number
+        - name: HEIGHT
+          in: query
+          required: false
+          description: Plot height
+          schema:
+            type: number
+        - name: UNITS
+          in: query
+          required: false
+          description: Plot units
+          schema:
+            type: string
+            enum: ["mm", "cm", "in"]
+        - name: LAYOUTTITLE
+          in: query
+          required: false
+          description: Layout title
+          schema:
+            type: string
+        - name: LAYOUTUNITTYPE
+          in: query
+          required: false
+          description: Layout unit type
+          schema:
+            type: string
+        - name: MARGINS
+          in: query
+          required: false
+          description: Plot margins
+          schema:
+            type: string
+      responses:
+        '200':
+          description: DWF plot
+          content:
+            application/dwf:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetLegendImage:
+    get:
+      tags: [Mapping]
+      summary: Get legend image
+      description: Generates a legend image for a map definition at a given scale.
+      operationId: GetLegendImage
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETLEGENDIMAGE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/MapDefinition'
+        - name: SCALE
+          in: query
+          required: true
+          description: Map scale for legend
+          schema:
+            type: number
+        - name: WIDTH
+          in: query
+          required: false
+          description: Legend image width
+          schema:
+            type: integer
+        - name: HEIGHT
+          in: query
+          required: false
+          description: Legend image height
+          schema:
+            type: integer
+        - $ref: '#/components/parameters/ImageFormat'
+        - name: TYPE
+          in: query
+          required: false
+          description: Legend type/style
+          schema:
+            type: string
+        - name: THEMECATEGORY
+          in: query
+          required: false
+          description: Theme category filter
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/ImagePngResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetFeatureSetEnvelope:
+    get:
+      tags: [Mapping]
+      summary: Get feature set envelope
+      description: Returns the spatial envelope of a feature set.
+      operationId: GetFeatureSetEnvelope
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETFEATURESETENVELOPE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: FEATURESET
+          in: query
+          required: true
+          description: Feature set XML
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ═══════════════════════════════════════════════════════════════
+  # RENDERING OPERATIONS
+  # ═══════════════════════════════════════════════════════════════
+
+  /mapagent.fcgi#GetMapImage:
+    get:
+      tags: [Rendering]
+      summary: Get map image
+      description: Renders a map image from a map definition or runtime map with selection, clipping, and viewport.
+      operationId: GetMapImage
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETMAPIMAGE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "3.0.0"]
+            default: "1.0.0"
+
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/MapDefinition'
+        - $ref: '#/components/parameters/MapName'
+        - $ref: '#/components/parameters/ImageFormat'
+        - name: KEEPSELECTION
+          in: query
+          required: false
+          description: Keep current selection visible
+          schema:
+            type: integer
+            enum: [0, 1]
+        - name: CLIP
+          in: query
+          required: false
+          description: Clip rendering to selection geometry
+          schema:
+            type: integer
+            enum: [0, 1]
+        - name: SELECTION
+          in: query
+          required: false
+          description: Selection geometry XML
+          schema:
+            type: string
+        - name: SELECTIONVARIANT
+          in: query
+          required: false
+          description: Selection rendering variant
+          schema:
+            type: string
+            enum: [NORMAL, HATCH, SOLID]
+        - name: SELECTIONCOLOR
+          in: query
+          required: false
+          description: Selection highlight color (hex RRGGBBAA)
+          schema:
+            type: string
+        - name: BEHAVIOR
+          in: query
+          required: false
+          description: Rendering behavior
+          schema:
+            type: integer
+        - name: SELECTIONFORMAT
+          in: query
+          required: false
+          description: Selection image format
+          schema:
+            type: string
+        - name: REQUESTDATA
+          in: query
+          required: false
+          description: Request map data alongside image
+          schema:
+            type: integer
+            enum: [0, 1]
+        - name: SETVIEWCENTERX
+          in: query
+          required: false
+          description: View center X coordinate
+          schema:
+            type: number
+        - name: SETVIEWCENTERY
+          in: query
+          required: false
+          description: View center Y coordinate
+          schema:
+            type: number
+        - name: SETVIEWSCALE
+          in: query
+          required: false
+          description: View scale denominator
+          schema:
+            type: number
+        - name: SETDISPLAYWIDTH
+          in: query
+          required: false
+          description: Display width in pixels
+          schema:
+            type: integer
+        - name: SETDISPLAYHEIGHT
+          in: query
+          required: false
+          description: Display height in pixels
+          schema:
+            type: integer
+        - name: SETDISPLAYDPI
+          in: query
+          required: false
+          description: Display DPI
+          schema:
+            type: integer
+            default: 96
+      responses:
+        '200':
+          $ref: '#/components/responses/ImagePngResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetMapLegendImage:
+    get:
+      tags: [Rendering]
+      summary: Get map legend image
+      description: Generates a legend image for a runtime map.
+      operationId: GetMapLegendImage
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETMAPLEGENDIMAGE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/MapName'
+        - $ref: '#/components/parameters/ImageFormat'
+        - name: WIDTH
+          in: query
+          required: false
+          description: Legend image width
+          schema:
+            type: integer
+        - name: HEIGHT
+          in: query
+          required: false
+          description: Legend image height
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: '#/components/responses/ImagePngResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetDynamicMapOverlayImage:
+    get:
+      tags: [Rendering]
+      summary: Get dynamic map overlay image
+      description: Generates a dynamic overlay image with optional layer and attribute filtering.
+      operationId: GetDynamicMapOverlayImage
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETDYNAMICMAPOVERLAYIMAGE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "2.0.0", "2.1.0"]
+            default: "1.0.0"
+
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/MapName'
+        - $ref: '#/components/parameters/ImageFormat'
+        - name: SELECTION
+          in: query
+          required: false
+          description: Selection geometry XML
+          schema:
+            type: string
+        - name: LAYERNAMES
+          in: query
+          required: false
+          description: Comma-separated layer names to include
+          schema:
+            type: string
+        - name: LAYERATTRIBUTEFILTER
+          in: query
+          required: false
+          description: Layer attribute filter
+          schema:
+            type: string
+        - name: BEHAVIOR
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: KEEPSELECTION
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [0, 1]
+        - name: CLIP
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [0, 1]
+        - name: SELECTIONVARIANT
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: SELECTIONCOLOR
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: SELECTIONFORMAT
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: REQUESTDATA
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [0, 1]
+      responses:
+        '200':
+          $ref: '#/components/responses/ImagePngResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#QueryMapFeatures:
+    get:
+      tags: [Rendering]
+      summary: Query map features
+      description: Queries features on a runtime map by layer and spatial/attribute filters.
+      operationId: QueryMapFeatures
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [QUERYMAPFEATURES]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "2.6.0", "4.0.0"]
+            default: "1.0.0"
+
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: '#/components/parameters/MapName'
+        - name: LAYERNAME
+          in: query
+          required: false
+          description: Layer name to query
+          schema:
+            type: string
+        - name: LAYERDEFINITION
+          in: query
+          required: false
+          description: Layer definition resource ID
+          schema:
+            type: string
+        - name: GEOMETRY
+          in: query
+          required: true
+          description: WKT geometry for spatial filter
+          schema:
+            type: string
+        - name: FEATUREFILTER
+          in: query
+          required: false
+          description: Attribute filter expression
+          schema:
+            type: string
+        - name: SELECTIONVARIANT
+          in: query
+          required: false
+          description: Selection rendering variant
+          schema:
+            type: string
+            enum: [NORMAL, HATCH, SOLID]
+        - name: MAXFEATURES
+          in: query
+          required: false
+          description: Maximum features to return
+          schema:
+            type: integer
+        - name: LAYERATTRIBUTEFILTER
+          in: query
+          required: false
+          description: Layer attribute filter
+          schema:
+            type: string
+        - name: SELECTIONCOLOR
+          in: query
+          required: false
+          description: Selection highlight color
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetVisibleMapExtent:
+    get:
+      tags: [Rendering]
+      summary: Get visible map extent
+      description: Returns the visible extent of a runtime map.
+      operationId: GetVisibleMapExtent
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETVISIBLEMAPEXTENT]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - $ref: '#/components/parameters/MapName'
+        - name: KEEPSELECTION
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [0, 1]
+        - name: CLIP
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [0, 1]
+        - name: SELECTIONVARIANT
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: SELECTIONCOLOR
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ═══════════════════════════════════════════════════════════════
+  # TILE OPERATIONS
+  # ═══════════════════════════════════════════════════════════════
+
+  /mapagent.fcgi#GetTileImage:
+    get:
+      tags: [Tile]
+      summary: Get tile image
+      description: Retrieves a single map tile image by column, row, and scale index.
+      operationId: GetTileImage
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETTILEIMAGE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0"]
+            default: "1.0.0"
+
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/MapDefinition'
+        - $ref: '#/components/parameters/MapName'
+        - name: BASEMAPLAYERGROUPNAME
+          in: query
+          required: true
+          description: Base map layer group name
+          schema:
+            type: string
+        - name: TILECOL
+          in: query
+          required: true
+          description: Tile column index
+          schema:
+            type: integer
+        - name: TILEROW
+          in: query
+          required: true
+          description: Tile row index
+          schema:
+            type: integer
+        - name: SCALEINDEX
+          in: query
+          required: false
+          description: Scale index (v1.2.0+)
+          schema:
+            type: integer
+      responses:
+        '200':
+          $ref: '#/components/responses/ImagePngResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#ClearTileCache:
+    post:
+      tags: [Tile]
+      summary: Clear tile cache
+      description: Clears the tile cache for a map definition.
+      operationId: ClearTileCache
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [CLEARTILECACHE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/MapDefinition'
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptyResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetTileProviders:
+    get:
+      tags: [Tile]
+      summary: Get tile providers
+      description: Lists available tile providers for a map definition and tile set.
+      operationId: GetTileProviders
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETTILEPROVIDERS]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["3.0.0", "4.0.0"]
+            default: "3.0.0"
+
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - $ref: '#/components/parameters/MapDefinition'
+        - name: TILESET
+          in: query
+          required: true
+          description: Tile set name
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetDefaultTileSizeX:
+    get:
+      tags: [Tile]
+      summary: Get default tile size X
+      description: Returns the default tile width for a map definition.
+      operationId: GetDefaultTileSizeX
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETDEFAULTTILESIZEX]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "3.0.0"]
+            default: "1.0.0"
+
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - $ref: '#/components/parameters/MapDefinition'
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetDefaultTileSizeY:
+    get:
+      tags: [Tile]
+      summary: Get default tile size Y
+      description: Returns the default tile height for a map definition.
+      operationId: GetDefaultTileSizeY
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETDEFAULTTILESIZEY]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "3.0.0"]
+            default: "1.0.0"
+
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - $ref: '#/components/parameters/MapDefinition'
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ═══════════════════════════════════════════════════════════════
+  # KML OPERATIONS
+  # ═══════════════════════════════════════════════════════════════
+
+  /mapagent.fcgi#GetMapKml:
+    get:
+      tags: [KML]
+      summary: Get map KML
+      description: Generates KML output for a map definition within a bounding box.
+      operationId: GetMapKml
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETMAPKML]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/MapDefinition'
+        - name: FORMAT
+          in: query
+          required: false
+          description: Output format
+          schema:
+            type: string
+            default: "KML"
+        - name: BBOX
+          in: query
+          required: true
+          description: Bounding box (minX,minY,maxX,maxY)
+          schema:
+            type: string
+        - name: WIDTH
+          in: query
+          required: true
+          description: Output width in pixels
+          schema:
+            type: integer
+        - name: HEIGHT
+          in: query
+          required: true
+          description: Output height in pixels
+          schema:
+            type: integer
+        - name: DPI
+          in: query
+          required: false
+          description: Output DPI
+          schema:
+            type: integer
+            default: 96
+        - name: DRAWORDER
+          in: query
+          required: false
+          description: Layer draw order
+          schema:
+            type: string
+      responses:
+        '200':
+          description: KML document
+          content:
+            application/vnd.google-earth.kml+xml:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetLayerKml:
+    get:
+      tags: [KML]
+      summary: Get layer KML
+      description: Generates KML output for a specific layer definition within a bounding box.
+      operationId: GetLayerKml
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETLAYERKML]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: LAYERDEFINITION
+          in: query
+          required: true
+          description: Layer definition resource ID
+          schema:
+            type: string
+        - name: BBOX
+          in: query
+          required: true
+          description: Bounding box (minX,minY,maxX,maxY)
+          schema:
+            type: string
+        - name: WIDTH
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: HEIGHT
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: DPI
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: DRAWORDER
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: KML document
+          content:
+            application/vnd.google-earth.kml+xml:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetFeaturesKml:
+    get:
+      tags: [KML]
+      summary: Get features KML
+      description: Generates KML output for features in a layer definition within a bounding box.
+      operationId: GetFeaturesKml
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETFEATURESKML]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: LAYERDEFINITION
+          in: query
+          required: true
+          description: Layer definition resource ID
+          schema:
+            type: string
+        - name: BBOX
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: WIDTH
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: HEIGHT
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: DPI
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: DRAWORDER
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: KML document
+          content:
+            application/vnd.google-earth.kml+xml:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ═══════════════════════════════════════════════════════════════
+  # COORDINATE SYSTEM OPERATIONS
+  # ═══════════════════════════════════════════════════════════════
+
+  /mapagent.fcgi#CsConvertWktToCoordinateSystemCode:
+    get:
+      tags: [CoordinateSystem]
+      summary: Convert WKT to coordinate system code
+      description: Converts a WKT definition to a CS-Map coordinate system code.
+      operationId: CsConvertWktToCoordinateSystemCode
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [CS.CONVERTWKTTOCOORDINATESYSTEMCODE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: CSWKT
+          in: query
+          required: true
+          description: WKT coordinate system definition
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#CsConvertCoordinateSystemCodeToWkt:
+    get:
+      tags: [CoordinateSystem]
+      summary: Convert coordinate system code to WKT
+      description: Converts a CS-Map coordinate system code to its WKT definition.
+      operationId: CsConvertCoordinateSystemCodeToWkt
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [CS.CONVERTCOORDINATESYSTEMCODETOWKT]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: CSCODE
+          in: query
+          required: true
+          description: CS-Map coordinate system code
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#CsConvertEpsgCodeToWkt:
+    get:
+      tags: [CoordinateSystem]
+      summary: Convert EPSG code to WKT
+      description: Converts an EPSG code to its WKT coordinate system definition.
+      operationId: CsConvertEpsgCodeToWkt
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [CS.CONVERTEPSGCODETOWKT]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: CSCODE
+          in: query
+          required: true
+          description: EPSG code
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#CsConvertWktToEpsgCode:
+    get:
+      tags: [CoordinateSystem]
+      summary: Convert WKT to EPSG code
+      description: Converts a WKT definition to its EPSG code.
+      operationId: CsConvertWktToEpsgCode
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [CS.CONVERTWKTTOEPSGCODE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: CSWKT
+          in: query
+          required: true
+          description: WKT coordinate system definition
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#CsEnumerateCategories:
+    get:
+      tags: [CoordinateSystem]
+      summary: Enumerate coordinate system categories
+      description: Lists available coordinate system categories.
+      operationId: CsEnumerateCategories
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [CS.ENUMERATECATEGORIES]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: CSCATEGORY
+          in: query
+          required: false
+          description: Parent category to enumerate
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#CsEnumerateCoordinateSystems:
+    get:
+      tags: [CoordinateSystem]
+      summary: Enumerate coordinate systems
+      description: Lists coordinate systems within a category.
+      operationId: CsEnumerateCoordinateSystems
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [CS.ENUMERATECOORDINATESYSTEMS]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: CSCATEGORY
+          in: query
+          required: true
+          description: Coordinate system category
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#CsGetBaseLibrary:
+    get:
+      tags: [CoordinateSystem]
+      summary: Get base library
+      description: Returns information about the CS-Map base library.
+      operationId: CsGetBaseLibrary
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [CS.GETBASELIBRARY]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#CsIsValid:
+    get:
+      tags: [CoordinateSystem]
+      summary: Validate coordinate system WKT
+      description: Checks whether a WKT coordinate system definition is valid.
+      operationId: CsIsValid
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [CS.ISVALID]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: CSWKT
+          in: query
+          required: true
+          description: WKT coordinate system definition to validate
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#CsTransformCoordinates:
+    get:
+      tags: [CoordinateSystem]
+      summary: Transform coordinates
+      description: Transforms coordinates from one coordinate system to another.
+      operationId: CsTransformCoordinates
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [CS.TRANSFORMCOORDINATES]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["4.0.0"]
+            default: "4.0.0"
+
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+        - name: SOURCE
+          in: query
+          required: true
+          description: Source coordinate system WKT or code
+          schema:
+            type: string
+        - name: TARGET
+          in: query
+          required: true
+          description: Target coordinate system WKT or code
+          schema:
+            type: string
+        - name: COORDINATES
+          in: query
+          required: true
+          description: Space-separated coordinate pairs (X Y X Y ...)
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ═══════════════════════════════════════════════════════════════
+  # GEO-PROCESSING OPERATIONS
+  # ═══════════════════════════════════════════════════════════════
+
+  /mapagent.fcgi#GeoBoundary:
+    get:
+      tags: [GeoProcessing]
+      summary: Compute boundary
+      description: Computes the boundary of a geometry. Returns WKT or GeoJSON.
+      operationId: GeoBoundary
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GEO.BOUNDARY]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["4.0.0"]
+            default: "4.0.0"
+
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: FORMAT
+          in: query
+          required: false
+          description: Output format
+          schema:
+            type: string
+            enum: ["WKT", "GEOJSON"]
+            default: "WKT"
+        - name: GEOMETRY
+          in: query
+          required: true
+          description: Input WKT geometry
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Geometry result
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GeoBuffer:
+    get:
+      tags: [GeoProcessing]
+      summary: Compute buffer
+      description: Computes a buffer around a geometry.
+      operationId: GeoBuffer
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GEO.BUFFER]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["4.0.0"]
+            default: "4.0.0"
+
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: FORMAT
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["WKT", "GEOJSON"]
+        - name: GEOMETRY
+          in: query
+          required: true
+          description: Input WKT geometry
+          schema:
+            type: string
+        - name: BUFFER_DISTANCE
+          in: query
+          required: true
+          description: Buffer distance
+          schema:
+            type: number
+        - name: BUFFER_UNITS
+          in: query
+          required: false
+          description: Buffer distance units
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Geometry result
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GeoBinaryOperation:
+    get:
+      tags: [GeoProcessing]
+      summary: Binary geometry operation
+      description: Performs a binary spatial operation on two geometries.
+      operationId: GeoBinaryOperation
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GEO.BINARYOPERATION]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["4.0.0"]
+            default: "4.0.0"
+
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: FORMAT
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["WKT", "GEOJSON"]
+        - name: GEOMETRY
+          in: query
+          required: true
+          description: First input WKT geometry
+          schema:
+            type: string
+        - name: OTHERGEOMETRY
+          in: query
+          required: true
+          description: Second input WKT geometry
+          schema:
+            type: string
+        - name: SPATIALOP
+          in: query
+          required: true
+          description: Binary spatial operation
+          schema:
+            type: string
+            enum: [Union, Intersection, Difference, SymmetricDifference]
+      responses:
+        '200':
+          description: Geometry result
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GeoConvexHull:
+    get:
+      tags: [GeoProcessing]
+      summary: Compute convex hull
+      description: Computes the convex hull of a geometry.
+      operationId: GeoConvexHull
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GEO.CONVEXHULL]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["4.0.0"]
+            default: "4.0.0"
+
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: FORMAT
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["WKT", "GEOJSON"]
+        - name: GEOMETRY
+          in: query
+          required: true
+          description: Input WKT geometry
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Geometry result
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GeoDistance:
+    get:
+      tags: [GeoProcessing]
+      summary: Compute distance
+      description: Computes the distance between two geometries.
+      operationId: GeoDistance
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GEO.DISTANCE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["4.0.0"]
+            default: "4.0.0"
+
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: FORMAT
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["WKT", "GEOJSON"]
+        - name: GEOMETRY
+          in: query
+          required: true
+          description: First input WKT geometry
+          schema:
+            type: string
+        - name: OTHERGEOMETRY
+          in: query
+          required: true
+          description: Second input WKT geometry
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Distance value
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GeoGeometryInfo:
+    get:
+      tags: [GeoProcessing]
+      summary: Get geometry info
+      description: Returns geometric information (type, area, length, centroid) for a geometry.
+      operationId: GeoGeometryInfo
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GEO.GEOMETRYINFO]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["4.0.0"]
+            default: "4.0.0"
+
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: FORMAT
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["WKT", "GEOJSON"]
+        - name: GEOMETRY
+          in: query
+          required: true
+          description: Input WKT geometry
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GeoSimplify:
+    get:
+      tags: [GeoProcessing]
+      summary: Simplify geometry
+      description: Simplifies a geometry using the Douglas-Peucker algorithm.
+      operationId: GeoSimplify
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GEO.SIMPLIFY]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["4.0.0"]
+            default: "4.0.0"
+
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: FORMAT
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["WKT", "GEOJSON"]
+        - name: GEOMETRY
+          in: query
+          required: true
+          description: Input WKT geometry
+          schema:
+            type: string
+        - name: TOLERANCE
+          in: query
+          required: true
+          description: Simplification tolerance
+          schema:
+            type: number
+      responses:
+        '200':
+          description: Simplified geometry
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GeoSpatialPredicate:
+    get:
+      tags: [GeoProcessing]
+      summary: Spatial predicate test
+      description: Tests a spatial relationship between two geometries.
+      operationId: GeoSpatialPredicate
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GEO.SPATIALPREDICATE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["4.0.0"]
+            default: "4.0.0"
+
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: FORMAT
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["WKT", "GEOJSON"]
+        - name: GEOMETRY
+          in: query
+          required: true
+          description: First input WKT geometry
+          schema:
+            type: string
+        - name: OTHERGEOMETRY
+          in: query
+          required: true
+          description: Second input WKT geometry
+          schema:
+            type: string
+        - name: SPATIALOP
+          in: query
+          required: true
+          description: Spatial predicate to test
+          schema:
+            type: string
+            enum: [Intersects, Contains, Within, Crosses, Touches, Overlaps, Disjoint, Equals]
+      responses:
+        '200':
+          description: Boolean result
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GeoTessellate:
+    get:
+      tags: [GeoProcessing]
+      summary: Tessellate geometry
+      description: Tessellates a geometry into triangles.
+      operationId: GeoTessellate
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GEO.TESSELLATE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["4.0.0"]
+            default: "4.0.0"
+
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - name: FORMAT
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["WKT", "GEOJSON"]
+        - name: GEOMETRY
+          in: query
+          required: true
+          description: Input WKT geometry
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Tessellated geometry
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ═══════════════════════════════════════════════════════════════
+  # WEB APPLICATION OPERATIONS
+  # ═══════════════════════════════════════════════════════════════
+
+  /mapagent.fcgi#EnumerateApplicationTemplates:
+    get:
+      tags: [WebApplication]
+      summary: Enumerate application templates
+      description: Lists available web application templates.
+      operationId: EnumerateApplicationTemplates
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [ENUMERATEAPPLICATIONTEMPLATES]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#EnumerateApplicationWidgets:
+    get:
+      tags: [WebApplication]
+      summary: Enumerate application widgets
+      description: Lists available web application widgets.
+      operationId: EnumerateApplicationWidgets
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [ENUMERATEAPPLICATIONWIDGETS]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#EnumerateApplicationContainers:
+    get:
+      tags: [WebApplication]
+      summary: Enumerate application containers
+      description: Lists available web application containers.
+      operationId: EnumerateApplicationContainers
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [ENUMERATEAPPLICATIONCONTAINERS]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/Format'
+        - $ref: "#/components/parameters/Clean"
+      responses:
+        '200':
+          $ref: '#/components/responses/XmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ═══════════════════════════════════════════════════════════════
+  # VIEWER PAGE OPERATIONS
+  # ═══════════════════════════════════════════════════════════════
+
+  /mapagent.fcgi#GetDwfViewerPage:
+    get:
+      tags: [Rendering]
+      summary: Get DWF viewer page
+      description: Returns the HTML page for launching the DWF viewer.
+      operationId: GetDwfViewerPage
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETDWFVIEWERPAGE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/MapDefinition'
+      responses:
+        '200':
+          $ref: '#/components/responses/HtmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /mapagent.fcgi#GetHtmlViewerPage:
+    get:
+      tags: [Rendering]
+      summary: Get AJAX viewer page
+      description: Returns the HTML page for launching the AJAX viewer.
+      operationId: GetHtmlViewerPage
+      security:
+        - SessionAuth: []
+        - BasicAuth: []
+      parameters:
+        - name: OPERATION
+          in: query
+          required: true
+          description: Operation name
+          schema:
+            type: string
+            enum: [GETHTMLVIEWERPAGE]
+        - name: VERSION
+          in: query
+          required: true
+          description: API version
+          schema:
+            type: string
+            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+            default: "1.0.0"
+        - $ref: '#/components/parameters/Session'
+        - $ref: '#/components/parameters/Locale'
+        - $ref: '#/components/parameters/ClientAgent'
+        - $ref: '#/components/parameters/MapDefinition'
+      responses:
+        '200':
+          $ref: '#/components/responses/HtmlResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
