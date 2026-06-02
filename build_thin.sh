@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Use podman if available, otherwise docker
+. ./container_engine.sh
+
 TARGET=fdo
 DISTRO=ubuntu
 CPU=x64
@@ -65,22 +68,24 @@ build_fdo_thin()
         download_tmp_dir="$sdks_dir/container_download/fdo/$distro_label"
         mkdir -p "$download_tmp_dir"
         ccache_dir="$PWD/caches/${cpu}/$build_config/fdo/${distro_label}/.ccache"
+        # Ensure ccache directory exists on host before mounting (podman/docker may error if missing)
+        mkdir -p "$ccache_dir"
         container_name="fdo_${distro_label}_develop_thin_${cpu}"
 
         echo "Using image: ${container_name}"
         container_root="/tmp/work"
         if [ "$INTERACTIVE" == "1" ]; then
-            docker run --rm --cap-add=SYS_PTRACE -it -e FDO_BUILD_CONFIG=$build_config -e FDO_DISTRO=$distro_label -e FDO_VER_MAJOR=${FDO_VER_MAJOR} -e FDO_VER_MINOR=${FDO_VER_MINOR} -e FDO_VER_REL=${FDO_VER_REL} -e FDO_VER_REV=${FDO_VER_REV} -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -v $ccache_dir:/root/.ccache -v $download_tmp_dir:/tmp/download -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts -v $sdks_dir:$container_root/sdks $DOCKER_RUN_EX_ARGS $container_name /bin/bash
+            "$DOCKER_CMD" run --rm --cap-add=SYS_PTRACE -it -e FDO_BUILD_CONFIG=$build_config -e FDO_DISTRO=$distro_label -e FDO_VER_MAJOR=${FDO_VER_MAJOR} -e FDO_VER_MINOR=${FDO_VER_MINOR} -e FDO_VER_REL=${FDO_VER_REL} -e FDO_VER_REV=${FDO_VER_REV} -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e CCACHE_DIR=/tmp/ccache -v $ccache_dir:/tmp/ccache${DOCKER_VOLUME_OPT} -v $download_tmp_dir:/tmp/download${DOCKER_VOLUME_OPT} -v $scripts_dir:$container_root/scripts${DOCKER_VOLUME_OPT} -v $build_area_dir:$container_root/build_area${DOCKER_VOLUME_OPT} -v $src_dir:$container_root/src${DOCKER_VOLUME_OPT} -v $artifacts_dir:$container_root/artifacts${DOCKER_VOLUME_OPT} -v $sdks_dir:$container_root/sdks${DOCKER_VOLUME_OPT} $DOCKER_RUN_EX_ARGS $DOCKER_RUN_AS_ROOT_ARGS $container_name /bin/bash
             check_build
         else
             # If a distro-specific override build script exists, use that instead
             if [ -f "${scripts_dir}/build_fdo_${distro_label}.sh" ]; then
                 echo "Building with override build_fdo_${distro_label}.sh"
-                docker run --rm --cap-add=SYS_PTRACE -it -e FDO_BUILD_CONFIG=$build_config -e FDO_DISTRO=$distro_label -e FDO_VER_MAJOR=${FDO_VER_MAJOR} -e FDO_VER_MINOR=${FDO_VER_MINOR} -e FDO_VER_REL=${FDO_VER_REL} -e FDO_VER_REV=${FDO_VER_REV} -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -v $ccache_dir:/root/.ccache -v $download_tmp_dir:/tmp/download -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts -v $sdks_dir:$container_root/sdks $DOCKER_RUN_EX_ARGS $container_name $container_root/scripts/build_fdo_${distro_label}.sh
+                "$DOCKER_CMD" run --rm --cap-add=SYS_PTRACE -it -e FDO_BUILD_CONFIG=$build_config -e FDO_DISTRO=$distro_label -e FDO_VER_MAJOR=${FDO_VER_MAJOR} -e FDO_VER_MINOR=${FDO_VER_MINOR} -e FDO_VER_REL=${FDO_VER_REL} -e FDO_VER_REV=${FDO_VER_REV} -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e CCACHE_DIR=/tmp/ccache -v $ccache_dir:/tmp/ccache${DOCKER_VOLUME_OPT} -v $download_tmp_dir:/tmp/download${DOCKER_VOLUME_OPT} -v $scripts_dir:$container_root/scripts${DOCKER_VOLUME_OPT} -v $build_area_dir:$container_root/build_area${DOCKER_VOLUME_OPT} -v $src_dir:$container_root/src${DOCKER_VOLUME_OPT} -v $artifacts_dir:$container_root/artifacts${DOCKER_VOLUME_OPT} -v $sdks_dir:$container_root/sdks${DOCKER_VOLUME_OPT} $DOCKER_RUN_EX_ARGS $DOCKER_RUN_AS_ROOT_ARGS $container_name $container_root/scripts/build_fdo_${distro_label}.sh
                 check_build
             else
                 echo "Building with standard container build script"
-                docker run --rm --cap-add=SYS_PTRACE -it -e FDO_BUILD_CONFIG=$build_config -e FDO_DISTRO=$distro_label -e FDO_VER_MAJOR=${FDO_VER_MAJOR} -e FDO_VER_MINOR=${FDO_VER_MINOR} -e FDO_VER_REL=${FDO_VER_REL} -e FDO_VER_REV=${FDO_VER_REV} -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -v $ccache_dir:/root/.ccache -v $download_tmp_dir:/tmp/download -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $artifacts_dir:$container_root/artifacts -v $sdks_dir:$container_root/sdks $DOCKER_RUN_EX_ARGS $container_name $container_root/scripts/build_fdo.sh
+                "$DOCKER_CMD" run --rm --cap-add=SYS_PTRACE -it -e FDO_BUILD_CONFIG=$build_config -e FDO_DISTRO=$distro_label -e FDO_VER_MAJOR=${FDO_VER_MAJOR} -e FDO_VER_MINOR=${FDO_VER_MINOR} -e FDO_VER_REL=${FDO_VER_REL} -e FDO_VER_REV=${FDO_VER_REV} -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e CCACHE_DIR=/tmp/ccache -v $ccache_dir:/tmp/ccache${DOCKER_VOLUME_OPT} -v $download_tmp_dir:/tmp/download${DOCKER_VOLUME_OPT} -v $scripts_dir:$container_root/scripts${DOCKER_VOLUME_OPT} -v $build_area_dir:$container_root/build_area${DOCKER_VOLUME_OPT} -v $src_dir:$container_root/src${DOCKER_VOLUME_OPT} -v $artifacts_dir:$container_root/artifacts${DOCKER_VOLUME_OPT} -v $sdks_dir:$container_root/sdks${DOCKER_VOLUME_OPT} $DOCKER_RUN_EX_ARGS $DOCKER_RUN_AS_ROOT_ARGS $container_name $container_root/scripts/build_fdo.sh
                 check_build
             fi
         fi
@@ -131,6 +136,8 @@ build_mapguide_thin()
         artifacts_dir="$PWD/artifacts/$build_config"
         container_name="mapguide_${distro_label}_develop_thin_${cpu}"
         ccache_dir="$PWD/caches/${cpu}/$build_config/mapguide/${distro_label}/.ccache"
+        # Ensure ccache directory exists on host before mounting (podman/docker may error if missing)
+        mkdir -p "$ccache_dir"
         patches_dir="$PWD/patches"
         sdks_dir="$PWD/sdks"
         download_tmp_dir="$sdks_dir/container_download/mapguide/$distro_label"
@@ -140,17 +147,17 @@ build_mapguide_thin()
         echo "Using image: ${container_name}"
         container_root="/tmp/work"
         if [ "$INTERACTIVE" == "1" ]; then
-            docker run --rm --cap-add=SYS_PTRACE -it -e MG_BUILD_CONFIG=$build_config -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER_MAJOR=$MG_VER_MAJOR -e MG_VER_MINOR=$MG_VER_MINOR -e MG_VER_REL=$MG_VER_REL -e MG_VER_REV=$MG_VER_REV -e FDOSDK=$fdosdk -v $patches_dir:$container_root/patches -v $ccache_dir:/root/.ccache -v $download_tmp_dir:/tmp/download -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $fdo_src_dir:$container_root/fdo_src -v $artifacts_dir:$container_root/artifacts -v $sdks_dir:$container_root/sdks $DOCKER_RUN_EX_ARGS $container_name /bin/bash
+            "$DOCKER_CMD" run --rm --cap-add=SYS_PTRACE -it -e MG_BUILD_CONFIG=$build_config -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER_MAJOR=$MG_VER_MAJOR -e MG_VER_MINOR=$MG_VER_MINOR -e MG_VER_REL=$MG_VER_REL -e MG_VER_REV=$MG_VER_REV -e FDOSDK=$fdosdk -e CCACHE_DIR=/tmp/ccache -v $patches_dir:$container_root/patches${DOCKER_VOLUME_OPT} -v $ccache_dir:/tmp/ccache${DOCKER_VOLUME_OPT} -v $download_tmp_dir:/tmp/download${DOCKER_VOLUME_OPT} -v $scripts_dir:$container_root/scripts${DOCKER_VOLUME_OPT} -v $build_area_dir:$container_root/build_area${DOCKER_VOLUME_OPT} -v $src_dir:$container_root/src${DOCKER_VOLUME_OPT} -v $fdo_src_dir:$container_root/fdo_src${DOCKER_VOLUME_OPT} -v $artifacts_dir:$container_root/artifacts${DOCKER_VOLUME_OPT} -v $sdks_dir:$container_root/sdks${DOCKER_VOLUME_OPT} $DOCKER_RUN_EX_ARGS $DOCKER_RUN_AS_ROOT_ARGS $container_name /bin/bash
             check_build
         else
             # If a distro-specific override build script exists, use that instead
             if [ -f "${scripts_dir}/build_mapguide_${distro_label}.sh" ]; then
                 echo "Building with override build_mapguide_${distro_label}.sh"
-                docker run --rm --cap-add=SYS_PTRACE -it -e MG_BUILD_CONFIG=$build_config -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER_MAJOR=$MG_VER_MAJOR -e MG_VER_MINOR=$MG_VER_MINOR -e MG_VER_REL=$MG_VER_REL -e MG_VER_REV=$MG_VER_REV -e FDOSDK=$fdosdk -v $patches_dir:$container_root/patches -v $ccache_dir:/root/.ccache -v $download_tmp_dir:/tmp/download -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $fdo_src_dir:$container_root/fdo_src -v $artifacts_dir:$container_root/artifacts -v $sdks_dir:$container_root/sdks $DOCKER_RUN_EX_ARGS $container_name $container_root/scripts/build_mapguide_${distro_label}.sh
+                "$DOCKER_CMD" run --rm --cap-add=SYS_PTRACE -it -e MG_BUILD_CONFIG=$build_config -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER_MAJOR=$MG_VER_MAJOR -e MG_VER_MINOR=$MG_VER_MINOR -e MG_VER_REL=$MG_VER_REL -e MG_VER_REV=$MG_VER_REV -e FDOSDK=$fdosdk -e CCACHE_DIR=/tmp/ccache -v $patches_dir:$container_root/patches${DOCKER_VOLUME_OPT} -v $ccache_dir:/tmp/ccache${DOCKER_VOLUME_OPT} -v $download_tmp_dir:/tmp/download${DOCKER_VOLUME_OPT} -v $scripts_dir:$container_root/scripts${DOCKER_VOLUME_OPT} -v $build_area_dir:$container_root/build_area${DOCKER_VOLUME_OPT} -v $src_dir:$container_root/src${DOCKER_VOLUME_OPT} -v $fdo_src_dir:$container_root/fdo_src${DOCKER_VOLUME_OPT} -v $artifacts_dir:$container_root/artifacts${DOCKER_VOLUME_OPT} -v $sdks_dir:$container_root/sdks${DOCKER_VOLUME_OPT} $DOCKER_RUN_EX_ARGS $DOCKER_RUN_AS_ROOT_ARGS $container_name $container_root/scripts/build_mapguide_${distro_label}.sh
                 check_build
             else
                 echo "Building with standard container build script"
-                docker run --rm --cap-add=SYS_PTRACE -it -e MG_BUILD_CONFIG=$build_config -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER_MAJOR=$MG_VER_MAJOR -e MG_VER_MINOR=$MG_VER_MINOR -e MG_VER_REL=$MG_VER_REL -e MG_VER_REV=$MG_VER_REV -e FDOSDK=$fdosdk -v $patches_dir:$container_root/patches -v $ccache_dir:/root/.ccache -v $download_tmp_dir:/tmp/download -v $scripts_dir:$container_root/scripts -v $build_area_dir:$container_root/build_area -v $src_dir:$container_root/src -v $fdo_src_dir:$container_root/fdo_src -v $artifacts_dir:$container_root/artifacts -v $sdks_dir:$container_root/sdks $DOCKER_RUN_EX_ARGS $container_name $container_root/scripts/build_mapguide.sh
+                "$DOCKER_CMD" run --rm --cap-add=SYS_PTRACE -it -e MG_BUILD_CONFIG=$build_config -e MG_DISTRO=$distro_label -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e MG_VER_MAJOR=$MG_VER_MAJOR -e MG_VER_MINOR=$MG_VER_MINOR -e MG_VER_REL=$MG_VER_REL -e MG_VER_REV=$MG_VER_REV -e FDOSDK=$fdosdk -e CCACHE_DIR=/tmp/ccache -v $patches_dir:$container_root/patches${DOCKER_VOLUME_OPT} -v $ccache_dir:/tmp/ccache${DOCKER_VOLUME_OPT} -v $download_tmp_dir:/tmp/download${DOCKER_VOLUME_OPT} -v $scripts_dir:$container_root/scripts${DOCKER_VOLUME_OPT} -v $build_area_dir:$container_root/build_area${DOCKER_VOLUME_OPT} -v $src_dir:$container_root/src${DOCKER_VOLUME_OPT} -v $fdo_src_dir:$container_root/fdo_src${DOCKER_VOLUME_OPT} -v $artifacts_dir:$container_root/artifacts${DOCKER_VOLUME_OPT} -v $sdks_dir:$container_root/sdks${DOCKER_VOLUME_OPT} $DOCKER_RUN_EX_ARGS $DOCKER_RUN_AS_ROOT_ARGS $container_name $container_root/scripts/build_mapguide.sh
                 check_build
             fi
         fi

@@ -1,4 +1,7 @@
 #!/bin/bash
+# Use podman if available, otherwise docker
+. ./container_engine.sh
+
 DISTRO=ubuntu22
 DOCKER_IMAGE=ubuntu:22.04
 PORT_MAPPINGS=""
@@ -37,8 +40,8 @@ if [ ! -f "$PWD/artifacts/Release/$INSTALL_PKG" ]; then
     exit 1
 fi
 
-if [ -z "$(docker images -q "$DOCKER_IMAGE" 2> /dev/null)" ]; then
-    echo "[error]: No such docker image found ($DOCKER_IMAGE)"
+if [ -z "$("$DOCKER_CMD" images -q "$DOCKER_IMAGE" 2> /dev/null)" ]; then
+    echo "[error]: No such container image found ($DOCKER_IMAGE)"
     exit 1
 fi
 
@@ -46,4 +49,4 @@ echo "Setting up container from image ($DOCKER_IMAGE)"
 echo "To run the installer package from within the container, execute the following inside the container:"
 echo "    /tmp/artifacts/$INSTALL_PKG"
 echo "NOTE: Depending on the distro, you may need to install some prerequiste packages first"
-docker run -p 8008:8008 $PORT_MAPPINGS -v "$PWD/artifacts/Release:/tmp/artifacts" -it "$DOCKER_IMAGE" "/bin/bash"
+"$DOCKER_CMD" run -p 8008:8008 $PORT_MAPPINGS -v "$PWD/artifacts/Release:/tmp/artifacts" -it "$DOCKER_IMAGE" "/bin/bash"

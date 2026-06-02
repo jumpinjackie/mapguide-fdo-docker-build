@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Use podman if available, otherwise docker
+. ./container_engine.sh
+
 ROOT=$(realpath .)
 SCRIPT_ROOT=$ROOT/templates/scripts/container
 INTERACTIVE=0
@@ -18,10 +21,10 @@ test_fdo_env()
     if [ "$INTERACTIVE" == "1" ];
     then
         echo "Entering FDO build container: ${container_name}"
-        docker run -e NLSPATH="/tmp/work/build_area/fdo/nls/linux/en_US/%N" --rm -it -e FDO_VER_MAJOR=${FDO_VER_MAJOR} -e FDO_VER_MINOR=${FDO_VER_MINOR} -e FDO_VER_REL=${FDO_VER_REL} -e FDO_VER_REV=${FDO_VER_REV} -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -v $ccache_dir:/root/.ccache -v $build_area_dir:$container_root/build_area -v ${log_path}:/logs -v $src_dir:$container_root/src -v ${SCRIPT_ROOT}:/scripts $container_name /bin/bash
+        "$DOCKER_CMD" run -e NLSPATH="/tmp/work/build_area/fdo/nls/linux/en_US/%N" --rm -it -e FDO_VER_MAJOR=${FDO_VER_MAJOR} -e FDO_VER_MINOR=${FDO_VER_MINOR} -e FDO_VER_REL=${FDO_VER_REL} -e FDO_VER_REV=${FDO_VER_REV} -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -v $ccache_dir:/root/.ccache -v $build_area_dir:$container_root/build_area -v ${log_path}:/logs -v $src_dir:$container_root/src -v ${SCRIPT_ROOT}:/scripts $container_name /bin/bash
     else
         echo "Running FDO tests within container: ${container_name}"
-        docker run -e NLSPATH="/tmp/work/build_area/fdo/nls/linux/en_US/%N" --rm -it -e FDO_VER_MAJOR=${FDO_VER_MAJOR} -e FDO_VER_MINOR=${FDO_VER_MINOR} -e FDO_VER_REL=${FDO_VER_REL} -e FDO_VER_REV=${FDO_VER_REV} -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -v $ccache_dir:/root/.ccache -v $build_area_dir:$container_root/build_area -v ${log_path}:/logs -v $src_dir:$container_root/src -v ${SCRIPT_ROOT}:/scripts $container_name /scripts/run_fdo_tests.sh --log-path /logs --fdo-build-dir $container_root/build_area/fdo
+        "$DOCKER_CMD" run -e NLSPATH="/tmp/work/build_area/fdo/nls/linux/en_US/%N" --rm -it -e FDO_VER_MAJOR=${FDO_VER_MAJOR} -e FDO_VER_MINOR=${FDO_VER_MINOR} -e FDO_VER_REL=${FDO_VER_REL} -e FDO_VER_REV=${FDO_VER_REV} -e FDO_VER=$FDO_VER -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -v $ccache_dir:/root/.ccache -v $build_area_dir:$container_root/build_area -v ${log_path}:/logs -v $src_dir:$container_root/src -v ${SCRIPT_ROOT}:/scripts $container_name /scripts/run_fdo_tests.sh --log-path /logs --fdo-build-dir $container_root/build_area/fdo
     fi
 }
 
@@ -35,9 +38,9 @@ test_mapguide_env()
     echo "Running MapGuide tests within container: ${container_name}"
     if [ "$INTERACTIVE" == "1" ];
     then
-        docker run --rm -it -v ${log_path}:/logs -v ${SCRIPT_ROOT}:/scripts $container_name /bin/bash
+        "$DOCKER_CMD" run --rm -it -v ${log_path}:/logs -v ${SCRIPT_ROOT}:/scripts $container_name /bin/bash
     else
-        docker run --rm -it -v ${log_path}:/logs -v ${SCRIPT_ROOT}:/scripts $container_name /scripts/run_mapguide_tests.sh --log-path /logs --mapguide-build-dir /usr/local/src/mapguide/build
+        "$DOCKER_CMD" run --rm -it -v ${log_path}:/logs -v ${SCRIPT_ROOT}:/scripts $container_name /scripts/run_mapguide_tests.sh --log-path /logs --mapguide-build-dir /usr/local/src/mapguide/build
     fi
 }
 

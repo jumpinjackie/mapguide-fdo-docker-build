@@ -4,6 +4,7 @@ logs
 sdks/container_download
 /mapguide/MgDev
 /fdo/
+sdks/tools/ninja
 sdks/*.tar.gz
 sdks/*.zip
 sdks/oracle

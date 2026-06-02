@@ -55,6 +55,14 @@ Download oniguruma: https://github.com/kkos/oniguruma/releases/download/v6.9.9/o
 
  * Save tarball as: `onig.tar.gz`
 
+Download zlib: https://www.zlib.net/zlib-1.3.1.tar.gz
+
+ * Save tarball as: `zlib-1.3.1.tar.gz`
+
+Download SQLite: https://sqlite.org/2025/sqlite-autoconf-3500400.tar.gz
+
+ * Save tarball as: `sqlite.tar.gz`
+
 # Expected structure
 
 ```

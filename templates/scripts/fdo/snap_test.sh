@@ -3,6 +3,9 @@ ORIG=$(pwd)
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"                                                           
 ROOT="$(realpath $DIR/../../../../..)"
 
+# Determine container command (podman preferred)
+. "$ROOT"/container_engine.sh
+
 . $ROOT/fdo_version.sh
 echo "FDO Version is: $FDO_VER"
 
@@ -37,12 +40,12 @@ else
 fi
 
 cd "$DIR"
-docker build . -t "$CONTAINER_NAME:latest"
+"$DOCKER_CMD" build . -t "$CONTAINER_NAME:latest"
 if [ "$?" -ne 0 ] ; then
     exit 1
 fi
 echo "Run tests and copy logs"
-docker run --rm -it -v ${HOST_LOG_PATH}:/logs $CONTAINER_NAME cp -r /usr/local/src/fdo/build/logs /logs
+"$DOCKER_CMD" run --rm -it -v ${HOST_LOG_PATH}:/logs $CONTAINER_NAME cp -r /usr/local/src/fdo/build/logs /logs
 if [ "$?" -ne 0 ] ; then
     exit 1
 fi

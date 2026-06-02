@@ -61,7 +61,7 @@ cd $FDO_SRC_DIR || exit
 ./cmake_bootstrap.sh --config $MG_BUILD_CONFIG --working-dir $THIRDPARTY_BUILD_DIR --internal-openssl-curl-as-global --build 64 --with-ccache || exit
 
 # Build zlib if required
-ZLIB_VER=1.2.12
+ZLIB_VER=1.3.1
 ZLIB_BUILD_ROOT=/tmp/work/build_area/zlib
 if [ ! -f /usr/local/lib/libz.a ]; then
     if [ ! -d $ZLIB_BUILD_ROOT/zlib-${ZLIB_VER} ]; then
@@ -125,7 +125,7 @@ SQLITE_BUILD_ROOT=/tmp/work/build_area/sqlite3
 mkdir -p $SQLITE_BUILD_ROOT
 tar -zxf $SDKS_DIR/sqlite.tar.gz -C $SQLITE_BUILD_ROOT --strip-components 1
 cd $SQLITE_BUILD_ROOT || exit
-./configure --enable-static --disable-shared --enable-silent-rules --with-pic
+./configure --enable-static --disable-shared --enable-silent-rules
 check_build
 make && make install
 check_build

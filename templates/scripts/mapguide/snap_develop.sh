@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"                                                           
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+ROOT="$(realpath $DIR/../../../../..)"
+
+# Determine container command (podman preferred)
+. "$ROOT"/container_engine.sh
 ROOT="$(realpath $DIR/../../../../..)"
 PROJ="$ROOT/mapguide/"
 CPU=`basename $(dirname $(dirname $(dirname $DIR)))`
@@ -54,11 +58,11 @@ echo "Contents are:"
 cat "$ROOT/.dockerignore" | indent
 
 cd "$ROOT"
-docker build . -t "$CONTAINER_NAME:latest"
+"$DOCKER_CMD" build . -t "$CONTAINER_NAME:latest"
 
 rm "$ROOT/Dockerfile"
 rm "$ROOT/.dockerignore"
 
 echo "To explore '$CONTAINER_NAME' run:"
-echo "docker run --rm -it $CONTAINER_NAME /bin/bash"
+echo "$DOCKER_CMD run --rm -it $CONTAINER_NAME /bin/bash"
 echo
