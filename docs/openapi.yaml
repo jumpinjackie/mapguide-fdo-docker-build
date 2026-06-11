@@ -25,7 +25,7 @@ info:
     url: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
 
 servers:
-  - url: /mapguide/mapagent/mapagent.fcgi
+  - url: /mapguide/mapagent
     description: Relative to the host serving this spec
 
 tags:

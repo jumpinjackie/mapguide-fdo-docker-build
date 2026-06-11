@@ -37,7 +37,13 @@
         showCommonExtensions: true,
         tryItOutEnabled: true,
         supportedSubmitMethods: ["get", "post"],
-        validatorUrl: null
+        validatorUrl: null,
+        requestInterceptor: (req) => {
+          // Strip the #OperationName fragment from the path before sending
+          // e.g., /mapagent/mapagent.fcgi#GetSiteVersion?OPERATION=... → /mapagent/mapagent.fcgi?OPERATION=...
+          req.url = req.url.replace(/#[^?]*/, '');
+          return req;
+        }
       });
     };
   </script>
