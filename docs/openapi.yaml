@@ -223,57 +223,36 @@ paths:
       description: Creates an authenticated session and returns the session ID. No prior authentication required.
       operationId: CreateSession
       security: []
-      parameters:
-        - name: OPERATION
-          in: query
-          required: true
-          description: Operation name
-          schema:
-            type: string
-            enum: [CREATESESSION]
-        - name: VERSION
-          in: query
-          required: true
-          description: API version
-          schema:
-            type: string
-            enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
-            default: "1.0.0"
-        - $ref: '#/components/parameters/Locale'
-        - $ref: '#/components/parameters/ClientAgent'
-        - name: USERNAME
-          in: query
-          required: false
-          description: Username (defaults to Anonymous if not provided)
-          schema:
-            type: string
-            default: Anonymous
-        - name: PASSWORD
-          in: query
-          required: false
-          description: Password
-          schema:
-            type: string
       requestBody:
-        required: false
+        required: true
         content:
           application/x-www-form-urlencoded:
             schema:
               type: object
+              required: [OPERATION, VERSION]
               properties:
                 OPERATION:
                   type: string
                   enum: [CREATESESSION]
+                  description: Operation name
                 VERSION:
                   type: string
+                  enum: ["1.0.0", "1.2.0", "2.0.0", "2.2.0", "4.0.0"]
+                  default: "1.0.0"
+                  description: API version
                 USERNAME:
                   type: string
+                  default: Anonymous
+                  description: Username (defaults to Anonymous if not provided)
                 PASSWORD:
                   type: string
+                  description: Password
                 LOCALE:
                   type: string
+                  description: Locale code (e.g., en)
                 CLIENTAGENT:
                   type: string
+                  description: Client agent identifier
       responses:
         '200':
           $ref: '#/components/responses/TextResponse'
