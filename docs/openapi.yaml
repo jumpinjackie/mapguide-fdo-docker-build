@@ -25,8 +25,8 @@ info:
     url: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
 
 servers:
-  - url: /mapguide/mapagent
-    description: Relative to the host serving this spec
+  - url: /mapguide/mapagent/mapagent.fcgi#
+    description: Single MapAgent FastCGI endpoint (fragment is stripped by all HTTP clients)
 
 tags:
   - name: Session
@@ -216,7 +216,7 @@ paths:
   # SESSION OPERATIONS
   # ═══════════════════════════════════════════════════════════════
 
-  /mapagent.fcgi#CreateSession:
+  /CreateSession:
     post:
       tags: [Session]
       summary: Create a new session
@@ -234,6 +234,7 @@ paths:
                 OPERATION:
                   type: string
                   enum: [CREATESESSION]
+                  default: CREATESESSION
                   description: Operation name
                 VERSION:
                   type: string
@@ -263,7 +264,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetSessionTimeout:
+  /GetSessionTimeout:
     get:
       tags: [Session]
       summary: Get session timeout
@@ -280,6 +281,7 @@ paths:
           schema:
             type: string
             enum: [GETSESSIONTIMEOUT]
+            default: GETSESSIONTIMEOUT
         - name: VERSION
           in: query
           required: true
@@ -303,7 +305,7 @@ paths:
   # SITE OPERATIONS
   # ═══════════════════════════════════════════════════════════════
 
-  /mapagent.fcgi#GetSiteVersion:
+  /GetSiteVersion:
     get:
       tags: [Site]
       summary: Get site version
@@ -320,6 +322,7 @@ paths:
           schema:
             type: string
             enum: [GETSITEVERSION]
+            default: GETSITEVERSION
         - name: VERSION
           in: query
           required: true
@@ -339,7 +342,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetSiteInfo:
+  /GetSiteInfo:
     get:
       tags: [Site]
       summary: Get site information
@@ -356,6 +359,7 @@ paths:
           schema:
             type: string
             enum: [GETSITEINFO]
+            default: GETSITEINFO
         - name: VERSION
           in: query
           required: true
@@ -375,7 +379,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetSiteStatus:
+  /GetSiteStatus:
     get:
       tags: [Site]
       summary: Get site status
@@ -390,6 +394,7 @@ paths:
           schema:
             type: string
             enum: [GETSITESTATUS]
+            default: GETSITESTATUS
         - name: VERSION
           in: query
           required: true
@@ -406,7 +411,7 @@ paths:
         '200':
           $ref: '#/components/responses/XmlResponse'
 
-  /mapagent.fcgi#EnumerateUsers:
+  /EnumerateUsers:
     get:
       tags: [Site]
       summary: Enumerate users
@@ -423,6 +428,7 @@ paths:
           schema:
             type: string
             enum: [ENUMERATEUSERS]
+            default: ENUMERATEUSERS
         - name: VERSION
           in: query
           required: true
@@ -448,7 +454,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#EnumerateGroups:
+  /EnumerateGroups:
     get:
       tags: [Site]
       summary: Enumerate groups
@@ -465,6 +471,7 @@ paths:
           schema:
             type: string
             enum: [ENUMERATEGROUPS]
+            default: ENUMERATEGROUPS
         - name: VERSION
           in: query
           required: true
@@ -488,7 +495,7 @@ paths:
   # RESOURCE OPERATIONS — Repositories
   # ═══════════════════════════════════════════════════════════════
 
-  /mapagent.fcgi#EnumerateRepositories:
+  /EnumerateRepositories:
     get:
       tags: [Resource]
       summary: Enumerate repositories
@@ -505,6 +512,7 @@ paths:
           schema:
             type: string
             enum: [ENUMERATEREPOSITORIES]
+            default: ENUMERATEREPOSITORIES
         - name: VERSION
           in: query
           required: true
@@ -530,7 +538,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#CreateRepository:
+  /CreateRepository:
     post:
       tags: [Resource]
       summary: Create repository
@@ -547,6 +555,7 @@ paths:
           schema:
             type: string
             enum: [CREATEREPOSITORY]
+            default: CREATEREPOSITORY
         - name: VERSION
           in: query
           required: true
@@ -571,7 +580,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#DeleteRepository:
+  /DeleteRepository:
     post:
       tags: [Resource]
       summary: Delete repository
@@ -588,6 +597,7 @@ paths:
           schema:
             type: string
             enum: [DELETEREPOSITORY]
+            default: DELETEREPOSITORY
         - name: VERSION
           in: query
           required: true
@@ -606,7 +616,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#UpdateRepository:
+  /UpdateRepository:
     post:
       tags: [Resource]
       summary: Update repository
@@ -623,6 +633,7 @@ paths:
           schema:
             type: string
             enum: [UPDATEREPOSITORY]
+            default: UPDATEREPOSITORY
         - name: VERSION
           in: query
           required: true
@@ -653,7 +664,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetRepositoryContent:
+  /GetRepositoryContent:
     get:
       tags: [Resource]
       summary: Get repository content
@@ -670,6 +681,7 @@ paths:
           schema:
             type: string
             enum: [GETREPOSITORYCONTENT]
+            default: GETREPOSITORYCONTENT
         - name: VERSION
           in: query
           required: true
@@ -690,7 +702,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetRepositoryHeader:
+  /GetRepositoryHeader:
     get:
       tags: [Resource]
       summary: Get repository header
@@ -707,6 +719,7 @@ paths:
           schema:
             type: string
             enum: [GETREPOSITORYHEADER]
+            default: GETREPOSITORYHEADER
         - name: VERSION
           in: query
           required: true
@@ -731,7 +744,7 @@ paths:
   # RESOURCE OPERATIONS — Resources
   # ═══════════════════════════════════════════════════════════════
 
-  /mapagent.fcgi#EnumerateResources:
+  /EnumerateResources:
     get:
       tags: [Resource]
       summary: Enumerate resources
@@ -748,6 +761,7 @@ paths:
           schema:
             type: string
             enum: [ENUMERATERESOURCES]
+            default: ENUMERATERESOURCES
         - name: VERSION
           in: query
           required: true
@@ -800,7 +814,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#ResourceExists:
+  /ResourceExists:
     get:
       tags: [Resource]
       summary: Check if resource exists
@@ -817,6 +831,7 @@ paths:
           schema:
             type: string
             enum: [RESOURCEEXISTS]
+            default: RESOURCEEXISTS
         - name: VERSION
           in: query
           required: true
@@ -835,7 +850,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#SetResource:
+  /SetResource:
     post:
       tags: [Resource]
       summary: Set/update resource
@@ -852,6 +867,7 @@ paths:
           schema:
             type: string
             enum: [SETRESOURCE]
+            default: SETRESOURCE
         - name: VERSION
           in: query
           required: true
@@ -882,7 +898,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#DeleteResource:
+  /DeleteResource:
     post:
       tags: [Resource]
       summary: Delete resource
@@ -899,6 +915,7 @@ paths:
           schema:
             type: string
             enum: [DELETERESOURCE]
+            default: DELETERESOURCE
         - name: VERSION
           in: query
           required: true
@@ -917,7 +934,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#MoveResource:
+  /MoveResource:
     post:
       tags: [Resource]
       summary: Move resource
@@ -934,6 +951,7 @@ paths:
           schema:
             type: string
             enum: [MOVERESOURCE]
+            default: MOVERESOURCE
         - name: VERSION
           in: query
           required: true
@@ -979,7 +997,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#CopyResource:
+  /CopyResource:
     post:
       tags: [Resource]
       summary: Copy resource
@@ -996,6 +1014,7 @@ paths:
           schema:
             type: string
             enum: [COPYRESOURCE]
+            default: COPYRESOURCE
         - name: VERSION
           in: query
           required: true
@@ -1033,7 +1052,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetResourceContent:
+  /GetResourceContent:
     get:
       tags: [Resource]
       summary: Get resource content
@@ -1050,6 +1069,7 @@ paths:
           schema:
             type: string
             enum: [GETRESOURCECONTENT]
+            default: GETRESOURCECONTENT
         - name: VERSION
           in: query
           required: true
@@ -1070,7 +1090,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetResourceHeader:
+  /GetResourceHeader:
     get:
       tags: [Resource]
       summary: Get resource header
@@ -1087,6 +1107,7 @@ paths:
           schema:
             type: string
             enum: [GETRESOURCEHEADER]
+            default: GETRESOURCEHEADER
         - name: VERSION
           in: query
           required: true
@@ -1107,7 +1128,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#EnumerateResourceReferences:
+  /EnumerateResourceReferences:
     get:
       tags: [Resource]
       summary: Enumerate resource references
@@ -1124,6 +1145,7 @@ paths:
           schema:
             type: string
             enum: [ENUMERATERESOURCEREFERENCES]
+            default: ENUMERATERESOURCEREFERENCES
         - name: VERSION
           in: query
           required: true
@@ -1144,7 +1166,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#ChangeResourceOwner:
+  /ChangeResourceOwner:
     post:
       tags: [Resource]
       summary: Change resource owner
@@ -1161,6 +1183,7 @@ paths:
           schema:
             type: string
             enum: [CHANGERESOURCEOWNER]
+            default: CHANGERESOURCEOWNER
         - name: VERSION
           in: query
           required: true
@@ -1193,7 +1216,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#InheritPermissionsFrom:
+  /InheritPermissionsFrom:
     post:
       tags: [Resource]
       summary: Inherit permissions
@@ -1210,6 +1233,7 @@ paths:
           schema:
             type: string
             enum: [INHERITPERMISSIONSFROM]
+            default: INHERITPERMISSIONSFROM
         - name: VERSION
           in: query
           required: true
@@ -1243,7 +1267,7 @@ paths:
   # RESOURCE OPERATIONS — Resource Data
   # ═══════════════════════════════════════════════════════════════
 
-  /mapagent.fcgi#EnumerateResourceData:
+  /EnumerateResourceData:
     get:
       tags: [Resource]
       summary: Enumerate resource data
@@ -1260,6 +1284,7 @@ paths:
           schema:
             type: string
             enum: [ENUMERATERESOURCEDATA]
+            default: ENUMERATERESOURCEDATA
         - name: VERSION
           in: query
           required: true
@@ -1280,7 +1305,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#SetResourceData:
+  /SetResourceData:
     post:
       tags: [Resource]
       summary: Set resource data
@@ -1297,6 +1322,7 @@ paths:
           schema:
             type: string
             enum: [SETRESOURCEDATA]
+            default: SETRESOURCEDATA
         - name: VERSION
           in: query
           required: true
@@ -1339,7 +1365,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#DeleteResourceData:
+  /DeleteResourceData:
     post:
       tags: [Resource]
       summary: Delete resource data
@@ -1356,6 +1382,7 @@ paths:
           schema:
             type: string
             enum: [DELETERESOURCEDATA]
+            default: DELETERESOURCEDATA
         - name: VERSION
           in: query
           required: true
@@ -1380,7 +1407,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#RenameResourceData:
+  /RenameResourceData:
     post:
       tags: [Resource]
       summary: Rename resource data
@@ -1397,6 +1424,7 @@ paths:
           schema:
             type: string
             enum: [RENAMERESOURCEDATA]
+            default: RENAMERESOURCEDATA
         - name: VERSION
           in: query
           required: true
@@ -1435,7 +1463,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetResourceData:
+  /GetResourceData:
     get:
       tags: [Resource]
       summary: Get resource data
@@ -1452,6 +1480,7 @@ paths:
           schema:
             type: string
             enum: [GETRESOURCEDATA]
+            default: GETRESOURCEDATA
         - name: VERSION
           in: query
           required: true
@@ -1481,7 +1510,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#EnumerateUnmanagedData:
+  /EnumerateUnmanagedData:
     get:
       tags: [Resource]
       summary: Enumerate unmanaged data
@@ -1498,6 +1527,7 @@ paths:
           schema:
             type: string
             enum: [ENUMERATEUNMANAGEDDATA]
+            default: ENUMERATEUNMANAGEDDATA
         - name: VERSION
           in: query
           required: true
@@ -1548,7 +1578,7 @@ paths:
   # RESOURCE OPERATIONS — Packages
   # ═══════════════════════════════════════════════════════════════
 
-  /mapagent.fcgi#ApplyResourcePackage:
+  /ApplyResourcePackage:
     post:
       tags: [Resource]
       summary: Apply resource package
@@ -1565,6 +1595,7 @@ paths:
           schema:
             type: string
             enum: [APPLYRESOURCEPACKAGE]
+            default: APPLYRESOURCEPACKAGE
         - name: VERSION
           in: query
           required: true
@@ -1586,6 +1617,7 @@ paths:
                 OPERATION:
                   type: string
                   enum: [APPLYRESOURCEPACKAGE]
+                  default: APPLYRESOURCEPACKAGE
                 VERSION:
                   type: string
                 SESSION:
@@ -1621,7 +1653,7 @@ paths:
   # FEATURE OPERATIONS
   # ═══════════════════════════════════════════════════════════════
 
-  /mapagent.fcgi#GetFeatureProviders:
+  /GetFeatureProviders:
     get:
       tags: [Feature]
       summary: Get feature providers
@@ -1638,6 +1670,7 @@ paths:
           schema:
             type: string
             enum: [GETFEATUREPROVIDERS]
+            default: GETFEATUREPROVIDERS
         - name: VERSION
           in: query
           required: true
@@ -1657,7 +1690,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetProviderCapabilities:
+  /GetProviderCapabilities:
     get:
       tags: [Feature]
       summary: Get provider capabilities
@@ -1674,6 +1707,7 @@ paths:
           schema:
             type: string
             enum: [GETPROVIDERCAPABILITIES]
+            default: GETPROVIDERCAPABILITIES
         - name: VERSION
           in: query
           required: true
@@ -1695,7 +1729,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetConnectionPropertyValues:
+  /GetConnectionPropertyValues:
     get:
       tags: [Feature]
       summary: Get connection property values
@@ -1712,6 +1746,7 @@ paths:
           schema:
             type: string
             enum: [GETCONNECTIONPROPERTYVALUES]
+            default: GETCONNECTIONPROPERTYVALUES
         - name: VERSION
           in: query
           required: true
@@ -1740,7 +1775,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#DescribeFeatureSchema:
+  /DescribeFeatureSchema:
     get:
       tags: [Feature]
       summary: Describe feature schema
@@ -1757,6 +1792,7 @@ paths:
           schema:
             type: string
             enum: [DESCRIBEFEATURESCHEMA]
+            default: DESCRIBEFEATURESCHEMA
         - name: VERSION
           in: query
           required: true
@@ -1801,7 +1837,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#SelectFeatures:
+  /SelectFeatures:
     get:
       tags: [Feature]
       summary: Select features
@@ -1818,6 +1854,7 @@ paths:
           schema:
             type: string
             enum: [SELECTFEATURES]
+            default: SELECTFEATURES
         - name: VERSION
           in: query
           required: true
@@ -1900,7 +1937,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#SelectAggregates:
+  /SelectAggregates:
     get:
       tags: [Feature]
       summary: Select aggregates (spatial query)
@@ -1917,6 +1954,7 @@ paths:
           schema:
             type: string
             enum: [SELECTAGGREGATES]
+            default: SELECTAGGREGATES
         - name: VERSION
           in: query
           required: true
@@ -1997,7 +2035,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetSpatialContexts:
+  /GetSpatialContexts:
     get:
       tags: [Feature]
       summary: Get spatial contexts
@@ -2014,6 +2052,7 @@ paths:
           schema:
             type: string
             enum: [GETSPATIALCONTEXTS]
+            default: GETSPATIALCONTEXTS
         - name: VERSION
           in: query
           required: true
@@ -2046,7 +2085,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetLongTransactions:
+  /GetLongTransactions:
     get:
       tags: [Feature]
       summary: Get long transactions
@@ -2063,6 +2102,7 @@ paths:
           schema:
             type: string
             enum: [GETLONGTRANSACTIONS]
+            default: GETLONGTRANSACTIONS
         - name: VERSION
           in: query
           required: true
@@ -2095,7 +2135,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#TestConnection:
+  /TestConnection:
     get:
       tags: [Feature]
       summary: Test connection
@@ -2112,6 +2152,7 @@ paths:
           schema:
             type: string
             enum: [TESTCONNECTION]
+            default: TESTCONNECTION
         - name: VERSION
           in: query
           required: true
@@ -2137,7 +2178,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#EnumerateDataStores:
+  /EnumerateDataStores:
     get:
       tags: [Feature]
       summary: Enumerate data stores
@@ -2154,6 +2195,7 @@ paths:
           schema:
             type: string
             enum: [ENUMERATEDATASTORES]
+            default: ENUMERATEDATASTORES
         - name: VERSION
           in: query
           required: true
@@ -2181,7 +2223,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetSchemaMapping:
+  /GetSchemaMapping:
     get:
       tags: [Feature]
       summary: Get schema mapping
@@ -2198,6 +2240,7 @@ paths:
           schema:
             type: string
             enum: [GETSCHEMAMAPPING]
+            default: GETSCHEMAMAPPING
         - name: VERSION
           in: query
           required: true
@@ -2219,7 +2262,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetSchemas:
+  /GetSchemas:
     get:
       tags: [Feature]
       summary: Get schemas
@@ -2236,6 +2279,7 @@ paths:
           schema:
             type: string
             enum: [GETSCHEMAS]
+            default: GETSCHEMAS
         - name: VERSION
           in: query
           required: true
@@ -2261,7 +2305,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetClasses:
+  /GetClasses:
     get:
       tags: [Feature]
       summary: Get classes
@@ -2278,6 +2322,7 @@ paths:
           schema:
             type: string
             enum: [GETCLASSES]
+            default: GETCLASSES
         - name: VERSION
           in: query
           required: true
@@ -2304,7 +2349,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetClassDefinition:
+  /GetClassDefinition:
     get:
       tags: [Feature]
       summary: Get class definition
@@ -2321,6 +2366,7 @@ paths:
           schema:
             type: string
             enum: [GETCLASSDEFINITION]
+            default: GETCLASSDEFINITION
         - name: VERSION
           in: query
           required: true
@@ -2348,7 +2394,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetIdentityProperties:
+  /GetIdentityProperties:
     get:
       tags: [Feature]
       summary: Get identity properties
@@ -2365,6 +2411,7 @@ paths:
           schema:
             type: string
             enum: [GETIDENTITYPROPERTIES]
+            default: GETIDENTITYPROPERTIES
         - name: VERSION
           in: query
           required: true
@@ -2392,7 +2439,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetFdoCacheInfo:
+  /GetFdoCacheInfo:
     get:
       tags: [Feature]
       summary: Get FDO cache info
@@ -2409,6 +2456,7 @@ paths:
           schema:
             type: string
             enum: [GETFDOCACHEINFO]
+            default: GETFDOCACHEINFO
         - name: VERSION
           in: query
           required: true
@@ -2432,7 +2480,7 @@ paths:
   # DRAWING OPERATIONS
   # ═══════════════════════════════════════════════════════════════
 
-  /mapagent.fcgi#DescribeDrawing:
+  /DescribeDrawing:
     get:
       tags: [Drawing]
       summary: Describe drawing
@@ -2449,6 +2497,7 @@ paths:
           schema:
             type: string
             enum: [DESCRIBEDRAWING]
+            default: DESCRIBEDRAWING
         - name: VERSION
           in: query
           required: true
@@ -2474,7 +2523,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetDrawing:
+  /GetDrawing:
     get:
       tags: [Drawing]
       summary: Get drawing
@@ -2491,6 +2540,7 @@ paths:
           schema:
             type: string
             enum: [GETDRAWING]
+            default: GETDRAWING
         - name: VERSION
           in: query
           required: true
@@ -2519,7 +2569,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#EnumerateDrawingSections:
+  /EnumerateDrawingSections:
     get:
       tags: [Drawing]
       summary: Enumerate drawing sections
@@ -2536,6 +2586,7 @@ paths:
           schema:
             type: string
             enum: [ENUMERATEDRAWINGSECTIONS]
+            default: ENUMERATEDRAWINGSECTIONS
         - name: VERSION
           in: query
           required: true
@@ -2561,7 +2612,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetDrawingSection:
+  /GetDrawingSection:
     get:
       tags: [Drawing]
       summary: Get drawing section
@@ -2578,6 +2629,7 @@ paths:
           schema:
             type: string
             enum: [GETDRAWINGSECTION]
+            default: GETDRAWINGSECTION
         - name: VERSION
           in: query
           required: true
@@ -2612,7 +2664,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#EnumerateDrawingSectionResources:
+  /EnumerateDrawingSectionResources:
     get:
       tags: [Drawing]
       summary: Enumerate drawing section resources
@@ -2629,6 +2681,7 @@ paths:
           schema:
             type: string
             enum: [ENUMERATEDRAWINGSECTIONRESOURCES]
+            default: ENUMERATEDRAWINGSECTIONRESOURCES
         - name: VERSION
           in: query
           required: true
@@ -2660,7 +2713,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetDrawingSectionResource:
+  /GetDrawingSectionResource:
     get:
       tags: [Drawing]
       summary: Get drawing section resource
@@ -2677,6 +2730,7 @@ paths:
           schema:
             type: string
             enum: [GETDRAWINGSECTIONRESOURCE]
+            default: GETDRAWINGSECTIONRESOURCE
         - name: VERSION
           in: query
           required: true
@@ -2711,7 +2765,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#EnumerateDrawingLayers:
+  /EnumerateDrawingLayers:
     get:
       tags: [Drawing]
       summary: Enumerate drawing layers
@@ -2728,6 +2782,7 @@ paths:
           schema:
             type: string
             enum: [ENUMERATEDRAWINGLAYERS]
+            default: ENUMERATEDRAWINGLAYERS
         - name: VERSION
           in: query
           required: true
@@ -2759,7 +2814,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetDrawingLayer:
+  /GetDrawingLayer:
     get:
       tags: [Drawing]
       summary: Get drawing layer
@@ -2776,6 +2831,7 @@ paths:
           schema:
             type: string
             enum: [GETDRAWINGLAYER]
+            default: GETDRAWINGLAYER
         - name: VERSION
           in: query
           required: true
@@ -2816,7 +2872,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetDrawingCoordinateSpace:
+  /GetDrawingCoordinateSpace:
     get:
       tags: [Drawing]
       summary: Get drawing coordinate space
@@ -2833,6 +2889,7 @@ paths:
           schema:
             type: string
             enum: [GETDRAWINGCOORDINATESPACE]
+            default: GETDRAWINGCOORDINATESPACE
         - name: VERSION
           in: query
           required: true
@@ -2862,7 +2919,7 @@ paths:
   # MAPPING OPERATIONS
   # ═══════════════════════════════════════════════════════════════
 
-  /mapagent.fcgi#CreateRuntimeMap:
+  /CreateRuntimeMap:
     get:
       tags: [Mapping]
       summary: Create runtime map
@@ -2879,6 +2936,7 @@ paths:
           schema:
             type: string
             enum: [CREATERUNTIMEMAP]
+            default: CREATERUNTIMEMAP
         - name: VERSION
           in: query
           required: true
@@ -2935,7 +2993,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#DescribeRuntimeMap:
+  /DescribeRuntimeMap:
     get:
       tags: [Mapping]
       summary: Describe runtime map
@@ -2952,6 +3010,7 @@ paths:
           schema:
             type: string
             enum: [DESCRIBERUNTIMEMAP]
+            default: DESCRIBERUNTIMEMAP
         - name: VERSION
           in: query
           required: true
@@ -3002,7 +3061,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetPlot:
+  /GetPlot:
     get:
       tags: [Mapping]
       summary: Get plot (DWF)
@@ -3019,6 +3078,7 @@ paths:
           schema:
             type: string
             enum: [GETPLOT]
+            default: GETPLOT
         - name: VERSION
           in: query
           required: true
@@ -3086,7 +3146,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetLegendImage:
+  /GetLegendImage:
     get:
       tags: [Mapping]
       summary: Get legend image
@@ -3103,6 +3163,7 @@ paths:
           schema:
             type: string
             enum: [GETLEGENDIMAGE]
+            default: GETLEGENDIMAGE
         - name: VERSION
           in: query
           required: true
@@ -3152,7 +3213,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetFeatureSetEnvelope:
+  /GetFeatureSetEnvelope:
     get:
       tags: [Mapping]
       summary: Get feature set envelope
@@ -3169,6 +3230,7 @@ paths:
           schema:
             type: string
             enum: [GETFEATURESETENVELOPE]
+            default: GETFEATURESETENVELOPE
         - name: VERSION
           in: query
           required: true
@@ -3198,7 +3260,7 @@ paths:
   # RENDERING OPERATIONS
   # ═══════════════════════════════════════════════════════════════
 
-  /mapagent.fcgi#GetMapImage:
+  /GetMapImage:
     get:
       tags: [Rendering]
       summary: Get map image
@@ -3215,6 +3277,7 @@ paths:
           schema:
             type: string
             enum: [GETMAPIMAGE]
+            default: GETMAPIMAGE
         - name: VERSION
           in: query
           required: true
@@ -3316,7 +3379,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetMapLegendImage:
+  /GetMapLegendImage:
     get:
       tags: [Rendering]
       summary: Get map legend image
@@ -3333,6 +3396,7 @@ paths:
           schema:
             type: string
             enum: [GETMAPLEGENDIMAGE]
+            default: GETMAPLEGENDIMAGE
         - name: VERSION
           in: query
           required: true
@@ -3364,7 +3428,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetDynamicMapOverlayImage:
+  /GetDynamicMapOverlayImage:
     get:
       tags: [Rendering]
       summary: Get dynamic map overlay image
@@ -3381,6 +3445,7 @@ paths:
           schema:
             type: string
             enum: [GETDYNAMICMAPOVERLAYIMAGE]
+            default: GETDYNAMICMAPOVERLAYIMAGE
         - name: VERSION
           in: query
           required: true
@@ -3480,7 +3545,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#QueryMapFeatures:
+  /QueryMapFeatures:
     get:
       tags: [Rendering]
       summary: Query map features
@@ -3497,6 +3562,7 @@ paths:
           schema:
             type: string
             enum: [QUERYMAPFEATURES]
+            default: QUERYMAPFEATURES
         - name: VERSION
           in: query
           required: true
@@ -3585,7 +3651,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetVisibleMapExtent:
+  /GetVisibleMapExtent:
     get:
       tags: [Rendering]
       summary: Get visible map extent
@@ -3602,6 +3668,7 @@ paths:
           schema:
             type: string
             enum: [GETVISIBLEMAPEXTENT]
+            default: GETVISIBLEMAPEXTENT
         - name: VERSION
           in: query
           required: true
@@ -3686,7 +3753,7 @@ paths:
   # TILE OPERATIONS
   # ═══════════════════════════════════════════════════════════════
 
-  /mapagent.fcgi#GetTileImage:
+  /GetTileImage:
     get:
       tags: [Tile]
       summary: Get tile image
@@ -3703,6 +3770,7 @@ paths:
           schema:
             type: string
             enum: [GETTILEIMAGE]
+            default: GETTILEIMAGE
         - name: VERSION
           in: query
           required: true
@@ -3746,7 +3814,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#ClearTileCache:
+  /ClearTileCache:
     post:
       tags: [Tile]
       summary: Clear tile cache
@@ -3763,6 +3831,7 @@ paths:
           schema:
             type: string
             enum: [CLEARTILECACHE]
+            default: CLEARTILECACHE
         - name: VERSION
           in: query
           required: true
@@ -3781,7 +3850,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetTileProviders:
+  /GetTileProviders:
     get:
       tags: [Tile]
       summary: Get tile providers
@@ -3798,6 +3867,7 @@ paths:
           schema:
             type: string
             enum: [GETTILEPROVIDERS]
+            default: GETTILEPROVIDERS
         - name: VERSION
           in: query
           required: true
@@ -3825,7 +3895,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetDefaultTileSizeX:
+  /GetDefaultTileSizeX:
     get:
       tags: [Tile]
       summary: Get default tile size X
@@ -3842,6 +3912,7 @@ paths:
           schema:
             type: string
             enum: [GETDEFAULTTILESIZEX]
+            default: GETDEFAULTTILESIZEX
         - name: VERSION
           in: query
           required: true
@@ -3863,7 +3934,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetDefaultTileSizeY:
+  /GetDefaultTileSizeY:
     get:
       tags: [Tile]
       summary: Get default tile size Y
@@ -3880,6 +3951,7 @@ paths:
           schema:
             type: string
             enum: [GETDEFAULTTILESIZEY]
+            default: GETDEFAULTTILESIZEY
         - name: VERSION
           in: query
           required: true
@@ -3905,7 +3977,7 @@ paths:
   # KML OPERATIONS
   # ═══════════════════════════════════════════════════════════════
 
-  /mapagent.fcgi#GetMapKml:
+  /GetMapKml:
     get:
       tags: [KML]
       summary: Get map KML
@@ -3922,6 +3994,7 @@ paths:
           schema:
             type: string
             enum: [GETMAPKML]
+            default: GETMAPKML
         - name: VERSION
           in: query
           required: true
@@ -3982,7 +4055,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetLayerKml:
+  /GetLayerKml:
     get:
       tags: [KML]
       summary: Get layer KML
@@ -3999,6 +4072,7 @@ paths:
           schema:
             type: string
             enum: [GETLAYERKML]
+            default: GETLAYERKML
         - name: VERSION
           in: query
           required: true
@@ -4052,7 +4126,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetFeaturesKml:
+  /GetFeaturesKml:
     get:
       tags: [KML]
       summary: Get features KML
@@ -4069,6 +4143,7 @@ paths:
           schema:
             type: string
             enum: [GETFEATURESKML]
+            default: GETFEATURESKML
         - name: VERSION
           in: query
           required: true
@@ -4125,7 +4200,7 @@ paths:
   # COORDINATE SYSTEM OPERATIONS
   # ═══════════════════════════════════════════════════════════════
 
-  /mapagent.fcgi#CsConvertWktToCoordinateSystemCode:
+  /CsConvertWktToCoordinateSystemCode:
     get:
       tags: [CoordinateSystem]
       summary: Convert WKT to coordinate system code
@@ -4142,6 +4217,7 @@ paths:
           schema:
             type: string
             enum: [CS.CONVERTWKTTOCOORDINATESYSTEMCODE]
+            default: CS.CONVERTWKTTOCOORDINATESYSTEMCODE
         - name: VERSION
           in: query
           required: true
@@ -4167,7 +4243,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#CsConvertCoordinateSystemCodeToWkt:
+  /CsConvertCoordinateSystemCodeToWkt:
     get:
       tags: [CoordinateSystem]
       summary: Convert coordinate system code to WKT
@@ -4184,6 +4260,7 @@ paths:
           schema:
             type: string
             enum: [CS.CONVERTCOORDINATESYSTEMCODETOWKT]
+            default: CS.CONVERTCOORDINATESYSTEMCODETOWKT
         - name: VERSION
           in: query
           required: true
@@ -4209,7 +4286,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#CsConvertEpsgCodeToWkt:
+  /CsConvertEpsgCodeToWkt:
     get:
       tags: [CoordinateSystem]
       summary: Convert EPSG code to WKT
@@ -4226,6 +4303,7 @@ paths:
           schema:
             type: string
             enum: [CS.CONVERTEPSGCODETOWKT]
+            default: CS.CONVERTEPSGCODETOWKT
         - name: VERSION
           in: query
           required: true
@@ -4251,7 +4329,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#CsConvertWktToEpsgCode:
+  /CsConvertWktToEpsgCode:
     get:
       tags: [CoordinateSystem]
       summary: Convert WKT to EPSG code
@@ -4268,6 +4346,7 @@ paths:
           schema:
             type: string
             enum: [CS.CONVERTWKTTOEPSGCODE]
+            default: CS.CONVERTWKTTOEPSGCODE
         - name: VERSION
           in: query
           required: true
@@ -4293,7 +4372,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#CsEnumerateCategories:
+  /CsEnumerateCategories:
     get:
       tags: [CoordinateSystem]
       summary: Enumerate coordinate system categories
@@ -4310,6 +4389,7 @@ paths:
           schema:
             type: string
             enum: [CS.ENUMERATECATEGORIES]
+            default: CS.ENUMERATECATEGORIES
         - name: VERSION
           in: query
           required: true
@@ -4335,7 +4415,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#CsEnumerateCoordinateSystems:
+  /CsEnumerateCoordinateSystems:
     get:
       tags: [CoordinateSystem]
       summary: Enumerate coordinate systems
@@ -4352,6 +4432,7 @@ paths:
           schema:
             type: string
             enum: [CS.ENUMERATECOORDINATESYSTEMS]
+            default: CS.ENUMERATECOORDINATESYSTEMS
         - name: VERSION
           in: query
           required: true
@@ -4377,7 +4458,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#CsGetBaseLibrary:
+  /CsGetBaseLibrary:
     get:
       tags: [CoordinateSystem]
       summary: Get base library
@@ -4394,6 +4475,7 @@ paths:
           schema:
             type: string
             enum: [CS.GETBASELIBRARY]
+            default: CS.GETBASELIBRARY
         - name: VERSION
           in: query
           required: true
@@ -4413,7 +4495,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#CsIsValid:
+  /CsIsValid:
     get:
       tags: [CoordinateSystem]
       summary: Validate coordinate system WKT
@@ -4430,6 +4512,7 @@ paths:
           schema:
             type: string
             enum: [CS.ISVALID]
+            default: CS.ISVALID
         - name: VERSION
           in: query
           required: true
@@ -4455,7 +4538,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#CsTransformCoordinates:
+  /CsTransformCoordinates:
     get:
       tags: [CoordinateSystem]
       summary: Transform coordinates
@@ -4472,6 +4555,7 @@ paths:
           schema:
             type: string
             enum: [CS.TRANSFORMCOORDINATES]
+            default: CS.TRANSFORMCOORDINATES
         - name: VERSION
           in: query
           required: true
@@ -4514,7 +4598,7 @@ paths:
   # GEO-PROCESSING OPERATIONS
   # ═══════════════════════════════════════════════════════════════
 
-  /mapagent.fcgi#GeoBoundary:
+  /GeoBoundary:
     get:
       tags: [GeoProcessing]
       summary: Compute boundary
@@ -4531,6 +4615,7 @@ paths:
           schema:
             type: string
             enum: [GEO.BOUNDARY]
+            default: GEO.BOUNDARY
         - name: VERSION
           in: query
           required: true
@@ -4570,7 +4655,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GeoBuffer:
+  /GeoBuffer:
     get:
       tags: [GeoProcessing]
       summary: Compute buffer
@@ -4587,6 +4672,7 @@ paths:
           schema:
             type: string
             enum: [GEO.BUFFER]
+            default: GEO.BUFFER
         - name: VERSION
           in: query
           required: true
@@ -4636,7 +4722,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GeoBinaryOperation:
+  /GeoBinaryOperation:
     get:
       tags: [GeoProcessing]
       summary: Binary geometry operation
@@ -4653,6 +4739,7 @@ paths:
           schema:
             type: string
             enum: [GEO.BINARYOPERATION]
+            default: GEO.BINARYOPERATION
         - name: VERSION
           in: query
           required: true
@@ -4703,7 +4790,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GeoConvexHull:
+  /GeoConvexHull:
     get:
       tags: [GeoProcessing]
       summary: Compute convex hull
@@ -4720,6 +4807,7 @@ paths:
           schema:
             type: string
             enum: [GEO.CONVEXHULL]
+            default: GEO.CONVEXHULL
         - name: VERSION
           in: query
           required: true
@@ -4757,7 +4845,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GeoDistance:
+  /GeoDistance:
     get:
       tags: [GeoProcessing]
       summary: Compute distance
@@ -4774,6 +4862,7 @@ paths:
           schema:
             type: string
             enum: [GEO.DISTANCE]
+            default: GEO.DISTANCE
         - name: VERSION
           in: query
           required: true
@@ -4817,7 +4906,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GeoGeometryInfo:
+  /GeoGeometryInfo:
     get:
       tags: [GeoProcessing]
       summary: Get geometry info
@@ -4834,6 +4923,7 @@ paths:
           schema:
             type: string
             enum: [GEO.GEOMETRYINFO]
+            default: GEO.GEOMETRYINFO
         - name: VERSION
           in: query
           required: true
@@ -4864,7 +4954,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GeoSimplify:
+  /GeoSimplify:
     get:
       tags: [GeoProcessing]
       summary: Simplify geometry
@@ -4881,6 +4971,7 @@ paths:
           schema:
             type: string
             enum: [GEO.SIMPLIFY]
+            default: GEO.SIMPLIFY
         - name: VERSION
           in: query
           required: true
@@ -4924,7 +5015,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GeoSpatialPredicate:
+  /GeoSpatialPredicate:
     get:
       tags: [GeoProcessing]
       summary: Spatial predicate test
@@ -4941,6 +5032,7 @@ paths:
           schema:
             type: string
             enum: [GEO.SPATIALPREDICATE]
+            default: GEO.SPATIALPREDICATE
         - name: VERSION
           in: query
           required: true
@@ -4991,7 +5083,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GeoTessellate:
+  /GeoTessellate:
     get:
       tags: [GeoProcessing]
       summary: Tessellate geometry
@@ -5008,6 +5100,7 @@ paths:
           schema:
             type: string
             enum: [GEO.TESSELLATE]
+            default: GEO.TESSELLATE
         - name: VERSION
           in: query
           required: true
@@ -5049,7 +5142,7 @@ paths:
   # WEB APPLICATION OPERATIONS
   # ═══════════════════════════════════════════════════════════════
 
-  /mapagent.fcgi#EnumerateApplicationTemplates:
+  /EnumerateApplicationTemplates:
     get:
       tags: [WebApplication]
       summary: Enumerate application templates
@@ -5066,6 +5159,7 @@ paths:
           schema:
             type: string
             enum: [ENUMERATEAPPLICATIONTEMPLATES]
+            default: ENUMERATEAPPLICATIONTEMPLATES
         - name: VERSION
           in: query
           required: true
@@ -5085,7 +5179,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#EnumerateApplicationWidgets:
+  /EnumerateApplicationWidgets:
     get:
       tags: [WebApplication]
       summary: Enumerate application widgets
@@ -5102,6 +5196,7 @@ paths:
           schema:
             type: string
             enum: [ENUMERATEAPPLICATIONWIDGETS]
+            default: ENUMERATEAPPLICATIONWIDGETS
         - name: VERSION
           in: query
           required: true
@@ -5121,7 +5216,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#EnumerateApplicationContainers:
+  /EnumerateApplicationContainers:
     get:
       tags: [WebApplication]
       summary: Enumerate application containers
@@ -5138,6 +5233,7 @@ paths:
           schema:
             type: string
             enum: [ENUMERATEAPPLICATIONCONTAINERS]
+            default: ENUMERATEAPPLICATIONCONTAINERS
         - name: VERSION
           in: query
           required: true
@@ -5161,7 +5257,7 @@ paths:
   # VIEWER PAGE OPERATIONS
   # ═══════════════════════════════════════════════════════════════
 
-  /mapagent.fcgi#GetDwfViewerPage:
+  /GetDwfViewerPage:
     get:
       tags: [Rendering]
       summary: Get DWF viewer page
@@ -5178,6 +5274,7 @@ paths:
           schema:
             type: string
             enum: [GETDWFVIEWERPAGE]
+            default: GETDWFVIEWERPAGE
         - name: VERSION
           in: query
           required: true
@@ -5196,7 +5293,7 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
-  /mapagent.fcgi#GetHtmlViewerPage:
+  /GetHtmlViewerPage:
     get:
       tags: [Rendering]
       summary: Get AJAX viewer page
@@ -5213,6 +5310,7 @@ paths:
           schema:
             type: string
             enum: [GETHTMLVIEWERPAGE]
+            default: GETHTMLVIEWERPAGE
         - name: VERSION
           in: query
           required: true
@@ -5230,3 +5328,7 @@ paths:
           $ref: '#/components/responses/HtmlResponse'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+
+
+
+
