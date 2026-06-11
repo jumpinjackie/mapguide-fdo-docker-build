@@ -246,12 +246,16 @@ paths:
                   description: Username (defaults to Anonymous if not provided)
                 PASSWORD:
                   type: string
+                  example: ""
                   description: Password
                 LOCALE:
                   type: string
+                  example: "en"
+                  default: "en"
                   description: Locale code (e.g., en)
                 CLIENTAGENT:
                   type: string
+                  example: ""
                   description: Client agent identifier
       responses:
         '200':
@@ -1586,14 +1590,20 @@ paths:
                   type: string
                 SESSION:
                   type: string
+                  example: ""
                 USERNAME:
                   type: string
+                  example: ""
                 PASSWORD:
                   type: string
+                  example: ""
                 LOCALE:
                   type: string
+                  example: ""
+                  default: "en"
                 CLIENTAGENT:
                   type: string
+                  example: ""
                 MAX_FILE_SIZE:
                   type: integer
                   description: Maximum allowed file size in bytes
