@@ -41,7 +41,7 @@ Rules for working with source trees:
 - You may edit files under `MgDev` and `fdo`, but you must **never commit changes upstream**. Do not run `svn commit` or any svn command that writes changes back to the repository.
 - `svn update` / `svn info` are fine — `svn_update.sh` is the canonical way to update both trees.
 - Both trees track their current release branches. The MapGuide 4.0 branch has diverged significantly from `trunk`; those changes will eventually be merged back into `trunk`. `svn_checkout.sh` currently checks out `trunk` for both trees and is intentionally left as-is — if a fresh checkout lands on `trunk`, switch to the intended branch manually (for example `svn switch https://svn.osgeo.org/mapguide/branches/4.0/MgDev mapguide/MgDev`).
-- Both source trees compile as **C++11** (`CMAKE_CXX_STANDARD 11` in each tree's top-level `CMakeLists.txt`). Keep any new code within C++11 and avoid newer language-standard features.
+- Both source trees compile as **C++11** (`CMAKE_CXX_STANDARD 11` in each tree's top-level `CMakeLists.txt`). See [CPP_STYLE.md](./CPP_STYLE.md) for code guidelines.
 - `add_submodules.sh` / `remove_submodules.sh` are placeholders for a hypothetical future where the upstream SVN repositories are migrated to git. They do not work yet — do not use them.
 
 ## Requirements
@@ -142,6 +142,10 @@ There are two levels of tests:
 4. **Error handling** — no `set -e`. Use explicit checks: `check_build()` or `if [ "$?" -ne 0 ]` after each build invocation, then `exit 1`.
 5. **Naming** — `FDO_VER_MAJOR/MINOR/REL/REV`, `FDO_VER`, `FDO_VER_TRIPLE`; same shape for `MG_VER_*`. `BUILD_CONF` is `Release` or `Debug`. `distro_label` is `distro` + major tag (`ubuntu22`) or `generic`. `cpu_label` is `amd64` or `i386`.
 6. **Shebangs** — new scripts use `#!/bin/bash`. Keep existing `#!/bin/sh` scripts POSIX-compatible unless you are already editing them.
+
+## Code style guidelines (C++)
+
+See [CPP_STYLE.md](./CPP_STYLE.md) — applies to edits under `MgDev` and `fdo`.
 
 ## Common patterns
 
