@@ -21,6 +21,23 @@ objects directly — their destructors are protected and lifetime is managed via
 MapGuide (`Mg*`) classes. Do not use them for standard library types or for types from
 third-party libraries — those have their own (or no) ownership model.
 
+### Ownership contract
+
+- `FdoPtr(T*)` and `FdoPtr::operator=(T*)` **attach without adding a reference** — they take
+  ownership of the reference being handed over.
+- `FdoPtr`'s copy constructor and copy-assignment **do** add a reference (shared ownership).
+- FDO getters and collections (`GetX()`, `GetItem`, `FindItem`, `Add`) **return addref'd
+  pointers** — the caller owns the returned reference.
+
+Consequences:
+
+- `FdoPtr<T> x = obj->GetX();` — correct: the getter's addref'd pointer is taken over by `x`.
+- `m_X = value; FDO_SAFE_ADDREF(m_X.p);` — correct: the assignment attaches, so the explicit
+  addref is what gives `m_X` its own owned reference.
+- `return FDO_SAFE_ADDREF(m_X.p);` — correct: hands an owned reference to the caller.
+- `FdoPtr<T> x = obj->GetX(); FDO_SAFE_ADDREF(x.p);` — **wrong**: over-retains (leaks), since
+  `x` already owns the reference the getter returned.
+
 ### FDO
 
 - Wrap FDO interface pointers in `FdoPtr<T>` (defined in `Fdo/Unmanaged/Inc/Common/Ptr.h`),
