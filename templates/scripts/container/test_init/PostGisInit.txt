@@ -1,0 +1,1 @@
+provider=PostgreSQL;service=host.docker.internal:5432;username=postgres;password=changeme;clean=true;

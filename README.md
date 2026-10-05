@@ -66,17 +66,172 @@ NOTE: You must build FDO first (and its SDK tarball present in `artifacts`) befo
 
 A convenience `build_all_thin.sh` is provided that will build MapGuide/FDO for all supported distros
 
-All MapGuide/FDO build containers are "thin" in the sense that source code and compiler output is not added to these docker images, only the development tools and libraries are added to the image. Source code and compiler output are read and written to directories referenced outside from the docker host via mounted volumes.
+All MapGuide/FDO build containers are "thin" in the sense that source code and compiler output is not added to these docker images, only the development tools and libraries are added to the image. Source code and compiler output are read and written to directories referenced outside from the docker host via mounted volumes. Inside the container these are all mounted under `/tmp/work`:
 
- * `/build_area` is the root of all intermediate compiler output
- * `/fdo` is the `svn` checkout of FDO trunk
- * `/mapguide` is the `svn` checkout of MapGuide trunk
+ * `/tmp/work/src` is the source tree being built (the `fdo` checkout for FDO, `mapguide/MgDev` for MapGuide)
+ * `/tmp/work/build_area` is the root of all intermediate compiler output
+ * `/tmp/work/artifacts` holds the built SDK tarballs and packages
+ * `/tmp/work/sdks` holds pre-downloaded SDKs such as the Oracle Instant Client
+
+See [4. Inner-loop development and testing](#4-inner-loop-development-and-testing) for the complete list of mounted paths.
 
 All MapGuide/FDO build containers also leverage the use of `ccache` to store their compilation output to a volume mounted ccache cache directory (the `/caches` sub-directory in this repo)
 
 These 2 combined, result in a build pipeline that is very fast for builds after the first build, allowing for a rapid developer/iteration inner-loop.
 
-## 4. Running test suites
+## 4. Inner-loop development and testing
+
+The build images are *thin*: they carry only toolchains and libraries, while source, compiler output and the `ccache` cache are read from and written to host-mounted volumes. This means you can keep a build container running, edit sources on the host, and rebuild incrementally instead of re-running a full non-interactive build for each change. This is the fastest way to iterate, and it lets you selectively run individual test suites after a build.
+
+### 4.1 Drop into the build container
+
+```
+./build_thin.sh --target fdo --distro ubuntu --tag 22 --cpu x64 --interactive
+./build_thin.sh --target mapguide --distro ubuntu --tag 22 --cpu x64 --interactive
+```
+
+Add `--debug` to work against a `Debug` (ASAN-instrumented) build. The interactive container mounts the same volumes as a non-interactive build and the version/build environment variables (`FDO_BUILD_CONFIG`, `FDO_DISTRO`, `FDO_VER*`, `MG_BUILD_CONFIG`, `MG_DISTRO`, `MG_VER*`) are already set.
+
+Inside the container everything lives under `/tmp/work`:
+
+| Path in container | Backing host directory | Purpose |
+|---|---|---|
+| `/tmp/work/src` | `fdo/` (FDO) or `mapguide/MgDev` (MapGuide) | source checkout |
+| `/tmp/work/fdo_src` | `fdo/` | FDO source (MapGuide container only) |
+| `/tmp/work/build_area` | `build_area/<cpu>/<config>/<distro_label>/<target>` | CMake/Ninja build output |
+| `/tmp/work/artifacts` | `artifacts/<config>` | SDK tarballs and packages |
+| `/tmp/work/sdks` | `sdks/` | Oracle Instant Client, etc. |
+| `/tmp/work/patches` | `patches/` | MapGuide patches (MapGuide container only) |
+| `/tmp/work/scripts` | `templates/scripts/container` | build/test scripts |
+| `/tmp/ccache` | `caches/<cpu>/<config>/<target>/<distro_label>/.ccache` | ccache cache |
+
+The build directories created inside the container are:
+
+ * FDO — `/tmp/work/build_area/fdo` (thirdparty dependencies under `/tmp/work/build_area/fdo_thirdparty`)
+ * MapGuide — `/tmp/work/build_area/mapguide` (OEM dependencies under `/tmp/work/build_area/oem`)
+
+### 4.2 Build by hand
+
+Run the same scripts that a non-interactive build runs:
+
+```
+# FDO
+/tmp/work/scripts/build_fdo.sh
+
+# MapGuide (requires the FDO SDK tarball to already be present in /tmp/work/artifacts)
+/tmp/work/scripts/build_mapguide.sh
+```
+
+> Distro-specific overrides (`build_fdo_<distro_label>.sh`, `build_mapguide_<distro_label>.sh`) take precedence over the generic scripts above.
+
+Because sources, build output and ccache are all on mounted volumes, editing a file under `fdo/` or `mapguide/MgDev` on the host and re-running the script rebuilds only what changed. For an even tighter loop you can drive the underlying build directly:
+
+```
+cd /tmp/work/build_area/fdo && cmake --build . --target install
+cd /tmp/work/build_area/mapguide && cmake --build . --target install
+```
+
+### 4.3 Run unit test suites
+
+From the host, the wrapper scripts run the suites in a one-shot container and drop logs under `logs/test/`:
+
+```
+# Against the thin develop image (source and build tree are mounted from the host)
+./env_test_thin.sh --target fdo --distro ubuntu22 --cpu x64
+./env_test_thin.sh --target mapguide --distro ubuntu22 --cpu x64
+
+# Against the non-thin build image (uses the build baked into the image)
+./env_test.sh --target fdo --distro ubuntu22 --cpu x64
+./env_test.sh --target mapguide --distro ubuntu22 --cpu x64
+```
+
+> `env_test_thin.sh` recreates an ad-hoc inner loop and can be flaky. When it misbehaves, run the same scripts inside an interactive container instead.
+
+Or, inside the interactive build container:
+
+```
+# FDO
+/tmp/work/scripts/run_fdo_tests.sh --log-path /tmp/work/artifacts/test-logs --fdo-build-dir /tmp/work/build_area/fdo
+
+# MapGuide
+/tmp/work/scripts/run_mapguide_tests.sh --log-path /tmp/work/artifacts/test-logs --mapguide-build-dir /tmp/work/build_area/mapguide
+```
+
+`run_fdo_tests.sh` always runs the Core/SDF/SQLite/OGR/GDAL/SHP suites and installs FDO first (`cmake --build . --target install`). It reports the elapsed time of the install step and of each suite, plus the total at the end of the run. The MapGuide runner drives `mgserver test <component>` for each core component with a 5 minute timeout per suite.
+
+`run_fdo_tests.sh` points `NLSPATH` at the generated message catalogues in the build tree when the caller has not already set it, and echoes the value it ends up using. This matters because `env_test.sh`/`env_test_thin.sh` export `NLSPATH` themselves when they start the one-shot container, whereas a hand-run inside an interactive container has nobody to do it — and without it FDO falls back to raw message symbols (for example `FDOSM_220`) instead of resolved English text, which fails every test that asserts on message text (including `FdoApplySchemaTest::TestSchema`).
+
+#### Selecting FDO suites
+
+Pass any of the following to `run_fdo_tests.sh` to enable the optional suites:
+
+| Flag | Suite |
+|---|---|
+| `--with-postgis-init <file>` | PostGIS (`UnitTestPostGis initfiletest=<file>`) |
+| `--with-mysql-init <file>` | MySQL (`UnitTestMySql initfiletest=<file>`) |
+| `--with-odbc-init <file>` | ODBC (`UnitTestOdbc initfiletest=<file>`) |
+| `--with-oracle` | King Oracle (`UnitTest`) |
+| `--with-wms` | WMS |
+
+The `*-init` suites only run when the supplied file exists, so simply omit the flag to skip them.
+
+The FDO Core, SDF, SQLite, OGR, GDAL and SHP suites always run by default. Skip any of them individually, or all of them at once, with:
+
+| Flag | Effect |
+|---|---|
+| `--without-fdocore` | Skip the FDO Core suite |
+| `--without-sdf` | Skip the SDF suite |
+| `--without-sqlite` | Skip the SQLite suite |
+| `--without-ogr` | Skip the OGR suite |
+| `--without-gdal` | Skip the GDAL suite |
+| `--without-shp` | Skip the SHP suite |
+| `--no-default-suites` | Skip all of the above at once |
+
+If the resulting selection is empty (for example `--no-default-suites` with no `--with-*` opt-in), the script exits with an error rather than silently running nothing. A `--with-*-init` path that does not exist is reported as a warning and its suite is skipped.
+
+Container-ready init files are kept in `templates/scripts/container/test_init/`, which is mounted into the build container at `/tmp/work/scripts/test_init/` (and at `/scripts/test_init/` in the `env_test*.sh` one-shot containers). For example, to run *only* the PostGIS suite against the `dbs` compose stack:
+
+```
+/tmp/work/scripts/run_fdo_tests.sh --log-path /tmp/work/artifacts/test-logs --fdo-build-dir /tmp/work/build_area/fdo \
+    --no-default-suites --with-postgis-init /tmp/work/scripts/test_init/PostGisInit.txt
+```
+
+These are derived from the reference copies in the FDO source tree at `fdo/Providers/GenericRdbms/Src/UnitTest/`; only edit the SVN copies if you need a different configuration. The `service=` entry is the database host (`[dbname@]host:port`).
+
+#### Running a single test binary
+
+You can drive a unit test binary directly, which is the fastest way to iterate on one suite:
+
+```
+cd /tmp/work/build_area/fdo/Providers/GenericRdbms/Src/UnitTest
+export NLSPATH=/tmp/work/build_area/fdo/nls/linux/en_US/%N
+./UnitTestPostGis initfiletest=/tmp/work/scripts/test_init/PostGisInit.txt FdoConstraintsTest
+```
+
+- Run the binary from its own directory. Each unit test directory has a local `providers.xml`; loading a provider from anywhere else fails with `CLNT_8_UNABLE_TO_LOAD_LIBRARY`.
+- Export `NLSPATH` pointing at the generated message catalogues in the build tree, exactly as `run_fdo_tests.sh`, `env_test.sh` and `env_test_thin.sh` do. Without it, tests that assert on error message text see the raw message symbol (for example `FDOSM_220`) instead of the resolved English text, and will fail.
+- The optional positional argument is a CppUnit registry name (`FdoConstraintsTest`, `FdoApplySchemaTest`, `DescribeSchemaTest`, ...); omit it to run everything. Arguments of the form `key=value` are exported as environment variables for the run.
+
+### 4.4 Database-backed tests
+
+Some FDO suites (PostGIS, MySQL, ODBC, Oracle) need a live database. Start the required services from the `dbs` compose fixtures, for example:
+
+```
+docker compose -f dbs/docker-compose.yml up -d postgis_pg16 mariadb oracle_xe_11g mssql
+```
+
+> The whole stack cannot be started at once: several services publish the same host port (`5432` for the PostGIS variants, `3306` for the MariaDB/MySQL variants). Start one service per port.
+
+The database containers run on their own compose network, separate from the build container, so reach them through their published ports via the host rather than by container name or `localhost`. The ready-made init files in `templates/scripts/container/test_init/` already point at the compose stack through `host.docker.internal:<port>`:
+
+ * `PostGisInit.txt` → `service=host.docker.internal:5432`
+ * `MySqlInit.txt` → `service=host.docker.internal:3306`
+
+`host.docker.internal` works under Podman and Docker Desktop, and under Docker on Linux when the container is run with `--add-host=host.docker.internal:host-gateway`; Podman also provides the native alias `host.containers.internal`. To target a different host, edit the `service=` value in the file.
+
+> The ODBC suite has no equivalent init file here: on Linux its DSNs must be configured separately, as the dynamic DSN setup in the FDO sources is Windows-only.
+
+## 5. Running integration test suites
 
 Open 2 separate terminal sessions
 
@@ -93,7 +248,7 @@ In terminal 2 (to run the integration test suite):
 > `--output headers` option is specified as some test cases output binary response content which certain shells/terminals may try to interpet the content as extra commands/control sequences/audio cues. This option was the best one that provides some level of chatter without being too quiet or too verbose.
 
 ```
-cd tests
+cd test
 # Run all mapagent test suites
 npx httpyac *_api.http --all --bail --output headers
 # Run post install sanity check

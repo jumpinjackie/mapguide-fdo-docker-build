@@ -1,0 +1,1 @@
+provider=MySql;service=host.docker.internal:3306;username=root;password=fdotest;clean=true;
