@@ -161,6 +161,8 @@ Or, inside the interactive build container:
 
 `run_fdo_tests.sh` points `NLSPATH` at the generated message catalogues in the build tree when the caller has not already set it, and echoes the value it ends up using. This matters because `env_test.sh`/`env_test_thin.sh` export `NLSPATH` themselves when they start the one-shot container, whereas a hand-run inside an interactive container has nobody to do it — and without it FDO falls back to raw message symbols (for example `FDOSM_220`) instead of resolved English text, which fails every test that asserts on message text (including `FdoApplySchemaTest::TestSchema`).
 
+It also generates the system locales the SHP suite switches between (`en_US.iso88591`, `en_US.utf8`, `fr_FR.iso88591`, `ja_JP.eucjp`), and resets the generated SHP test data before that suite, because those tests create filesets with `IDF_CREATE_NEW` and a leftover from an earlier run fails a later one. The reset deletes `Providers/SHP/TestData` in the build area and copies the tree back from the FDO sources the build was configured against (the `CMAKE_HOME_DIRECTORY` entry in the build tree's `CMakeCache.txt`), so the suite always starts from the state a fresh build has. `TestData/clean`, the script the FDO sources ship, is only the fallback for when those sources cannot be located: it removes `*Generated.*`, `*.idx`, `schema.xml` and `Testing/`, but leaves `TestingSC/`, `InsertTest_default_values/` and the sidecars some tests create inside the shipped data directories behind. `InsertTests::insert_with_locale` calls `setlocale` without checking the result, so when a locale is missing the previous one stays in effect and the round-tripped value mismatches — the test then reports `incorrect street value` rather than naming the unavailable locale.
+
 #### Selecting FDO suites
 
 Pass any of the following to `run_fdo_tests.sh` to enable the optional suites:
@@ -187,6 +189,8 @@ The FDO Core, SDF, SQLite, OGR, GDAL and SHP suites always run by default. Skip 
 | `--without-shp` | Skip the SHP suite |
 | `--no-default-suites` | Skip all of the above at once |
 
+Each of those six also has a `--with-*` counterpart (`--with-fdocore`, `--with-sdf`, `--with-sqlite`, `--with-ogr`, `--with-gdal`, `--with-shp`) to turn it back on, so a single default suite can be run on its own.
+
 If the resulting selection is empty (for example `--no-default-suites` with no `--with-*` opt-in), the script exits with an error rather than silently running nothing. A `--with-*-init` path that does not exist is reported as a warning and its suite is skipped.
 
 Container-ready init files are kept in `templates/scripts/container/test_init/`, which is mounted into the build container at `/tmp/work/scripts/test_init/` (and at `/scripts/test_init/` in the `env_test*.sh` one-shot containers). For example, to run *only* the PostGIS suite against the `dbs` compose stack:
@@ -194,6 +198,13 @@ Container-ready init files are kept in `templates/scripts/container/test_init/`,
 ```
 /tmp/work/scripts/run_fdo_tests.sh --log-path /tmp/work/artifacts/test-logs --fdo-build-dir /tmp/work/build_area/fdo \
     --no-default-suites --with-postgis-init /tmp/work/scripts/test_init/PostGisInit.txt
+```
+
+The same applies to the default suites; to run only the SHP suite (useful while iterating on it, since the runner still installs FDO and resets its test data first):
+
+```
+/tmp/work/scripts/run_fdo_tests.sh --log-path /tmp/work/artifacts/test-logs --fdo-build-dir /tmp/work/build_area/fdo \
+    --no-default-suites --with-shp
 ```
 
 These are derived from the reference copies in the FDO source tree at `fdo/Providers/GenericRdbms/Src/UnitTest/`; only edit the SVN copies if you need a different configuration. The `service=` entry is the database host (`[dbname@]host:port`).
@@ -208,8 +219,10 @@ export NLSPATH=/tmp/work/build_area/fdo/nls/linux/en_US/%N
 ./UnitTestPostGis initfiletest=/tmp/work/scripts/test_init/PostGisInit.txt FdoConstraintsTest
 ```
 
-- Run the binary from its own directory. Each unit test directory has a local `providers.xml`; loading a provider from anywhere else fails with `CLNT_8_UNABLE_TO_LOAD_LIBRARY`.
+- Run the binary from its own directory. Each unit test directory has a local `providers.xml`, except the GDAL and SHP suites, where that local copy does not work and has to be deleted (`rm providers.xml`); loading a provider from anywhere else fails with `CLNT_8_UNABLE_TO_LOAD_LIBRARY`.
 - Export `NLSPATH` pointing at the generated message catalogues in the build tree, exactly as `run_fdo_tests.sh`, `env_test.sh` and `env_test_thin.sh` do. Without it, tests that assert on error message text see the raw message symbol (for example `FDOSM_220`) instead of the resolved English text, and will fail.
+- The GDAL and SHP suites also need FDO installed at `/usr/local/fdo-4.2.0` (`cmake --build . --target install`).
+- SHP needs two extra things the runner does for you. Its locale test only works if the locales it switches between exist (`locale-gen en_US en_US.UTF-8 fr_FR ja_JP.EUC-JP`), and its tests create filesets under `Providers/SHP/TestData` and open them with `IDF_CREATE_NEW`, so leftovers from an earlier run fail the next one — delete that whole `TestData` tree in the build area and copy it back from the sources (`cp -a <fdo sources>/Providers/SHP/TestData Providers/SHP/`) rather than relying on `sh ../../TestData/clean`, which is the shipped script but only removes some of what a run leaves behind.
 - The optional positional argument is a CppUnit registry name (`FdoConstraintsTest`, `FdoApplySchemaTest`, `DescribeSchemaTest`, ...); omit it to run everything. Arguments of the form `key=value` are exported as environment variables for the run.
 
 ### 4.4 Database-backed tests
@@ -221,6 +234,8 @@ docker compose -f dbs/docker-compose.yml up -d postgis_pg16 mariadb oracle_xe_11
 ```
 
 > The whole stack cannot be started at once: several services publish the same host port (`5432` for the PostGIS variants, `3306` for the MariaDB/MySQL variants). Start one service per port.
+
+> The `mysql_56` service pins a case-sensitive (`latin1_bin`) collation, because FDO class and schema names are case-sensitive while a datastore created without an explicit collation inherits the server's (case-insensitive) default. With a case-insensitive server, the unique index on `f_classdefinition(classname, schemaname)` rejects two classes whose names differ only in case, and `FdoApplySchemaTest::TestSchema` fails with `Duplicate entry 'aCxdATA-Acad' for key 'f_classdef_schnm_idx'`. A datastore created before this was pinned keeps its old collation until it is dropped and recreated (the FDO suites recreate their own datastores). MariaDB and MySQL 8.0 would need their own `--collation-server=*_bin` equivalent if they are ever held to the same standard.
 
 The database containers run on their own compose network, separate from the build container, so reach them through their published ports via the host rather than by container name or `localhost`. The ready-made init files in `templates/scripts/container/test_init/` already point at the compose stack through `host.docker.internal:<port>`:
 

@@ -87,6 +87,24 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
         --with-oracle)
             TEST_ORACLE=1
             ;;
+        --with-fdocore)
+            TEST_FDOCORE=1
+            ;;
+        --with-sdf)
+            TEST_SDF=1
+            ;;
+        --with-sqlite)
+            TEST_SQLITE=1
+            ;;
+        --with-ogr)
+            TEST_OGR=1
+            ;;
+        --with-gdal)
+            TEST_GDAL=1
+            ;;
+        --with-shp)
+            TEST_SHP=1
+            ;;
         --without-fdocore)
             TEST_FDOCORE=0
             ;;
@@ -123,6 +141,12 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             echo "  --with-odbc-init [Run ODBC Tests against provided init file]"
             echo "  --with-mysql-init [Run MySQL Tests against provided init file]"
             echo "  --with-postgis-init [Run PostGIS Tests against provided init file]"
+            echo "  --with-fdocore [Run the FDO Core suite]"
+            echo "  --with-sdf [Run the SDF suite]"
+            echo "  --with-sqlite [Run the SQLite suite]"
+            echo "  --with-ogr [Run the OGR suite]"
+            echo "  --with-gdal [Run the GDAL suite]"
+            echo "  --with-shp [Run the SHP suite]"
             echo "  --without-fdocore [Skip the FDO Core suite]"
             echo "  --without-sdf [Skip the SDF suite]"
             echo "  --without-sqlite [Skip the SQLite suite]"
@@ -191,8 +215,12 @@ INSTALL_START=$SECONDS
 cmake --build . --target install
 echo "FDO install completed in $(format_elapsed $((SECONDS - INSTALL_START)))"
 
-# Needed for some SHP test cases
-locale-gen ja_JP.EUC-JP
+# The SHP suite's locale test round-trips values through locale-specific encodings, so every locale
+# it switches to with setlocale() has to exist: en_US.iso88591, en_US.utf8, fr_FR.iso88591 and
+# ja_JP.eucjp. Debian's locale-gen spells the ISO-8859-1 variants without a codeset suffix (en_US,
+# fr_FR), and only ja_JP.EUC-JP used to be generated, which left the fr_FR.iso88591 case -- the only
+# one using a non-ASCII value -- failing.
+locale-gen en_US en_US.UTF-8 fr_FR ja_JP.EUC-JP
 update-locale
 
 echo "Starting unit tests"
@@ -284,7 +312,7 @@ export LD_LIBRARY_PATH=/usr/local/fdo-4.2.0/lib64
 if [ "$TEST_GDAL" == "1" ];
 then
     pushd Providers/GDAL/Src/UnitTest >& /dev/null
-    rm providers.xml # Having this local copy sadly doesn't work, so remove it
+    [ -f providers.xml ] && rm providers.xml # Having this local copy sadly doesn't work, so remove it
     start_suite "GDAL"
     ./UnitTest >& $TEST_LOG_PATH/GDAL_unit_test_log.txt
     check_for_errors $? "GDAL unit test returned an error, please check $TEST_LOG_PATH/GDAL_unit_test_log.txt for more information" "0"
@@ -293,8 +321,22 @@ fi
 
 if [ "$TEST_SHP" == "1" ];
 then
+    # This suite creates filesets under TestData and opens them with IDF_CREATE_NEW (which fails if
+    # the file is already there), so it is sensitive to whatever an earlier run left behind.
+    # TestData/clean (shipped with the FDO sources) only removes *Generated.*, *.idx, schema.xml and
+    # Testing/, leaving e.g. TestingSC/, InsertTest_default_values/ and the sidecars some tests create
+    # inside the shipped data directories. Restoring the whole tree from the sources this build was
+    # configured against instead always starts the suite in the state a fresh build has.
+    fdo_src_dir=$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' CMakeCache.txt 2> /dev/null)
     pushd Providers/SHP/Src/UnitTest >& /dev/null
-    rm providers.xml # Having this local copy sadly doesn't work, so remove it
+    [ -f providers.xml ] && rm providers.xml # Having this local copy sadly doesn't work, so remove it
+    if [ -n "$fdo_src_dir" ] && [ -d "$fdo_src_dir/Providers/SHP/TestData" ]; then
+        rm -rf ../../TestData
+        cp -a "$fdo_src_dir/Providers/SHP/TestData" ../../
+    else
+        echo "WARNING: unable to locate the SHP TestData sources (see $fdo_src_dir), falling back to TestData/clean"
+        [ -f ../../TestData/clean ] && sh ../../TestData/clean
+    fi
     start_suite "SHP"
     ./UnitTest >& $TEST_LOG_PATH/Shp_unit_test_log.txt
     check_for_errors $? "Shp unit test returned an error, please check $TEST_LOG_PATH/Shp_unit_test_log.txt for more information" "0"

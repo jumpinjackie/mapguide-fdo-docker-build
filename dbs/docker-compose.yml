@@ -58,8 +58,15 @@ services:
       - "3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: "fdotest"
+  # FDO identifiers are case-sensitive, but a MySQL datastore created without an explicit collation
+  # inherits the server's default, and the stock default is case-insensitive. That makes the unique
+  # index on f_classdefinition(classname, schemaname) reject two classes whose names differ only in
+  # case, so a schema that legitimately contains such a pair fails to apply with "Duplicate entry
+  # 'aCxdATA-Acad' for key f_classdef_schnm_idx" (FDO FdoApplySchemaTest::TestSchema). Pin a
+  # case-sensitive collation, keeping MySQL's default latin1 character set.
   mysql_56:
     image: "mysql:5.6"
+    command: --collation-server=latin1_bin
     ports:
       - "3306:3306"
     environment:
