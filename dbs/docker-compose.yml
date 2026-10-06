@@ -7,6 +7,11 @@ services:
     environment:
       ORACLE_ALLOW_REMOTE: "true"
       ORACLE_DISABLE_ASYNCH_IO: "true"
+    volumes:
+      # Creates the fdounittest user the King Oracle unit test suite logs in as. The image runs
+      # /docker-entrypoint-initdb.d/*.sql as SYS on every start, so the CREATE USER in here fails
+      # harmlessly (startup continues) once the user already exists.
+      - ../fdo/Providers/KingOracle/src/KgOraUnitTest/ora_init.sql:/docker-entrypoint-initdb.d/ora_init.sql
   postgis:
     image: "mdillon/postgis:9.6"
     ports:

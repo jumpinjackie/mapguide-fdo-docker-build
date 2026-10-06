@@ -163,6 +163,17 @@ Or, inside the interactive build container:
 
 It also generates the system locales the SHP suite switches between (`en_US.iso88591`, `en_US.utf8`, `fr_FR.iso88591`, `ja_JP.eucjp`), and resets the generated SHP test data before that suite, because those tests create filesets with `IDF_CREATE_NEW` and a leftover from an earlier run fails a later one. The reset deletes `Providers/SHP/TestData` in the build area and copies the tree back from the FDO sources the build was configured against (the `CMAKE_HOME_DIRECTORY` entry in the build tree's `CMakeCache.txt`), so the suite always starts from the state a fresh build has. `TestData/clean`, the script the FDO sources ship, is only the fallback for when those sources cannot be located: it removes `*Generated.*`, `*.idx`, `schema.xml` and `Testing/`, but leaves `TestingSC/`, `InsertTest_default_values/` and the sidecars some tests create inside the shipped data directories behind. `InsertTests::insert_with_locale` calls `setlocale` without checking the result, so when a locale is missing the previous one stays in effect and the round-tripped value mismatches — the test then reports `incorrect street value` rather than naming the unavailable locale.
 
+The FDO Core suite's log doubles as a LeakSanitizer report, because Debug builds are ASan/LSan-instrumented. A suite whose tests all pass but which does report leaks exits non-zero (LeakSanitizer's only way of drawing attention to the report), so `run_fdo_tests.sh` reports it as a pass with the leak totals printed underneath, for example:
+
+```
+Running suite: SDF
+  >> Test Suite (SDF) passed! (elapsed 19s)
+  >>   LeakSanitizer reported leaks: 55925 byte(s) leaked in 538 allocation(s). - see /logs/Sdf_unit_test_log.txt
+  >>   (exit code 1 is the leak report, not a test failure)
+```
+
+A suite that has failures *and* leaks is still reported as an error: the runner reads the suite's log and only treats a non-zero exit as a leak report when the log shows a passing run. The leaks found in these suites, the ones deliberately left in place and the measurements behind them are tracked in [docs/fdo-core-memory-leaks.md](./docs/fdo-core-memory-leaks.md). The provider suites (`ODBC`, `PostGIS`, `MySQL`, `SQLite`, `GDAL`, `SHP`, `SDF`, `WMS`, `WFS`, `King Oracle`) report the same way; their fixes and remaining findings are tracked in [docs/fdo-provider-memory-leaks.md](./docs/fdo-provider-memory-leaks.md). How to read a report, the FDO ownership idioms behind most of these leaks and the instrumentation/verification loop are in [AGENTS.md](./AGENTS.md#debugging-memory-leaks-asanlsan).
+
 #### Selecting FDO suites
 
 Pass any of the following to `run_fdo_tests.sh` to enable the optional suites:
@@ -174,8 +185,11 @@ Pass any of the following to `run_fdo_tests.sh` to enable the optional suites:
 | `--with-odbc-init <file>` | ODBC (`UnitTestOdbc initfiletest=<file>`) |
 | `--with-oracle` | King Oracle (`UnitTest`) |
 | `--with-wms` | WMS |
+| `--with-wfs` | WFS |
 
 The `*-init` suites only run when the supplied file exists, so simply omit the flag to skip them.
+
+`--with-wms` and `--with-wfs` are off by default: they query live public OGC services over the network and assert against the shape of those services, so a service that has changed on the provider's side fails them.
 
 The FDO Core, SDF, SQLite, OGR, GDAL and SHP suites always run by default. Skip any of them individually, or all of them at once, with:
 
@@ -206,6 +220,17 @@ The same applies to the default suites; to run only the SHP suite (useful while 
 /tmp/work/scripts/run_fdo_tests.sh --log-path /tmp/work/artifacts/test-logs --fdo-build-dir /tmp/work/build_area/fdo \
     --no-default-suites --with-shp
 ```
+
+To run *every* suite the runner supports in one go — the six defaults plus WMS, WFS and King Oracle, and the database suites through the shipped init files:
+
+```
+/tmp/work/scripts/run_fdo_tests.sh --log-path /tmp/work/artifacts/test-logs --fdo-build-dir /tmp/work/build_area/fdo \
+    --with-wms --with-wfs --with-oracle \
+    --with-mysql-init /tmp/work/scripts/test_init/MySqlInit.txt \
+    --with-postgis-init /tmp/work/scripts/test_init/PostGisInit.txt
+```
+
+The PostGIS, MySQL and King Oracle suites need the `dbs` compose stack running first; ODBC has no shipped init file, so add `--with-odbc-init <file>` of your own to include it. WMS and WFS need outbound network access to the public OGC services they test against.
 
 These are derived from the reference copies in the FDO source tree at `fdo/Providers/GenericRdbms/Src/UnitTest/`; only edit the SVN copies if you need a different configuration. The `service=` entry is the database host (`[dbname@]host:port`).
 
@@ -241,6 +266,8 @@ The database containers run on their own compose network, separate from the buil
 
  * `PostGisInit.txt` → `service=host.docker.internal:5432`
  * `MySqlInit.txt` → `service=host.docker.internal:3306`
+
+The King Oracle suite takes no init file. `run_fdo_tests.sh` points it at the compose stack instead, setting the `KG_ORA_SERVICE`, `KG_ORA_USERNAME`, `KG_ORA_PASSWORD` and `KG_DEFAULT_ORA_CONNECTION` environment variables that the FDO sources document (see `CMake__README.txt` under the King Oracle provider) to `//host.docker.internal:1521/xe` as `fdounittest`. Anything already exported in the environment wins, so another Oracle instance can still be targeted. `fdounittest` is created by the `oracle_xe_11g` service itself: it mounts the suite's `ora_init.sql` into the image's `/docker-entrypoint-initdb.d/`, which runs it as SYS on startup.
 
 `host.docker.internal` works under Podman and Docker Desktop, and under Docker on Linux when the container is run with `--add-host=host.docker.internal:host-gateway`; Podman also provides the native alias `host.containers.internal`. To target a different host, edit the `service=` value in the file.
 

@@ -15,7 +15,7 @@ Durable content (edited and committed to git):
 - Top-level `*.sh` build and utility scripts
 - `templates/**` — distro templates and container scripts that generate Dockerfiles
 - `test/**` — `httpyac` integration test suites (`*.http`)
-- `docs/**` — MapAgent OpenAPI spec (`openapi.yaml`, `swagger.html`)
+- `docs/**` — MapAgent OpenAPI spec (`openapi.yaml`, `swagger.html`), the memory-leak records (`fdo-core-memory-leaks.md`, `fdo-provider-memory-leaks.md`) and `INNER_LOOP_PAIN_POINTS.md`
 - `patches/**` — patches applied to the source trees
 - `dbs/**` — docker-compose fixtures for database-backed tests
 
@@ -134,9 +134,129 @@ There are two levels of tests:
 
 `docs/openapi.yaml` is the source of truth for the MapAgent HTTP API (derived from the C++ handler registry in `HttpRequest.cpp::InitializeStaticData()`). Any `.http` test you add or edit must stay aligned with it.
 
+## Debugging memory leaks (ASan/LSan)
+
+Debug builds are ASan/LSan-instrumented, so every FDO provider unit-test runner's log doubles as a
+LeakSanitizer report. The per-leak record, the before/after totals and the technique notes live in
+[docs/fdo-core-memory-leaks.md](./docs/fdo-core-memory-leaks.md) (FDO Core) and
+[docs/fdo-provider-memory-leaks.md](./docs/fdo-provider-memory-leaks.md) (providers) — add a row for
+every fix and keep their status tables current.
+
+### Working a new report
+
+1. Read the totals and count both kinds of record before touching any code:
+   `grep -E 'OK \(' <log>` / `grep -E '^SUMMARY' <log>` / `grep -c '^Direct leak' <log>`.
+   Run the suite yourself first, so the "before" figure is one you measured. A green run that leaks
+   still exits non-zero — LeakSanitizer's only way of drawing attention to the report — so never read
+   that exit code as a test failure when the log says `OK (<n>)`.
+2. Group the **direct** records by their `#1` frame and by the test that appears further down the
+   stack. Record families that repeat across tests are the cheapest wins: test-side ownership fixes
+   (a raw `FdoPtr` candidate) cost nothing and can remove most of the direct total at once.
+3. Then take the largest **indirect** groups. Pick the record with a *direct* sibling in the same
+   group if there is one — that record names the lost reference for the whole subtree.
+4. Fix in batches, re-run the whole suite, and expect the indirect graphs to collapse once their
+   root direct record is gone (the MySQL report went from 359 KB to 46 KB off one 416-byte root).
+
+The provider suites are `Providers/GenericRdbms/Src/UnitTest/UnitTest<Target>`; run one with
+`./UnitTestMySql initfiletest=<init-file> [SuiteName]` from the build area, where the init file lives
+in `templates/scripts/container/test_init/`. Their captured logs are in
+`artifacts/Debug/test-logs/<Suite>_unit_test_log.txt`.
+
+### Reading the report
+
+- `Direct leak` is a chunk nothing points to: a genuine lost reference, and its `#1` frame is the
+  allocation site to fix. `Indirect leak` is a chunk reachable from a leaked chunk; its own frames
+  are only the allocation path and are usually not the root cause.
+- **A rootless reference cycle is reported entirely as indirect records**, so a report with zero
+  direct records is not a clean report. Compare both kinds before declaring victory.
+- LeakSanitizer follows raw pointers, so one *direct* record can anchor a large indirect subtree. If
+  class X can never own class Y, yet Y's members (and what they point at) all sit in X's subtree,
+  then X was reached through a raw back-pointer and X itself is the lost reference. That is how a
+  single leaked 416-byte owner was found to hold a whole physical schema (~331 KB).
+- `LSAN_OPTIONS=report_objects=1` prints the leaked addresses, which is what instrumentation needs to
+  match a report record to a live object.
+- Totals drift a little between runs (some buffers leak only on some runs), so judge a fix by whole
+  records — especially the direct-record count — not by small byte deltas.
+
+### Generated parsers are checked in — editing the `.y` does nothing
+
+`Utilities/Common/Src/Parse/yyConstraint.y` and `Fdo/Unmanaged/Src/Fdo/Parse/yy{Filter,Expression}.y`
+are inputs to a `script*`/`script*_linux` sed pipeline (`yacc` output → `yy*.cpp`), and the **generated
+`yy*.cpp` is what is checked into SVN and compiled** (it is listed in the source list, and the
+toolchain has no yacc). So a grammar-rule change must be accompanied by regenerating and committing
+the generated file — do not edit a `.y` and expect the behaviour to change. This also means a leak that
+lives in the *parser's* error handling (for example the values yacc discards on a syntax error, which
+only a `%destructor` can release) cannot be fixed by a small edit: see the
+`FdoCommonParse::Abort()` note in the MySQL/PostGIS narrative in
+[docs/fdo-provider-memory-leaks.md](./docs/fdo-provider-memory-leaks.md).
+
+### The FDO idioms that cause almost all of these leaks
+
+- **`SmartCast<T>()` returns a counted reference.** It exists so the result can be handed straight to
+  an `FdoPtr`. Using it inline (`obj->SmartCast<T>()->Foo()`) drops that reference and keeps the
+  object — and everything it owns — alive. This is the single most common leak in this codebase.
+- **Any `FdoXxx*` that comes back from a `Get*`/`Find*`/`Create*` may be a counted reference** —
+  `FindItem`, `GetItem`, `FdoFunction::GetArguments`, `GetCharacterSet`, `GetExtent`,
+  `GetProviderConnectionObject`, `CreateSchemaManager`, `GetPhysicalSchema`, `GetManager`. Hold it in
+  an `FdoPtr`, or release it; never park it in a raw pointer or dereference it inline.
+- **A counted reference stored in an object whose owner holds it raw is a cycle.** The connection
+  holds its capabilities in a raw member, so the capabilities' back-pointer to the connection must be
+  raw too. Child-to-parent links are non-owning.
+- **Empty or nameless catches swallow `FdoException*`** — `catch (...)`, `catch (FdoException*) {}`,
+  and `catch (FdoException*) { return; }` all leak the exception and its message. Name it, assert on
+  it, then `FDO_SAFE_RELEASE` it.
+- **Constructors and destructors that skip uninitialised state** — a ctor that leaves member slots
+  indeterminate plus a dtor gated on `qid != -1`, an open connection or a non-NULL member leaks every
+  slot that was never initialised (see `FdoRdbmsPvcInsertHandler`).
+- **C failure paths that return an error without freeing what they just allocated** — a failed
+  `mysql_real_connect` without `mysql_close`, a dropped `new[]` buffer.
+
+`FdoPtr<>` is vetted **only** as a local variable or a class member — never as an STL container
+element, parameter or return type. Its semantics: `FdoPtr(T*)` *attaches* (no AddRef), the copy
+constructor and `operator=(const FdoPtr&)` AddRef, and `operator=(T*)` releases the old value then
+attaches.
+
+### Instrumentation, when the report cannot name the lost reference
+
+1. Temporarily override `AddRef`/`Release` (plus ctor/dtor) on the suspect class to print `this` and
+   a backtrace, gated on an env var, then build and run **one named suite** — CppUnit suites register
+   their own name (`CPPUNIT_TEST_SUITE_NAMED_REGISTRATION`), so
+   `./UnitTestMySql initfiletest=<init-file> <SuiteName>` runs just that one.
+2. With virtual inheritance the traced `this` is offset-adjusted and will not match the malloc address
+   in the report. Instead diff the set of ctor addresses against the set of dtor addresses — created
+   minus destroyed is the leaked set — then read that object's event history: an object leaked through
+   a *lost* reference shows balanced AddRef/Release, but a surviving initial reference.
+3. Confirm the provider actually recompiled with the instrumented header (check the build log for the
+   translation units) — a stale vtable silently bypasses the overrides.
+4. Revert the instrumentation before measuring the final numbers.
+
+### Verifying a leak fix
+
+- Run the whole suite in a one-shot Debug container (`--userns=keep-id --user 0`; mount the build
+  area, `logs/test/<suite>`, the source tree, `sdks` and `templates/scripts/container`), then
+  `cmake --build . --target install` and run the runner from `Providers/GenericRdbms/Src/UnitTest`.
+  Read or delete container-written logs through `podman unshare`.
+- Each `run --rm` is a **fresh container**, so the install step is not optional and its effect does
+  not carry over: a provider that the suite loads *by name* (SHP opens `OSGeo.SHP`, for example) is
+  `dlopen`ed, and the installed `/usr/local/fdo-4.2.0/lib64` has no `ld.so.conf` entry, so run with
+  `LD_LIBRARY_PATH=/usr/local/fdo-4.2.0/lib64`. Without it the connection manager cannot load the
+  provider, tests fail with an exception whose teardown then dereferences a NULL connection and the
+  run dies with an unrelated-looking SEGV in the *test* code.
+- The SHP suite additionally needs `locale-gen en_US en_US.UTF-8 fr_FR ja_JP.EUC-JP` and its
+  `Providers/SHP/TestData` reset, the same way `run_fdo_tests.sh` does, or it reports locale
+  failures and stale filesets instead of the real result.
+- Build before measuring: `--target install` re-links the runner, and an edit may live in a library
+  the suite does not otherwise rebuild (`ODBC`, `SchemaMgr/Ph/Cfg`) — build those targets explicitly
+  to prove they compile.
+- Confirm the run is still green (`OK (<n>)`), record the before/after totals and the direct-record
+  count, and update the matching `docs/*memory-leaks.md` in the same change.
+- Leave cycles that need a semantic ownership change recorded rather than "fixed" — breaking them
+  changes behaviour. The FDO Core `FdoClassDefinition` cycles and the SDF/WFS residues are documented
+  for that reason.
+
 ## Code style guidelines (shell)
 
-1. **Container engine** — source `./container_engine.sh` and use `$DOCKER_CMD` (plus `$DOCKER_RUN_EX_ARGS`, `$DOCKER_VOLUME_OPT`, `$DOCKER_RUN_AS_ROOT_ARGS`). Never hardcode `docker` or `podman`.
+1. **Container engine** — source `./container_engine.sh` and use `$DOCKER_CMD` (plus `$DOCKER_RUN_EX_ARGS`, `$DOCKER_VOLUME_OPT`, `$DOCKER_RUN_AS_ROOT_ARGS`). Never hardcode `docker` or `podman`. Append `$DOCKER_VOLUME_OPT` to **every** host-path `-v` mount. It is `:z` (shared SELinux label) when SELinux is enforcing, because the same tree is mounted by the build, test, installer and interactive containers: a private (`:Z`) label can only be held by one container at a time, so a second `:Z` mount relabels the tree and any container already running loses access to its own mounts (`EACCES`/`Permission denied`, even as root, since `CAP_DAC_OVERRIDE` does not bypass SELinux). A force-created `:Z` will break a running interactive container for as long as the shared label is not restored (`podman unshare chcon -R -t container_file_t -l s0 <tree>`).
 2. **Argument parsing** — `while [ $# -gt 0 ]` + `case "$1"` + `shift`. Options that take a value consume `$2` and shift again.
 3. **Output indentation** — use the `indent()` helper (`sed 's/^/    /'`) and pipe verbose tool output through `| indent`.
 4. **Error handling** — no `set -e`. Use explicit checks: `check_build()` or `if [ "$?" -ne 0 ]` after each build invocation, then `exit 1`.
@@ -159,6 +279,7 @@ See [CPP_STYLE.md](./CPP_STYLE.md) — applies to edits under `MgDev` and `fdo`.
 
 - **Shell/template-only changes** — run `bash -n` (or `sh -n`) on every touched script. If `templates/**` changed, re-run `env_setup.sh` and review the regenerated Dockerfiles.
 - **Source-tree changes (`MgDev` or `fdo`)** — a run of `./build_thin.sh` against the **baseline distro** is the required validation. The baseline distro is the latest Ubuntu version supported by the build scripts (currently 22.04).
+- **Memory-leak fixes** — a full run of the affected suite in the baseline Debug container, reporting the before/after leak totals and the direct-record count, plus an update to the matching `docs/*memory-leaks.md`. See [Debugging memory leaks](#debugging-memory-leaks-asanlsan).
 - Full builds are expensive and are not required for every change — use them only when build logic changed or as verification for source-tree edits.
 - Before committing or pushing, re-run the validation relevant to the files you touched.
 

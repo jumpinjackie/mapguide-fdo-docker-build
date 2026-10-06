@@ -7,17 +7,24 @@ if command -v podman >/dev/null 2>&1; then
     DOCKER_CMD=podman
     # Friendly defaults for rootless podman:
     #  - Keep the current user ID mapped inside the container so mounted host files remain accessible
-    #  - When SELinux is enforcing, append :Z to mounts to give the container proper SELinux labels
+    #  - When SELinux is enforcing, append :z to mounts to give the container proper SELinux labels
     DOCKER_RUN_EX_ARGS="--userns=keep-id"
     # When using podman we usually want the container to run as root *inside* the
     # container namespace so builds behave the same as docker. Export an extra
     # argument that scripts can append to their `run` commands. Leave it empty
     # for docker so behavior is unchanged.
     DOCKER_RUN_AS_ROOT_ARGS="--user 0"
+    # :z (shared label) rather than :Z (private label). Podman relabels the whole mounted
+    # host tree either way, but :Z tags it with the *container's own* SELinux MCS categories,
+    # so only one container can hold the label at a time: any other podman run that mounts the
+    # same tree with :Z relabels it and the container that was already running loses access to
+    # its mounts (EACCES, even as root, because CAP_DAC_OVERRIDE does not bypass SELinux).
+    # The build tree is deliberately shared between the build, test, installer and interactive
+    # containers, so it has to carry the shared label (:z), which every container can read.
     DOCKER_VOLUME_OPT=""
     if command -v getenforce >/dev/null 2>&1; then
         if [ "$(getenforce)" = "Enforcing" ]; then
-            DOCKER_VOLUME_OPT=":Z"
+            DOCKER_VOLUME_OPT=":z"
         fi
     fi
 elif command -v docker >/dev/null 2>&1; then

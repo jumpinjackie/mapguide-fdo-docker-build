@@ -29,9 +29,9 @@ install_mapguide_env()
 
     if [ "$INTERACTIVE" == "1" ];
     then
-        "$DOCKER_CMD" run --rm -it -p $HTTPD_PORT:$HTTPD_PORT -v ${SDKS_DIR}:/tmp/work/sdks -v ${TEST_ROOT}:/tests -v ${SCRIPT_ROOT}:/scripts -v ${ARTIFACTS_ROOT}:/artifacts $container_name /bin/bash
+        "$DOCKER_CMD" run --rm -it -p $HTTPD_PORT:$HTTPD_PORT -v ${SDKS_DIR}:/tmp/work/sdks${DOCKER_VOLUME_OPT} -v ${TEST_ROOT}:/tests${DOCKER_VOLUME_OPT} -v ${SCRIPT_ROOT}:/scripts${DOCKER_VOLUME_OPT} -v ${ARTIFACTS_ROOT}:/artifacts${DOCKER_VOLUME_OPT} $DOCKER_RUN_EX_ARGS $DOCKER_RUN_AS_ROOT_ARGS $container_name /bin/bash
     else
-        "$DOCKER_CMD" run --rm -it -p $HTTPD_PORT:$HTTPD_PORT -v ${SDKS_DIR}:/tmp/work/sdks -v ${TEST_ROOT}:/tests -v ${SCRIPT_ROOT}:/scripts -v ${ARTIFACTS_ROOT}:/artifacts $container_name /scripts/mapguide_smoke_test.sh --package $package --distro $target_distro --httpd-port $HTTPD_PORT
+        "$DOCKER_CMD" run --rm -it -p $HTTPD_PORT:$HTTPD_PORT -v ${SDKS_DIR}:/tmp/work/sdks${DOCKER_VOLUME_OPT} -v ${TEST_ROOT}:/tests${DOCKER_VOLUME_OPT} -v ${SCRIPT_ROOT}:/scripts${DOCKER_VOLUME_OPT} -v ${ARTIFACTS_ROOT}:/artifacts${DOCKER_VOLUME_OPT} $DOCKER_RUN_EX_ARGS $DOCKER_RUN_AS_ROOT_ARGS $container_name /scripts/mapguide_smoke_test.sh --package $package --distro $target_distro --httpd-port $HTTPD_PORT
     fi
 }
 

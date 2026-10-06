@@ -13,8 +13,10 @@ test_fdo_env()
 
     container_name="fdo_${distro}_build_${cpu}"
     log_path=$ROOT/logs/test/$container_name
+    # podman will not create a missing bind mount source for us
+    mkdir -p "${log_path}"
 
-    "$DOCKER_CMD" run -e NLSPATH="/usr/local/src/fdo/build/nls/linux/en_US/%N" --rm -it -v ${log_path}:/logs -v ${SCRIPT_ROOT}:/scripts $container_name /scripts/run_fdo_tests.sh --log-path /logs --fdo-build-dir /usr/local/src/fdo/build
+    "$DOCKER_CMD" run -e NLSPATH="/usr/local/src/fdo/build/nls/linux/en_US/%N" --rm -it -v ${log_path}:/logs${DOCKER_VOLUME_OPT} -v ${SCRIPT_ROOT}:/scripts${DOCKER_VOLUME_OPT} $DOCKER_RUN_EX_ARGS $DOCKER_RUN_AS_ROOT_ARGS $container_name /scripts/run_fdo_tests.sh --log-path /logs --fdo-build-dir /usr/local/src/fdo/build
 }
 
 test_mapguide_env()
@@ -24,8 +26,10 @@ test_mapguide_env()
 
     container_name="mapguide_${distro}_build_${cpu}"
     log_path=$ROOT/logs/test/$container_name
+    # podman will not create a missing bind mount source for us
+    mkdir -p "${log_path}"
 
-    "$DOCKER_CMD" run --rm -it -v ${log_path}:/logs -v ${SCRIPT_ROOT}:/scripts $container_name /scripts/run_mapguide_tests.sh --log-path /logs --mapguide-build-dir /usr/local/src/mapguide/build
+    "$DOCKER_CMD" run --rm -it -v ${log_path}:/logs${DOCKER_VOLUME_OPT} -v ${SCRIPT_ROOT}:/scripts${DOCKER_VOLUME_OPT} $DOCKER_RUN_EX_ARGS $DOCKER_RUN_AS_ROOT_ARGS $container_name /scripts/run_mapguide_tests.sh --log-path /logs --mapguide-build-dir /usr/local/src/mapguide/build
 }
 
 TARGET=fdo

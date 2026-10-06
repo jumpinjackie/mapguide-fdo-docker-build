@@ -7,6 +7,7 @@ TEST_OGR=1
 TEST_GDAL=1
 TEST_SHP=1
 TEST_WMS=0
+TEST_WFS=0
 TEST_ODBC=
 TEST_MYSQL=
 TEST_POSTGIS=
@@ -23,6 +24,17 @@ check_for_errors()
 {
   # $ 1 is the return code
   # $ 2 is text to display on failure.
+  # $ 3 is whether to count the failure towards the script's exit status.
+  # $ 4 is the suite's log file (optional; it tells a LeakSanitizer report apart from a test failure).
+  if [ "${1}" -ne "0" ] && [ -n "${4}" ] && log_is_successful "${4}" && log_has_leak_report "${4}"; then
+    # Every test passed, so all LeakSanitizer did was make the binary exit non-zero to draw
+    # attention to its report. Say so, but do not fail the suite: the report is the point of
+    # these instrumented Debug builds, and a run that only reports leaks is still a passing run.
+    echo "  >> Test Suite ($TEST_SUITE_NAME) passed! (elapsed $(format_elapsed $((SECONDS - TEST_SUITE_START))))"
+    echo "  >>   LeakSanitizer reported leaks: $(log_leak_summary "${4}") - see ${4}"
+    echo "  >>   (exit code ${1} is the leak report, not a test failure)"
+    return
+  fi
   if [ "${1}" -ne "0" ]; then
     echo "  >> ERROR # ${1} : ${2}"
     if [ "${3}" -ne "0" ]; then
@@ -34,7 +46,29 @@ check_for_errors()
     fi
   else
     echo "  >> Test Suite ($TEST_SUITE_NAME) passed! (elapsed $(format_elapsed $((SECONDS - TEST_SUITE_START))))"
+    if [ -n "${4}" ] && log_has_leak_report "${4}"; then
+      echo "  >>   LeakSanitizer reported leaks: $(log_leak_summary "${4}") - see ${4}"
+    fi
   fi
+}
+
+# Does the suite's log show a passing run? CppUnit prints "OK (<n>)" (or "OK (<n> tests)") when
+# every test passed, and a "Failures !!!" block instead when they did not.
+log_is_successful()
+{
+  [ -f "${1}" ] && grep -qE '(^|[[:space:]])OK \(' "${1}"
+}
+
+# Did LeakSanitizer report leaks in the suite's log? Its report always ends with a SUMMARY line.
+log_has_leak_report()
+{
+  [ -f "${1}" ] && grep -qE '^SUMMARY: [A-Za-z]+Sanitizer: .*leaked' "${1}"
+}
+
+# The leak totals from the suite's LeakSanitizer report, e.g. "220980 byte(s) leaked in 2418 allocation(s)."
+log_leak_summary()
+{
+  sed -n 's/^SUMMARY: [A-Za-z]*Sanitizer: //p' "${1}" 2> /dev/null | head -1
 }
 
 format_elapsed()
@@ -71,6 +105,9 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             ;;
         --with-wms)
             TEST_WMS=1
+            ;;
+        --with-wfs)
+            TEST_WFS=1
             ;;
         --with-odbc-init)
             TEST_ODBC="$2"
@@ -137,6 +174,7 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             echo "  --fdo-build-dir [FDO build dir]"
             echo "  --log-path [Unit Test log path]"
             echo "  --with-wms [Run WMS Tests]"
+            echo "  --with-wfs [Run WFS Tests]"
             echo "  --with-oracle [Run Oracle Tests]"
             echo "  --with-odbc-init [Run ODBC Tests against provided init file]"
             echo "  --with-mysql-init [Run MySQL Tests against provided init file]"
@@ -173,6 +211,7 @@ SELECTED_SUITES=0
 [ "$TEST_SQLITE" == "1" ] && SELECTED_SUITES=$((SELECTED_SUITES + 1))
 [ "$TEST_OGR" == "1" ] && SELECTED_SUITES=$((SELECTED_SUITES + 1))
 [ "$TEST_WMS" == "1" ] && SELECTED_SUITES=$((SELECTED_SUITES + 1))
+[ "$TEST_WFS" == "1" ] && SELECTED_SUITES=$((SELECTED_SUITES + 1))
 [ "$TEST_GDAL" == "1" ] && SELECTED_SUITES=$((SELECTED_SUITES + 1))
 [ "$TEST_SHP" == "1" ] && SELECTED_SUITES=$((SELECTED_SUITES + 1))
 [ "$TEST_ORACLE" == "1" ] && SELECTED_SUITES=$((SELECTED_SUITES + 1))
@@ -230,7 +269,7 @@ then
     pushd Fdo/UnitTest >& /dev/null
     start_suite "FDO Core"
     ./UnitTest >& $TEST_LOG_PATH/Fdo_unit_test_log.txt
-    check_for_errors $? "Fdo unit test returned an error, please check $TEST_LOG_PATH/Fdo_unit_test_log.txt for more information" "0"
+    check_for_errors $? "Fdo unit test returned an error, please check $TEST_LOG_PATH/Fdo_unit_test_log.txt for more information" "0" "$TEST_LOG_PATH/Fdo_unit_test_log.txt"
     popd >& /dev/null
 fi
 
@@ -239,7 +278,7 @@ then
     pushd Providers/SDF/Src/UnitTest >& /dev/null
     start_suite "SDF"
     ./UnitTest >& $TEST_LOG_PATH/Sdf_unit_test_log.txt
-    check_for_errors $? "Sdf unit test returned an error, please check $TEST_LOG_PATH/Sdf_unit_test_log.txt for more information" "0"
+    check_for_errors $? "Sdf unit test returned an error, please check $TEST_LOG_PATH/Sdf_unit_test_log.txt for more information" "0" "$TEST_LOG_PATH/Sdf_unit_test_log.txt"
     popd >& /dev/null
 fi
 
@@ -248,7 +287,7 @@ then
     pushd Providers/SQLite/Src/UnitTest >& /dev/null
     start_suite "SQLite"
     ./UnitTest >& $TEST_LOG_PATH/SQLite_unit_test_log.txt
-    check_for_errors $? "SQLite unit test returned an error, please check $TEST_LOG_PATH/SQLite_unit_test_log.txt for more information" "0"
+    check_for_errors $? "SQLite unit test returned an error, please check $TEST_LOG_PATH/SQLite_unit_test_log.txt for more information" "0" "$TEST_LOG_PATH/SQLite_unit_test_log.txt"
     popd >& /dev/null
 fi
 
@@ -257,7 +296,7 @@ then
     pushd Providers/OGR/Src/UnitTest >& /dev/null
     start_suite "OGR"
     ./UnitTest >& $TEST_LOG_PATH/OGR_unit_test_log.txt
-    check_for_errors $? "OGR unit test returned an error, please check $TEST_LOG_PATH/OGR_unit_test_log.txt for more information" "0"
+    check_for_errors $? "OGR unit test returned an error, please check $TEST_LOG_PATH/OGR_unit_test_log.txt for more information" "0" "$TEST_LOG_PATH/OGR_unit_test_log.txt"
     popd >& /dev/null
 fi
 
@@ -266,7 +305,16 @@ then
     pushd Providers/WMS/Src/UnitTest >& /dev/null
     start_suite "WMS"
     ./UnitTest >& $TEST_LOG_PATH/Wms_unit_test_log.txt
-    check_for_errors $? "Wms unit test returned an error, please check $TEST_LOG_PATH/Wms_unit_test_log.txt for more information" "0"
+    check_for_errors $? "Wms unit test returned an error, please check $TEST_LOG_PATH/Wms_unit_test_log.txt for more information" "0" "$TEST_LOG_PATH/Wms_unit_test_log.txt"
+    popd >& /dev/null
+fi
+
+if [ "$TEST_WFS" == "1" ];
+then
+    pushd Providers/WFS/Src/UnitTest >& /dev/null
+    start_suite "WFS"
+    ./UnitTest >& $TEST_LOG_PATH/Wfs_unit_test_log.txt
+    check_for_errors $? "Wfs unit test returned an error, please check $TEST_LOG_PATH/Wfs_unit_test_log.txt for more information" "0" "$TEST_LOG_PATH/Wfs_unit_test_log.txt"
     popd >& /dev/null
 fi
 
@@ -275,7 +323,7 @@ then
     pushd Providers/GenericRdbms/Src/UnitTest >& /dev/null
     start_suite "ODBC"
     ./UnitTestOdbc initfiletest=$TEST_ODBC >& $TEST_LOG_PATH/Odbc_unit_test_log.txt
-    check_for_errors $? "Odbc unit test returned an error, please check $TEST_LOG_PATH/Odbc_unit_test_log.txt for more information" "0"
+    check_for_errors $? "Odbc unit test returned an error, please check $TEST_LOG_PATH/Odbc_unit_test_log.txt for more information" "0" "$TEST_LOG_PATH/Odbc_unit_test_log.txt"
     popd >& /dev/null
 fi
 
@@ -284,7 +332,7 @@ then
     pushd Providers/GenericRdbms/Src/UnitTest >& /dev/null
     start_suite "PostGIS"
     ./UnitTestPostGis initfiletest=$TEST_POSTGIS >& $TEST_LOG_PATH/PostGis_unit_test_log.txt
-    check_for_errors $? "PostGis unit test returned an error, please check $TEST_LOG_PATH/PostGis_unit_test_log.txt for more information" "0"
+    check_for_errors $? "PostGis unit test returned an error, please check $TEST_LOG_PATH/PostGis_unit_test_log.txt for more information" "0" "$TEST_LOG_PATH/PostGis_unit_test_log.txt"
     popd >& /dev/null
 fi
 
@@ -293,16 +341,69 @@ then
     pushd Providers/GenericRdbms/Src/UnitTest >& /dev/null
     start_suite "MySQL"
     ./UnitTestMySql initfiletest=$TEST_MYSQL >& $TEST_LOG_PATH/MySql_unit_test_log.txt
-    check_for_errors $? "MySql unit test returned an error, please check $TEST_LOG_PATH/MySql_unit_test_log.txt for more information" "0"
+    check_for_errors $? "MySql unit test returned an error, please check $TEST_LOG_PATH/MySql_unit_test_log.txt for more information" "0" "$TEST_LOG_PATH/MySql_unit_test_log.txt"
     popd >& /dev/null
 fi
 
 if [ "$TEST_ORACLE" == "1" ];
 then
+    # The King Oracle provider is linked against the Oracle Instant Client under sdks/, and the
+    # build baked that absolute container path into the provider's RUNPATH (ORACLE_LIBRARY_CLNTSH
+    # in the CMake cache is what it was configured with). A RUNPATH only resolves an object's own
+    # dependencies, so libclntsh.so.12.1's dependencies (libmql1, libipc1, libnnz12, libons -- all
+    # sitting next to it in the same directory) still have to be found on LD_LIBRARY_PATH.
+    # Without it the suite does not even start: "libmql1.so: cannot open shared object file".
+    oracle_lib_dir=$(sed -n 's/^ORACLE_LIBRARY_CLNTSH:FILEPATH=//p' CMakeCache.txt 2> /dev/null)
+    oracle_lib_dir=${oracle_lib_dir%/*}
+    if [ -z "$oracle_lib_dir" ] || [ ! -d "$oracle_lib_dir" ]; then
+        echo "  >> WARNING: Oracle Instant Client not found (ORACLE_LIBRARY_CLNTSH in CMakeCache.txt points at '$oracle_lib_dir'), the suite will fail to load libclntsh"
+    fi
+    # OCI needs libaio, which the develop images install; check anyway, as the suite may be running
+    # in a different image (a _build_ image built before that dependency was added, for instance)
+    if ! ldconfig -p 2> /dev/null | grep -q 'libaio\.so\.1'; then
+        echo "  >> WARNING: libaio.so.1 is not installed in this image, the Oracle client cannot load without it (apt-get install -y libaio1)"
+    fi
+    # The suite opens connections both from a full connection string (KG_DEFAULT_ORA_CONNECTION) and
+    # from a username/password/service triplet (KG_ORA_*), and the King Oracle README in the FDO
+    # sources documents that all of them have to be set together. Point them at the Oracle XE the
+    # dbs compose stack publishes on the host, the same way the PostGIS and MySQL init files reach
+    # theirs, and leave anything already exported alone so another instance can still be targeted.
+    fdo_src_dir=$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' CMakeCache.txt 2> /dev/null)
+    KG_ORA_SERVICE=${KG_ORA_SERVICE:-"//host.docker.internal:1521/xe"}
+    KG_ORA_USERNAME=${KG_ORA_USERNAME:-"fdounittest"}
+    if [ -z "$KG_ORA_PASSWORD" ]; then
+        # The credentials the suite expects are the ones its own fixture creates, so read the password
+        # out of ora_init.sql rather than keeping a copy of it here.
+        ora_init_sql="$fdo_src_dir/Providers/KingOracle/src/KgOraUnitTest/ora_init.sql"
+        KG_ORA_PASSWORD=$(grep -oE 'IDENTIFIED BY[[:space:]]+[^;"[:space:]]+' "$ora_init_sql" 2> /dev/null | head -1 | awk '{print $NF}')
+    fi
+    export KG_ORA_SERVICE
+    export KG_ORA_USERNAME
+    if [ -n "$KG_ORA_PASSWORD" ]; then
+        export KG_ORA_PASSWORD
+        KG_DEFAULT_ORA_CONNECTION="Username=$KG_ORA_USERNAME;Password=$KG_ORA_PASSWORD;Service=$KG_ORA_SERVICE;OracleSchema=$KG_ORA_USERNAME"
+        export KG_DEFAULT_ORA_CONNECTION
+    else
+        echo "  >> WARNING: no Oracle password found in $ora_init_sql, the suite will fall back to its built-in defaults (which point at localhost)"
+    fi
+    echo "  >> Oracle instance: $KG_ORA_SERVICE as $KG_ORA_USERNAME"
+    ora_hostport=${KG_ORA_SERVICE#//}
+    ora_hostport=${ora_hostport%%/*}
+    ora_host=${ora_hostport%%:*}
+    ora_port=${ora_hostport##*:}
+    case "$ora_port" in
+        ''|*[!0-9]*)
+            ;;
+        *)
+            if command -v timeout > /dev/null 2>&1 && ! timeout 2 bash -c "exec 3<>/dev/tcp/$ora_host/$ora_port" 2> /dev/null; then
+                echo "  >> WARNING: nothing is listening on $ora_hostport (is the dbs compose stack up?)"
+            fi
+            ;;
+    esac
     pushd Providers/KingOracle/src/KgOraUnitTest >& /dev/null
     start_suite "King Oracle"
-    ./UnitTest >& $TEST_LOG_PATH/Oracle_unit_test_log.txt
-    check_for_errors $? "Oracle unit test returned an error, please check $TEST_LOG_PATH/Oracle_unit_test_log.txt for more information" "0"
+    LD_LIBRARY_PATH="$oracle_lib_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ./KgOraUnitTest >& $TEST_LOG_PATH/Oracle_unit_test_log.txt
+    check_for_errors $? "Oracle unit test returned an error, please check $TEST_LOG_PATH/Oracle_unit_test_log.txt for more information" "0" "$TEST_LOG_PATH/Oracle_unit_test_log.txt"
     popd >& /dev/null
 fi
 
@@ -315,7 +416,7 @@ then
     [ -f providers.xml ] && rm providers.xml # Having this local copy sadly doesn't work, so remove it
     start_suite "GDAL"
     ./UnitTest >& $TEST_LOG_PATH/GDAL_unit_test_log.txt
-    check_for_errors $? "GDAL unit test returned an error, please check $TEST_LOG_PATH/GDAL_unit_test_log.txt for more information" "0"
+    check_for_errors $? "GDAL unit test returned an error, please check $TEST_LOG_PATH/GDAL_unit_test_log.txt for more information" "0" "$TEST_LOG_PATH/GDAL_unit_test_log.txt"
     popd >& /dev/null
 fi
 
@@ -339,7 +440,7 @@ then
     fi
     start_suite "SHP"
     ./UnitTest >& $TEST_LOG_PATH/Shp_unit_test_log.txt
-    check_for_errors $? "Shp unit test returned an error, please check $TEST_LOG_PATH/Shp_unit_test_log.txt for more information" "0"
+    check_for_errors $? "Shp unit test returned an error, please check $TEST_LOG_PATH/Shp_unit_test_log.txt for more information" "0" "$TEST_LOG_PATH/Shp_unit_test_log.txt"
     popd >& /dev/null
 fi
 
