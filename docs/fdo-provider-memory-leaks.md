@@ -1,12 +1,14 @@
 # FDO provider memory leaks (LeakSanitizer findings)
 
-This note records the memory leaks that the GDAL, SHP, SDF, WMS, WFS and King Oracle provider suites reported on Linux
+This note records the memory leaks that the GDAL, OGR, SHP, SDF, WMS, WFS and King Oracle provider suites reported on Linux
 x64 under the ASan/LSan-instrumented Debug build, what was fixed, and what is deliberately left in
 place. It is the provider-side companion to [docs/fdo-core-memory-leaks.md](./fdo-core-memory-leaks.md),
 which covers the FDO Core suite.
 
 Paths below are relative to the FDO source root (`fdo/` on the host, `/tmp/work/src` inside the build
-container). The SQLite provider suite reported no leaks before or after this pass.
+container). The SQLite provider suite reported no leaks in this pass, and none of the leaks below are
+in the SQLite provider; the suite's later leak (r8375, the "Default" spatial-context test) is recorded
+at the end of [Leaks that were fixed](#leaks-that-were-fixed).
 
 ## How the report is produced
 
@@ -57,6 +59,14 @@ The recurring shapes in these suites are:
   reference whenever the cast fails.
 - **A destructor that does not exist.** A constructor that throws runs no destructor, so anything
   acquired on the way in has to be released in a `catch (...)` block.
+- **A value the parser discards on its error path.** A grammar whose actions hand a freshly
+  created object to a *second* owner (here `AddNode()`/`AddNodeToDelete()` AddRef into the parse
+  context) leaves the parser holding a reference it only releases when the symbol reaches a
+  reduction. A syntax error discards symbols instead, so every node on the stack at the error
+  leaks - and for a grammar that parses "is this a constraint I understand?" clauses, an error is
+  the normal answer, not an exceptional one. Fix it with `%destructor` declarations (see
+  **Generated parsers** below); releasing the values from the parse context's abort path instead
+  would over-release the nodes whose stack reference an action already consumed.
 - **A recursion that re-references its own result.** A function that hands back an owned reference and
   then returns `FDO_SAFE_ADDREF(Recurse(...))` drops the reference the recursive call returned — one
   leaked reference per level of depth, on whichever object the recursion ended up finding. Pass the
@@ -128,6 +138,9 @@ The recurring shapes in these suites are:
 | PostGIS | A cursor's previous result was overwritten instead of cleared on re-execution | `Providers/GenericRdbms/Src/PostGis/Driver/execute.c` | `postgis_execute()` assigned `curs->stmt_result = PQexecPrepared(...)` without clearing what was already there. The PVC insert/update handlers keep their cursors cached and run the same prepared statement once per row, so every row but the last leaked a libpq `PGresult` (and everything it holds) — 486/405/180-object records, the largest item in the PostGIS report. `fetch.c` already cleared before re-assigning; `execute.c` now does the same. |
 | PostGIS | Two `PQexec` results in `postgis_run_sql` were discarded | `Providers/GenericRdbms/Src/PostGis/Driver/run_sql.c` | The two `(void)PQexec(conn, "COMMIT")` calls that close an open transaction before a DDL statement threw their `PGresult` away, leaking it (plus the `PQgetResult` machinery behind it) once per DDL statement — 58 records, mostly from the schema-manager delete/apply paths. Both results are captured and passed to `postgis_pgresult_clear` now, as every other `PQexec` in the driver already was. |
 | PostGIS | The filter processor kept the counted reference `GetGeometry()` returns in a raw pointer | `Providers/GenericRdbms/Src/PostGis/Fdo/FdoRdbmsPostGisFilterProcessor.cpp` | `FdoSpatialCondition::GetGeometry()`/`FdoDistanceCondition::GetGeometry()` return `FDO_SAFE_ADDREF(m_geometry)`, and `ProcessSpatialDistanceCondition` stored that in a raw `FdoGeometryValue*` (`geom = dynamic_cast<...>(spatialFilter->GetGeometry())`), so the test geometry of *every* spatial and distance condition leaked (13 records). Every other provider already holds it in an `FdoPtr`, as does this one now. `geomFgf`, the byte array `FdoGeometryValue::GetGeometry()` AddRefs, was raw too and leaked with it. |
+| PostGIS | The constraint grammar stranded the semantic values of every symbol the parser discards on a syntax error | `Utilities/Common/Src/Parse/yyConstraint.y`, `yyConstraint.cpp`, `yyConstraintWin.cpp` | Each node-producing nonterminal's value is an owned reference (created with `Create()`, then AddRef'd into the parse context by `AddNode()`/`AddNodeToDelete()`), and the parser never released its own copy when a syntax error discarded a partially built constraint — which is the *normal* path for the check clauses this provider skips. `%destructor` declarations for the 18 node-producing nonterminals, plus the equivalent destructor in both generated parsers, release it: 6 direct records and the 12 objects below them (888 B in 18 allocations) go, with no new record family. See **Generated parsers** below — the generated files could not be reproduced by today's generators and are therefore hand-patched in step with the `.y`. |
+| SQLite | The r8375 spatial-context test dropped the counted references of every `Create()` result and AddRef'ing getter in its insert and describe-schema steps | `Providers/SQLite/Src/UnitTest/SpatialContextTest.cpp` | `TestDefaultSpatialContext` added its two property values as `vals->Add(FdoPropertyValue::Create(...))`, and `Add()` takes its own reference, so the reference `Create()` returned was lost — 40 B each, the report's only 2 **direct** records. The describe-schema step then wrote `schemas->GetItem(0)->GetClasses()->GetItem(L"FeatClass1")`, which drops the counted references of the schema and of its class collection, and parked `((FdoFeatureClass*)cls.p)->GetGeometryProperty()` — which returns `FDO_SAFE_ADDREF(m_geometry)` — in a raw pointer. That last reference is what keeps the leak large rather than small: it points *into* the deep-copied schema graph, so the whole graph goes unreachable-but-alive when the test returns, and every one of its chunks is then reported as an indirect record reachable from another. Together they were the entire report: 5,712 B in 75 allocations (2 direct, 72 indirect), all in this one test. Restoring the two `Add()` calls alone, leaving the describe-schema references dropped, leaves **0 direct records and 62 indirect records (5,184 B)**: the 80 B of property values and the 448 B of geometry-value and string-value records they anchored are gone, while the schema graph, still held by the un-released `GetGeometryProperty()` reference, is not. That is what attributes the 5,184 B residue to the describe-schema references rather than to a reference cycle inside the copied schema. Each result is held in an `FdoPtr` now and the suite reports **0 B**. |
+| OGR | `OgrFeatureReader`'s spatial-filter geometry passed the counted reference returned by `FdoGeometryValue::GetGeometry()` inline into `CreateGeometryFromFgf()`, dropping it | `Providers/OGR/Src/Provider/OgrProvider.cpp` | `FdoGeometryValue::GetGeometry()` returns `FDO_SAFE_ADDREF(m_geometry)`. For every spatial condition whose operation is not `EnvelopeIntersects`, the reader built its filter geometry as `m_geomFilter = gf->CreateGeometryFromFgf(((FdoGeometryValue*)(geomExpr.p))->GetGeometry())`, so the reference the getter returned was never released; the byte array behind it — a pooled `FdoByteArray` that `FdoFgfGeometryFactory::GetFgf()` had shared out — stayed alive but unreachable, the suite's only record (184 B, direct). Holding the getter's result in an `FdoPtr<FdoByteArray>` local releases it. |
 
 ## Status
 
@@ -136,15 +149,16 @@ The recurring shapes in these suites are:
 | GDAL | `artifacts/Debug/test-logs/GDAL_unit_test_log.txt` | 28,380 B in 68 allocations | 0 B |
 | SHP | `artifacts/Debug/test-logs/Shp_unit_test_log.txt` | 617,880 B in 9,783 allocations | 0 B |
 | SDF | `artifacts/Debug/test-logs/Sdf_unit_test_log.txt` | 170,243 B in 2,760 allocations | 0 B direct; 55,925 B in 538 allocations (348 indirect records) |
-| SQLite | `artifacts/Debug/test-logs/SQLite_unit_test_log.txt` | 0 B | 0 B |
+| SQLite | `artifacts/Debug/test-logs/SQLite_unit_test_log.txt` | 0 B in this pass; 5,712 B in 75 allocations (2 direct records) after r8375 added the "Default" spatial-context test | 0 B |
 | WFS | `artifacts/Debug/test-logs/Wfs_unit_test_log.txt` | 82,112 B in 938 allocations (3 direct) | 0 B direct; 64,564 B in 758 indirect |
 | WMS | `artifacts/Debug/test-logs/Wms_unit_test_log.txt` | 145,128 B in 1,426 allocations (7 direct) | 0 B |
+| OGR | `artifacts/Debug/test-logs/OGR_unit_test_log.txt` | 184 B in 1 allocation (1 direct record) | 0 B |
 | King Oracle | (opt-in suite, run against the `dbs` compose Oracle) | 408 B in 4 allocations (2 direct) | 0 B |
-| PostGIS | `artifacts/Debug/test-logs/PostGis_unit_test_log.txt` | 1,930,054 B in 15,841 allocations (730 direct records) | 6 direct records (288 B); 106,100 B in 960 allocations (400 indirect records) |
+| PostGIS | `artifacts/Debug/test-logs/PostGis_unit_test_log.txt` | 1,930,054 B in 15,841 allocations (730 direct records) | 0 B direct; 105,212 B in 942 allocations (388 indirect records) |
 | MySQL | `artifacts/Debug/test-logs/MySql_unit_test_log.txt` | 10,068,363 B in 261,631 allocations (356 direct records) | 0 B direct; 46,236 B in 491 allocations (318 indirect records) |
 
-Suite results are unchanged and green: GDAL `OK (65 tests)`, SHP `OK (138)`, SDF `OK (118)`,
-SQLite `OK (89)`, King Oracle `OK (33)` (opt-in, needs the `dbs` compose Oracle), MySQL `OK (246)`
+Suite results are unchanged and green: GDAL `OK (65 tests)`, OGR `OK (57)`, SHP `OK (138)`, SDF `OK (118)`,
+SQLite `OK (90)`, King Oracle `OK (33)` (opt-in, needs the `dbs` compose Oracle), MySQL `OK (246)`
 (needs the `dbs` compose MySQL 5.6), PostGIS `OK (137)` (needs the `dbs` compose PostGIS), and
 FDO Core
 `OK (123)` still reports the 220,980 B of documented
@@ -154,8 +168,10 @@ FDO Core
 schema counts (and unreachable hosts) rather than on the provider's own behaviour. Because of that its
 figures are a lower bound — the paths that ran are the ones the reachable servers exercise.
 
-SDF, SHP, WMS, WFS and MySQL now report no direct leaks at all, and WMS reports none of either kind.
-SDF, WFS, MySQL and FDO Core still report indirect leaks, and the SDF indirect total is what remains of the two
+SDF, SHP, WMS, WFS, MySQL and SQLite (with the r8375 test fixed) now report no direct leaks at all, and
+WMS and SQLite report none of either kind.
+SDF, WFS, MySQL and FDO Core still report indirect leaks, and so does PostGIS (only the schema-error cycle
+now that the parser's direct records are gone); the SDF indirect total is what remains of the two
 `SdfConnection` graphs the suite leaves
 behind; its largest contributors are the connection's SQLite database
 (`SdfConnection::InitDatabases`, `sqlite3GenericMalloc`, the property-index hashtable nodes), the
@@ -238,25 +254,60 @@ PostGIS-specific work started. The rest was three leaks in the provider and its 
     `GetGeometry()` returns in a raw pointer, leaking the test geometry of every spatial and distance
     condition (13 records).
 
-That took the report to 106,100 B in 960 allocations with **6 direct records (288 B)**. What is left
-is two families, both already known from the MySQL pass:
+That took the report to 106,100 B in 960 allocations with **6 direct records (288 B)**. Those 6 are now
+fixed as well, which leaves one family:
 
-  * The 6 direct records are 3 `FdoIdentifier`s and 3 `FdoDataValueCollection`s allocated by
+  * The 6 direct records were 3 `FdoIdentifier`s and 3 `FdoDataValueCollection`s allocated by
     `yyConstraint.y` while parsing a check clause that turns out **not** to be a constraint the parser
     understands — which the PostGIS constraint reader treats as normal (`// Silently skip the
     unsupported constraints`). Tracing `FdoIdentifier::AddRef`/`Release` showed each leaked object
     with exactly two events: the collection's `AddRef` from `FdoCommonParse::AddNode`, and one
     `Release` from `FdoCommonParse::Abort()` → `m_nodes->Clear()`. The grammar's *own* reference (the
-    `$$` of the reduction that created it) is never released, because on a syntax error the reductions
-    of the enclosing rules never run, so their `FDO_SAFE_RELEASE($1)` cleanup never happens. That is
-    the leak `Abort()`'s commented-out release loop was trying to fix; releasing twice there
-    over-releases nodes whose grammar reference *was* consumed before the error, and releasing "down
-    to one reference" corrupts nodes that are also reachable from another discarded node, so neither
-    can be done safely from `Abort()`. The correct fix is a bison `%destructor` for the value types,
-    which means regenerating `Utilities/Common/Src/Parse/yyConstraint.cpp` — a large,
-    machine-generated file that is checked into SVN and compiled directly (the `.y` is only the input
-    to the `script*` regeneration pipeline) — so it is left for a separate change.
-  * The 105,812 B of indirect records are the schema-error cycle the MySQL note describes
-    (`FdoSmLpClassBase::Errors2Exception` → `FdoSmError` → `FdoSchemaException` → `FdoSmErrorCollection`,
-    reachable from the shared `FdoApplySchemaTest` delete/error tests), which needs the same ownership
-    change in the schema manager.
+    `$$` of the reduction that created it) was never released, because on a syntax error the
+    reductions of the enclosing rules never run, so their `FDO_SAFE_RELEASE($1)` cleanup never
+    happens. That is the leak `Abort()`'s commented-out release loop was trying to fix; releasing
+    twice there over-releases nodes whose grammar reference *was* consumed before the error, and
+    releasing "down to one reference" corrupts nodes that are also reachable from another discarded
+    node, so neither can be done safely from `Abort()`. The fix is the one the generator has for
+    exactly this: `%destructor` declarations in `yyConstraint.y` for the 18 node-producing
+    nonterminals, with the equivalent destructor code added to both generated parsers
+    (`yyConstraint.cpp` for byacc, `yyConstraintWin.cpp` for bison). It removes the 6 direct records
+    and the 12 objects below them (the collections' own `FdoDataValue`s and the identifiers' name
+    buffers): 888 B in 18 allocations. See **Generated parsers** below for why the generated files
+    had to be touched by hand rather than regenerated.
+  * The 105,212 B (388 records) of indirect records are the schema-error cycle the MySQL note
+    describes (`FdoSmLpClassBase::Errors2Exception` → `FdoSmError` → `FdoSchemaException` →
+    `FdoSmErrorCollection`, reachable from the shared `FdoApplySchemaTest` delete/error tests), which
+    needs the same ownership change in the schema manager. Every one of those records is byte-for-byte
+    what it was before the parser fix — the fix added no new record family.
+
+## Generated parsers: the `.y` is the input, but the generated file is what compiles
+
+`Utilities/Common/Src/Parse/yyConstraint.y`, `Fdo/Unmanaged/Src/Fdo/Parse/yy{Filter,Expression}.y` and
+`Fdo/Unmanaged/Src/Geometry/Parse/yyFgft.y` are the grammar inputs. `build_parse.sh` (Linux) and
+`build_parse.bat` (Windows) run the generator and the `script*` sed pipelines that rename the symbols
+into the `fdo_constraint_yy*` namespace and move the parser's globals into the shared `FdoCommonParse`
+context — but the **generated `yy*.cpp` is what is checked into SVN and compiled**, and the checked-in
+copies are old enough that today's generators no longer reproduce them:
+
+- The Linux copies (`yyConstraint.cpp`, `yyFilter.cpp`, `yyExpression.cpp`) are **byacc 1.9**
+  (FreeBSD yacc) output — `YYBYACC 1`, `yyrcsid[] = "$FreeBSD: ... skeleton.c,v 1.28 ..."`.
+  `byacc 2.0` (Ubuntu 22.04's `byacc`) emits a different 1,9xx-line skeleton with `YYBTYACC`,
+  different stack handling and new globals that the sed pipeline does not rewrite; GNU bison (the
+  container's `/usr/bin/yacc` is bison 3.8 in yacc mode) differs far more. Regenerating with either
+  would replace ~1,000 lines of a parser compiled into every provider.
+- The Windows copies (`yy*Win.cpp`) are **GNU Bison 1.875** output, and `FdoCommon.vcproj` carries a
+  custom build step that regenerates `yyConstraintWin.cpp` with whatever `bison` is on the local
+  `PATH`, so on that side the `.y` is authoritative for a regenerating build.
+- `build_parse.sh` also writes the generated header to `Src/Parse/`, while the checked-in header lives
+  in `Inc/Parse/yyConstraint.h` (where `Parse.h` includes it from), so even its output paths no longer
+  match the tree.
+
+The practical rule: **change the `.y` (it records the intent, and it is what a Windows regeneration
+consumes) and then make the equivalent change in both generated parsers by hand**, exactly as was done
+for the `%destructor` work above. Table numbering is the thing to be careful with — the destructor
+cases are keyed by the generator's symbol numbers, which differ between the two variants (`314`-`331`
+for the byacc file, `65`-`82` for the bison file, where the bison numbering comes from its `yytname`
+and the byacc one from a `yystos[state]` table that had to be added because byacc 1.9 does not emit
+one). Both sets of numbers are only valid while the grammar's symbol set and order are unchanged, so
+they carry the symbol names as comments.

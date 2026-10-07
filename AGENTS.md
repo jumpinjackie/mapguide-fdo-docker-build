@@ -156,6 +156,11 @@ every fix and keep their status tables current.
    group if there is one — that record names the lost reference for the whole subtree.
 4. Fix in batches, re-run the whole suite, and expect the indirect graphs to collapse once their
    root direct record is gone (the MySQL report went from 359 KB to 46 KB off one 416-byte root).
+5. Compare the **sets of record signatures** (the top few frames of each record), not just the totals,
+   between the before and after runs: a fix must remove records and add none. That check is what
+   caught the parser fix adding nothing new, and what tells "fixed the leak" apart from "shuffled it"
+   when a byte total barely moves. Suites the change does not touch must come back with exactly the
+   record counts they had before — that is the cheapest, strongest regression evidence there is.
 
 The provider suites are `Providers/GenericRdbms/Src/UnitTest/UnitTest<Target>`; run one with
 `./UnitTestMySql initfiletest=<init-file> [SuiteName]` from the build area, where the init file lives
@@ -178,17 +183,31 @@ in `templates/scripts/container/test_init/`. Their captured logs are in
 - Totals drift a little between runs (some buffers leak only on some runs), so judge a fix by whole
   records — especially the direct-record count — not by small byte deltas.
 
-### Generated parsers are checked in — editing the `.y` does nothing
+### Generated parsers are checked in — the `.y` is the input, the generated file is what compiles
 
-`Utilities/Common/Src/Parse/yyConstraint.y` and `Fdo/Unmanaged/Src/Fdo/Parse/yy{Filter,Expression}.y`
-are inputs to a `script*`/`script*_linux` sed pipeline (`yacc` output → `yy*.cpp`), and the **generated
-`yy*.cpp` is what is checked into SVN and compiled** (it is listed in the source list, and the
-toolchain has no yacc). So a grammar-rule change must be accompanied by regenerating and committing
-the generated file — do not edit a `.y` and expect the behaviour to change. This also means a leak that
-lives in the *parser's* error handling (for example the values yacc discards on a syntax error, which
-only a `%destructor` can release) cannot be fixed by a small edit: see the
-`FdoCommonParse::Abort()` note in the MySQL/PostGIS narrative in
-[docs/fdo-provider-memory-leaks.md](./docs/fdo-provider-memory-leaks.md).
+`Utilities/Common/Src/Parse/yyConstraint.y`, `Fdo/Unmanaged/Src/Fdo/Parse/yy{Filter,Expression}.y` and
+`Fdo/Unmanaged/Src/Geometry/Parse/yyFgft.y` are inputs to `build_parse.sh`, which runs `yacc` and the
+`script*_linux` sed pipeline (renaming the parser's symbols into the `fdo_constraint_yy`-style
+namespace and moving its globals into the shared `FdoCommonParse`), and the **generated `yy*.cpp` is
+what is checked into SVN and compiled**. A grammar-rule change therefore has to be accompanied by the
+equivalent change in the generated file — do not edit a `.y` and expect the behaviour to change.
+
+Regenerating is not a simple `./build_parse.sh` away: the checked-in Linux parsers are **byacc 1.9**
+(FreeBSD yacc) output and the `yy*Win.cpp` ones are **GNU Bison 1.875** output, while Ubuntu 22.04
+offers byacc 2.0 and bison 3.8, whose skeletons differ by ~1,000 lines and whose new globals the sed
+pipeline does not rewrite. `build_parse.sh` also writes the generated header next to the `.cpp`, but
+the checked-in copy lives in `Utilities/Common/Inc/Parse/`. So the working rule is: change the `.y`
+(it records the intent, and `FdoCommon.vcproj` regenerates `yyConstraintWin.cpp` from it on a Windows
+build), then hand-apply the same change to both generated parsers, keeping the two variants' symbol
+numbers straight (byacc numbers nonterminals `314`-`331` here, bison `65`-`82`; the byacc file needed
+a `yystos[state]` table added because byacc 1.9 — which has no `%destructor` support — does not emit
+one). The `%destructor` work recorded in
+[docs/fdo-provider-memory-leaks.md](./docs/fdo-provider-memory-leaks.md) is the worked example.
+
+The parser's error handling is where this bites: the values yacc discards on a syntax error are
+released by nothing else, so a leak there needs `%destructor` declarations for the node-producing
+nonterminals rather than an edit to `FdoCommonParse::Abort()` (releasing from `Abort()` over-releases
+the nodes whose stack reference an action already consumed).
 
 ### The FDO idioms that cause almost all of these leaks
 
@@ -198,7 +217,14 @@ only a `%destructor` can release) cannot be fixed by a small edit: see the
 - **Any `FdoXxx*` that comes back from a `Get*`/`Find*`/`Create*` may be a counted reference** —
   `FindItem`, `GetItem`, `FdoFunction::GetArguments`, `GetCharacterSet`, `GetExtent`,
   `GetProviderConnectionObject`, `CreateSchemaManager`, `GetPhysicalSchema`, `GetManager`. Hold it in
-  an `FdoPtr`, or release it; never park it in a raw pointer or dereference it inline.
+  an `FdoPtr`, or release it; never park it in a raw pointer or dereference it inline. A *chain* of
+  them (`schemas->GetItem(0)->GetClasses()->GetItem(name)`) drops one reference per link, and
+  `SmartCast`-style getters such as `FdoFeatureClass::GetGeometryProperty()` (which returns
+  `FDO_SAFE_ADDREF(m_geometry)`) are counted too.
+- **`FdoCollection::Add()`/`Insert()`/`SetItem()` AddRef what they are given**, so they do not consume
+  the caller's reference: `coll->Add(FdoX::Create(...))` loses the `Create()` reference outright (40 B
+  per call), and `coll->Add(ptr)` obliges the caller to release `ptr` itself. Give every `Create()` a
+  home: `FdoPtr<FdoX> x = FdoX::Create(...); coll->Add(x);`.
 - **A counted reference stored in an object whose owner holds it raw is a cycle.** The connection
   holds its capabilities in a raw member, so the capabilities' back-pointer to the connection must be
   raw too. Child-to-parent links are non-owning.
@@ -242,6 +268,13 @@ attaches.
   `LD_LIBRARY_PATH=/usr/local/fdo-4.2.0/lib64`. Without it the connection manager cannot load the
   provider, tests fail with an exception whose teardown then dereferences a NULL connection and the
   run dies with an unrelated-looking SEGV in the *test* code.
+- Export `NLSPATH` at the build tree's generated message catalogues
+  (`NLSPATH=$(pwd)/nls/linux/en_US/%N`, from the build area root) when you run a suite binary
+  directly instead of through `run_fdo_tests.sh`, which defaults it itself. Without it every test
+  that asserts on message text fails, because FDO resolves the message to its raw symbol
+  (`FDOSM_220`) rather than English — it looks like a regression from your change but is purely the
+  environment. In the OGR suite that is `TestCase_EvalQuotedIdentifier`,
+  `TestCase_SelectBadReaderProperties` and `TestCase_SelectAggregateBadReaderProperties`.
 - The SHP suite additionally needs `locale-gen en_US en_US.UTF-8 fr_FR ja_JP.EUC-JP` and its
   `Providers/SHP/TestData` reset, the same way `run_fdo_tests.sh` does, or it reports locale
   failures and stale filesets instead of the real result.
@@ -253,6 +286,35 @@ attaches.
 - Leave cycles that need a semantic ownership change recorded rather than "fixed" — breaking them
   changes behaviour. The FDO Core `FdoClassDefinition` cycles and the SDF/WFS residues are documented
   for that reason.
+
+### Platform locking semantics (`CRITICAL_SECTION` vs `pthread_mutex_t`)
+
+- Win32's `CRITICAL_SECTION` is **recursive** — the owning thread may enter it again — while
+  `pthread_mutex_init(m, NULL)` is not. Code that shims one onto the other (`STL_CRITICAL_SECTION`,
+  `CriticalSectionHolder` and `ForceLeaveCriticalSection()` in
+  `Providers/SQLite/Src/Provider/SltProvider.h`) was written against the Windows behaviour, so a lock
+  that an inner call on the same thread takes again (metadata build → `GetMetadata()` → metadata
+  build) is free on Windows and a permanent self-deadlock on Linux. When adding a lock to code like
+  this, either the POSIX shim must create a `PTHREAD_MUTEX_RECURSIVE` mutex or the nesting has to go;
+  FDO ticket #891 (r7133, Windows stability) and FDO ticket #895 (r7150, the Linux deadlock) are the
+  same change swapped back and forth over exactly this mismatch.
+- Both of the provider's mutexes (`m_csMd`, `m_csStm` in `SltProvider.h`) are created recursive, on
+  purpose, for Windows parity — the `STL_CRITICAL_SECTION` shim is meant to *be* a `CRITICAL_SECTION`,
+  and every path in the provider has always run against a recursive lock on Windows. The accepted
+  consequence is that a same-thread re-entry in the query-cache paths, which used to hang loudly on
+  Linux, now proceeds; the lock-hold windows themselves are unchanged, because the
+  `ForceLeaveCriticalSection()` calls still release the lock at depth 1. Do not "restore" the plain
+  mutex without a concrete failure that requires it.
+- A hung suite reports itself: the process is single-threaded, stops consuming CPU and its only task
+  waits in `futex_do_wait`. Sample it from inside the same container (`pgrep -x UnitTest`, then
+  `/proc/<pid>/status` and `/proc/<pid>/task/*/wchan`) — `$!` after a backgrounded `cmd1 && cmd2` is
+  the subshell, not the test process. `stdbuf -o0` makes the partial log name the test it died in,
+  but it needs `ASAN_OPTIONS=verify_asan_link_order=0`, because its `LD_PRELOAD` displaces the ASan
+  runtime and every run then aborts with "ASan runtime does not come first in initial library list".
+- Suite runners load providers *by name* through `providers.xml`, so a unit-test target does not
+  depend on the provider library and `cmake --build . --target SQLiteUnitTest` reports "no work to
+  do" after a provider edit. Build the library target instead (`SQLiteProvider-4.2.0`) and re-run the
+  registry that hung (`./UnitTest SelectTest`).
 
 ## Code style guidelines (shell)
 
@@ -280,6 +342,7 @@ See [CPP_STYLE.md](./CPP_STYLE.md) — applies to edits under `MgDev` and `fdo`.
 - **Shell/template-only changes** — run `bash -n` (or `sh -n`) on every touched script. If `templates/**` changed, re-run `env_setup.sh` and review the regenerated Dockerfiles.
 - **Source-tree changes (`MgDev` or `fdo`)** — a run of `./build_thin.sh` against the **baseline distro** is the required validation. The baseline distro is the latest Ubuntu version supported by the build scripts (currently 22.04).
 - **Memory-leak fixes** — a full run of the affected suite in the baseline Debug container, reporting the before/after leak totals and the direct-record count, plus an update to the matching `docs/*memory-leaks.md`. See [Debugging memory leaks](#debugging-memory-leaks-asanlsan).
+- **Locking/thread-safety changes** — reproduce the failure first (a deadlock proves itself: single-threaded process, no CPU, waiting in `futex_do_wait`), then show the affected suite green. A lock that only exists for Windows cannot be signed off by reading the diff, because the two platforms do not share the semantics being changed — see **Platform locking semantics** above.
 - Full builds are expensive and are not required for every change — use them only when build logic changed or as verification for source-tree edits.
 - Before committing or pushing, re-run the validation relevant to the files you touched.
 
