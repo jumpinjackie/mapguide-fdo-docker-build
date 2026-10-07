@@ -51,6 +51,55 @@ Rules for working with source trees:
 - Node.js — for the `httpyac` integration test suites.
 - `makeself` cloned at `~/makeself` — required by `make_installer.sh`.
 
+## Running commands inside build containers
+
+A "thin" build container is a disposable, distro-specific toolchain: a compiler, the libraries for
+one distro, and whatever SDKs the build installs. Everything durable lives on a mounted host volume
+— the source tree (`/tmp/work/src`), `build_area/`, `sdks/`, `caches/`. Working inside one therefore
+mutates nothing that outlives the container *except the source tree*, which is the point when you
+are making source changes.
+
+So **before running any build, test or verification command in a container, look for a running
+interactive build container and `exec` into it** rather than starting a one-shot container:
+
+```
+. ./container_engine.sh
+$DOCKER_CMD ps --format '{{.ID}}  {{.Image}}  {{.Status}}  {{.Names}}'
+```
+
+`build_thin.sh --interactive` does not pass `--name`, so the container name is auto-generated (for
+example `jolly_johnson`); identify the container by its **image** instead:
+
+| Image | What it is |
+|-------|------------|
+| `fdo_<distro_label>_develop_thin_<cpu>` | FDO thin build container |
+| `mapguide_<distro_label>_develop_thin_<cpu>` | MapGuide thin build container |
+| `<target>_<distro_label>_build_<cpu>` | A build-image container |
+
+Then run commands in it:
+
+```
+$DOCKER_CMD exec <id> bash -lc 'cd /tmp/work/build_area/fdo && cmake --build . --target ...'
+```
+
+The container already has the mounts at their `/tmp/work/...` paths, the engine's user and SELinux
+settings applied, a warm ccache at `/tmp/ccache`, and often FDO already installed under
+`/usr/local/fdo-4.2.0` — so no `--userns=keep-id --user 0`, no `:z`, and no re-install.
+
+Two things to keep in mind:
+
+- Debug and Release are **separate containers and separate build trees**. Check
+  `ls /tmp/work/build_area` and exec into the container whose build configuration matches what you
+  need; that is usually the tree the user is already working in, so you validate the same artefact
+  they will.
+- Container state is not precious. If you change something other than the source tree (installed
+  FDO, files inside the container, environment variables), that is no big deal — the container is
+  disposable and can be killed and recreated in its place. Do not let caution about its state push
+  you into spinning up a parallel one-shot container, or into skipping validation.
+
+With no running container, a one-shot `run --rm` is a fine fallback — see
+[Verifying a leak fix](#verifying-a-leak-fix) for the mount, install and `LD_LIBRARY_PATH` recipe.
+
 ## Common workflows
 
 ### 1. Checkout sources
@@ -122,7 +171,7 @@ or `./make_installer_all.sh` for all combinations.
 
 There are two levels of tests:
 
-1. **Unit/integration tests inside build containers** — `env_test_thin.sh` (thin) or `env_test.sh` (build image) dispatch `templates/scripts/container/run_fdo_tests.sh` / `run_mapguide_tests.sh`. `env_test_thin.sh` attempts to recreate the author's ad-hoc testing inner loop, but **may be flaky**. When debugging, prefer ad-hoc commands inside an interactive build container (`./build_thin.sh ... --interactive`).
+1. **Unit/integration tests inside build containers** — `env_test_thin.sh` (thin) or `env_test.sh` (build image) dispatch `templates/scripts/container/run_fdo_tests.sh` / `run_mapguide_tests.sh`. `env_test_thin.sh` attempts to recreate the author's ad-hoc testing inner loop, but **may be flaky**. When debugging, prefer ad-hoc commands inside an interactive build container (`./build_thin.sh ... --interactive`) — and if one is already running, `exec` into it instead of starting another (see [Running commands inside build containers](#running-commands-inside-build-containers)).
 2. **HTTP API suites** — `test/*.http` are `httpyac` request files run against a live MapGuide server (started via `mapguide_image_install.sh`):
 
    ```
@@ -258,16 +307,18 @@ attaches.
 
 ### Verifying a leak fix
 
-- Run the whole suite in a one-shot Debug container (`--userns=keep-id --user 0`; mount the build
-  area, `logs/test/<suite>`, the source tree, `sdks` and `templates/scripts/container`), then
+- Run the whole suite in the running Debug container first: `$DOCKER_CMD exec` into it, then
   `cmake --build . --target install` and run the runner from `Providers/GenericRdbms/Src/UnitTest`.
-  Read or delete container-written logs through `podman unshare`.
-- Each `run --rm` is a **fresh container**, so the install step is not optional and its effect does
-  not carry over: a provider that the suite loads *by name* (SHP opens `OSGeo.SHP`, for example) is
-  `dlopen`ed, and the installed `/usr/local/fdo-4.2.0/lib64` has no `ld.so.conf` entry, so run with
-  `LD_LIBRARY_PATH=/usr/local/fdo-4.2.0/lib64`. Without it the connection manager cannot load the
-  provider, tests fail with an exception whose teardown then dereferences a NULL connection and the
-  run dies with an unrelated-looking SEGV in the *test* code.
+  Only if no interactive Debug container is running, fall back to a one-shot container
+  (`--userns=keep-id --user 0`; mount the build area, `logs/test/<suite>`, the source tree, `sdks`
+  and `templates/scripts/container`), and read or delete container-written logs through
+  `podman unshare`. See [Running commands inside build containers](#running-commands-inside-build-containers).
+- With the one-shot fallback, each `run --rm` is a **fresh container**, so the install step is not
+  optional and its effect does not carry over: a provider that the suite loads *by name* (SHP opens
+  `OSGeo.SHP`, for example) is `dlopen`ed, and the installed `/usr/local/fdo-4.2.0/lib64` has no
+  `ld.so.conf` entry, so run with `LD_LIBRARY_PATH=/usr/local/fdo-4.2.0/lib64`. Without it the
+  connection manager cannot load the provider, tests fail with an exception whose teardown then
+  dereferences a NULL connection and the run dies with an unrelated-looking SEGV in the *test* code.
 - Export `NLSPATH` at the build tree's generated message catalogues
   (`NLSPATH=$(pwd)/nls/linux/en_US/%N`, from the build area root) when you run a suite binary
   directly instead of through `run_fdo_tests.sh`, which defaults it itself. Without it every test
@@ -341,6 +392,7 @@ See [CPP_STYLE.md](./CPP_STYLE.md) — applies to edits under `MgDev` and `fdo`.
 
 - **Shell/template-only changes** — run `bash -n` (or `sh -n`) on every touched script. If `templates/**` changed, re-run `env_setup.sh` and review the regenerated Dockerfiles.
 - **Source-tree changes (`MgDev` or `fdo`)** — a run of `./build_thin.sh` against the **baseline distro** is the required validation. The baseline distro is the latest Ubuntu version supported by the build scripts (currently 22.04).
+- **Container-based validation** — run it in the container that is already running for that target and build configuration (`$DOCKER_CMD exec`), not in a freshly started one; see [Running commands inside build containers](#running-commands-inside-build-containers).
 - **Memory-leak fixes** — a full run of the affected suite in the baseline Debug container, reporting the before/after leak totals and the direct-record count, plus an update to the matching `docs/*memory-leaks.md`. See [Debugging memory leaks](#debugging-memory-leaks-asanlsan).
 - **Locking/thread-safety changes** — reproduce the failure first (a deadlock proves itself: single-threaded process, no CPU, waiting in `futex_do_wait`), then show the affected suite green. A lock that only exists for Windows cannot be signed off by reading the diff, because the two platforms do not share the semantics being changed — see **Platform locking semantics** above.
 - Full builds are expensive and are not required for every change — use them only when build logic changed or as verification for source-tree edits.
