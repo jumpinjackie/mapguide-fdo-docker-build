@@ -178,6 +178,15 @@ The neutral **statement lifecycle** is:
 LOB locator; the conversion to and from the vendor's native geometry type happens inside the
 driver.
 
+The RDBI type `rdbi_desc_slct` returns is not just bookkeeping: `GdbiQueryResult` uses it both as
+the FDO type `FdoISQLDataReader`/`FdoIFeatureReader` reports for the column and to decide how to
+convert the value out of the buffer. A driver's mapping is therefore only right if it agrees with
+what its schema manager's column-type mapper produces for the same vendor column — a MySQL `INT`
+has to describe as `RDBI_INT` (FDO Int32), and an unsigned one has to widen to `RDBI_LONGLONG`
+(FDO Int64), because it does not fit an `RDBI_INT`. A mismatch shows up as a column reported with
+the wrong FDO type — FDO ticket #227 (`FdoISQLDataReader` returned every MySQL `INT` column as
+`FdoDataType_Double`) — or, when the type is too narrow, as a truncation error at fetch time.
+
 ---
 
 ## 4. What is GDBI?

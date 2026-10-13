@@ -22,7 +22,7 @@ Durable content (edited and committed to git):
 - `templates/**` — distro templates and container scripts that generate Dockerfiles
 - `test/**` — `httpyac` integration test suites (`*.http`)
 - `docs/**` — MapAgent OpenAPI spec (`openapi.yaml`, `swagger.html`), the memory-leak records (`fdo-core-memory-leaks.md`, `fdo-provider-memory-leaks.md`) and `INNER_LOOP_PAIN_POINTS.md`
-- `patches/**` — patches applied to the source trees
+- `patches/atomic.h` — the header the MapGuide `snap.sh` scripts copy into the build tree
 - `dbs/**` — docker-compose fixtures for database-backed tests
 
 Generated content (never hand-edited; gitignored):
@@ -49,7 +49,7 @@ Rules for working with source trees:
 - Both trees track their current release branches. The MapGuide 4.0 branch has diverged significantly from `trunk`; those changes will eventually be merged back into `trunk`. `svn_checkout.sh` currently checks out `trunk` for both trees and is intentionally left as-is — if a fresh checkout lands on `trunk`, switch to the intended branch manually (for example `svn switch https://svn.osgeo.org/mapguide/branches/4.0/MgDev mapguide/MgDev`).
 - Both source trees compile as **C++11** (`CMAKE_CXX_STANDARD 11` in each tree's top-level `CMakeLists.txt`). See [CPP_STYLE.md](./CPP_STYLE.md) for code guidelines.
 - `add_submodules.sh` / `remove_submodules.sh` are placeholders for a hypothetical future where the upstream SVN repositories are migrated to git. They do not work yet — do not use them.
-- `patches/pending.patch` is the **export of this tree's uncommitted FDO diff** — the edits under `fdo/` that exist only here, because neither tree commits upstream. Each hunk header names the revision it was taken from (`(revision N)`), so a consumer applies it with `svn patch <patch>` from the FDO tree root after `svn update`-ing to at least that revision. Regenerate it whenever the uncommitted FDO diff changes.
+- `patches/pending.patch` is a **scratch destination for a `svn diff` dump, not a durable artifact**. `svn diff`, run from the FDO tree root, is piped into it so the whole change set can be read in a text editor before `svn commit`, and the file is deleted afterwards. It sits under `patches/` but, unlike `patches/atomic.h`, it is neither committed to git nor gitignored, so it shows up in `git status` until it goes. Write it when the user asks for the change set to review; otherwise leave it alone — do not keep it in step with the working copy, and never describe it in a commit message (see [Commit messages](#commit-messages-one-scope-per-repository)).
 
 ### Source of truth and history
 
@@ -57,7 +57,38 @@ The local SVN working copies are the only source of truth — `fdo/` and `mapgui
 
 - The GitHub repositories `jumpinjackie/fdo` and `jumpinjackie/fdo_cmake` are **unofficial by-products of abandoned SVN→Git experiments**. They are not authoritative, may be stale or divergent, and must **not** be used as a point of reference or cited for behaviour, capabilities or history.
 - For history, query the working copy with the read-only SVN commands instead of any mirror: `svn log [-l N] [-r REV] path`, `svn blame`, `svn diff -r A:B`, `svn cat -r REV path`, `svn info`. Never `svn commit` (see the rules above).
-- The sibling [mapguide-fdo-build-windows](https://github.com/jumpinjackie/mapguide-fdo-build-windows) repo builds these same upstream branches from its own working copies and consumes `patches/pending.patch`. Neither repo commits upstream, so a source fix made here has to be carried over there through that patch rather than re-derived.
+- The sibling [mapguide-fdo-build-windows](https://github.com/jumpinjackie/mapguide-fdo-build-windows) repo builds these same upstream branches from its own working copies. A source fix made here reaches that repo by `svn update` once it is committed upstream (the user commits; you never do — see the rules above), or by applying the same diff there while it is still uncommitted; what must not happen is the fix being re-derived independently in the other repo. Do not treat `patches/pending.patch` as the transport — it is scratch (see [Source trees](#source-trees)).
+
+### Commit messages: one scope per repository
+
+A single change set here can span two version control systems with two independent histories — this
+git repository, and the SVN working copy (or copies) inside it — so a commit message is written for
+one of them and must **not** mention files the other one owns:
+
+| The changed files are under | They are committed to | The message covers |
+|-----------------------------|-----------------------|--------------------|
+| `fdo/**`, `mapguide/MgDev/**` | the SVN working copy | only those paths |
+| anything else git tracks — top-level `*.sh`, `templates/**`, `test/**`, `docs/**`, `patches/atomic.h`, `dbs/**` | this git repository | only those paths |
+
+- An **SVN** commit message describes **only** what `svn status` / `svn diff` report inside that one
+  working copy. Run `svn diff --summarize` from the working copy root (`fdo/` or
+  `mapguide/MgDev/`) before writing a word of the message, and cover every path it lists. Do not add
+  a section for a path that is not on that list — a `Docs:` bullet for `docs/`, or a `Scripts:`
+  bullet for a top-level `.sh`, is wrong even when the files are part of the same piece of work.
+- The converse holds: a **git** commit message must not describe edits under `fdo/` or
+  `mapguide/MgDev`. `/fdo/` and `/mapguide/MgDev` are gitignored, so git has no record of them and
+  they are not part of any commit you can make here — those edits are committed with `svn commit`,
+  after the user has reviewed the `svn diff` dump.
+- `patches/pending.patch` is a copy of the very diff the message describes, so it must never appear in
+  the message — it is not a path in either change set.
+- The git-tracked files most often mistaken for source-tree content are the `docs/**` pages that
+  describe source-tree fixes (`docs/fdo-core-memory-leaks.md`, `docs/fdo-provider-memory-leaks.md`,
+  `docs/generic-rdbms-framework.md`) and `patches/atomic.h`, which the MapGuide build consumes. They are
+  committed to git, so none of them belongs in an SVN commit message.
+- Verification evidence — the suites and configurations a change was tested with, and the before/after
+  test and leak totals — is a claim about the change rather than a file, and is always welcome in the
+  message. Take the subject and body conventions from that history's own recent messages (`svn log`
+  for the working copy), including how tickets are cited (`#<ticket>`, `Fixes #<ticket>`).
 
 ## Requirements
 

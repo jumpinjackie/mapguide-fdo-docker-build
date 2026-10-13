@@ -29,3 +29,4 @@ test/results/**/*.html
 test/results/**/*.json
 test/results/**/*.png
 test/results/**/*.txt
+patches/pending.patch
