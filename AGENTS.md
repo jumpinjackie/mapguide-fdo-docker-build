@@ -6,6 +6,12 @@ This repository is a docker (or podman) driven build system that builds MapGuide
 
 It is a **virtual monorepo**: a single git repository that orchestrates the build of two externally-versioned source trees. See [CONTEXT.md](./CONTEXT.md) for the glossary of terms used throughout this document.
 
+Read [CPP_STYLE.md](./CPP_STYLE.md) before writing FDO or MapGuide code: it is the ownership contract behind the memory-leak rules below, and nearly every defect an agent has introduced in the source trees was a **lost counted reference**.
+
+## Current cycle
+
+**API/ABI mode: `freeze`** — scope `fdo`, `mapguide`; baseline fdo r8386, MgDev r10218. Change this line when the cycle changes (`freeze` | `additive` | `free`); the rules for each mode are in [Policy gate](#policy-gate-which-mode-are-we-in), and a task may override the line for its own duration.
+
 ## Repository model
 
 ### Durable vs. generated content
@@ -43,6 +49,15 @@ Rules for working with source trees:
 - Both trees track their current release branches. The MapGuide 4.0 branch has diverged significantly from `trunk`; those changes will eventually be merged back into `trunk`. `svn_checkout.sh` currently checks out `trunk` for both trees and is intentionally left as-is — if a fresh checkout lands on `trunk`, switch to the intended branch manually (for example `svn switch https://svn.osgeo.org/mapguide/branches/4.0/MgDev mapguide/MgDev`).
 - Both source trees compile as **C++11** (`CMAKE_CXX_STANDARD 11` in each tree's top-level `CMakeLists.txt`). See [CPP_STYLE.md](./CPP_STYLE.md) for code guidelines.
 - `add_submodules.sh` / `remove_submodules.sh` are placeholders for a hypothetical future where the upstream SVN repositories are migrated to git. They do not work yet — do not use them.
+- `patches/pending.patch` is the **export of this tree's uncommitted FDO diff** — the edits under `fdo/` that exist only here, because neither tree commits upstream. Each hunk header names the revision it was taken from (`(revision N)`), so a consumer applies it with `svn patch <patch>` from the FDO tree root after `svn update`-ing to at least that revision. Regenerate it whenever the uncommitted FDO diff changes.
+
+### Source of truth and history
+
+The local SVN working copies are the only source of truth — `fdo/` and `mapguide/MgDev`. Search and read them in place (grep, glob, LSP).
+
+- The GitHub repositories `jumpinjackie/fdo` and `jumpinjackie/fdo_cmake` are **unofficial by-products of abandoned SVN→Git experiments**. They are not authoritative, may be stale or divergent, and must **not** be used as a point of reference or cited for behaviour, capabilities or history.
+- For history, query the working copy with the read-only SVN commands instead of any mirror: `svn log [-l N] [-r REV] path`, `svn blame`, `svn diff -r A:B`, `svn cat -r REV path`, `svn info`. Never `svn commit` (see the rules above).
+- The sibling [mapguide-fdo-build-windows](https://github.com/jumpinjackie/mapguide-fdo-build-windows) repo builds these same upstream branches from its own working copies and consumes `patches/pending.patch`. Neither repo commits upstream, so a source fix made here has to be carried over there through that patch rather than re-derived.
 
 ## Requirements
 
@@ -91,7 +106,8 @@ Two things to keep in mind:
 - Debug and Release are **separate containers and separate build trees**. Check
   `ls /tmp/work/build_area` and exec into the container whose build configuration matches what you
   need; that is usually the tree the user is already working in, so you validate the same artefact
-  they will.
+  they will. They are also different runtimes, so never install or copy a library between them — see
+  [Same source is not the same runtime](#same-source-is-not-the-same-runtime).
 - Container state is not precious. If you change something other than the source tree (installed
   FDO, files inside the container, environment variables), that is no big deal — the container is
   disposable and can be killed and recreated in its place. Do not let caution about its state push
@@ -279,17 +295,25 @@ the nodes whose stack reference an action already consumed).
   raw too. Child-to-parent links are non-owning.
 - **Empty or nameless catches swallow `FdoException*`** — `catch (...)`, `catch (FdoException*) {}`,
   and `catch (FdoException*) { return; }` all leak the exception and its message. Name it, assert on
-  it, then `FDO_SAFE_RELEASE` it.
+  it, then `FDO_SAFE_RELEASE` it. An exception nested as another exception's *cause* is AddRef'd by
+  the new exception, so the caught reference itself still has to be released.
 - **Constructors and destructors that skip uninitialised state** — a ctor that leaves member slots
   indeterminate plus a dtor gated on `qid != -1`, an open connection or a non-NULL member leaks every
   slot that was never initialised (see `FdoRdbmsPvcInsertHandler`).
+- **A constructor that throws runs no destructor** — anything it allocated or AddRef'd before the
+  throw leaks; release each member as the constructor goes, in a `catch (...) { ...; throw; }`.
+- **A container of raw pointers does not release its elements** — `std::map::clear()`, a defaulted
+  destructor and a `std::vector<FdoX*>` all leave every element's reference standing; own the
+  contents with an explicit release loop, or hold the elements as `FdoPtr` where the container allows.
 - **C failure paths that return an error without freeing what they just allocated** — a failed
   `mysql_real_connect` without `mysql_close`, a dropped `new[]` buffer.
 
 `FdoPtr<>` is vetted **only** as a local variable or a class member — never as an STL container
 element, parameter or return type. Its semantics: `FdoPtr(T*)` *attaches* (no AddRef), the copy
 constructor and `operator=(const FdoPtr&)` AddRef, and `operator=(T*)` releases the old value then
-attaches.
+attaches. `FdoIDisposable::Release()` returns the new reference count ("value for debugging use
+only"), which is the cheapest leak probe there is: print it at teardown and an object that should be
+gone shows `1`.
 
 ### Instrumentation, when the report cannot name the lost reference
 
@@ -367,6 +391,58 @@ attaches.
   do" after a provider edit. Build the library target instead (`SQLiteProvider-4.2.0`) and re-run the
   registry that hung (`./UnitTest SelectTest`).
 
+## FDO API/ABI compatibility
+
+A provider is a separate shared library that the core loads at runtime, so core and providers have an ABI relationship even though they ship from one tree. Most changes under `fdo` cannot affect it — and knowing which ones can is what makes an "is this a breaking change?" question quick to answer.
+
+### What is actually public
+
+The SDK install manifest is the authority; do not infer the public surface from directory names. The shipped include tree (`install_manifest.txt` in the build area) is:
+
+- `Fdo/`, `Common/`, `Geometry/`, `Spatial/`, `ExpressionEngine/`
+- the top-level `Fdo.h`, `FdoCommon.h`, `FdoGeometry.h`, `FdoSpatial.h`, `FdoLimits.h`, `FdoMessage.h`, `FdoStd.h`
+- `Rdbms/` and the `SDF/`, `SHP/`, `WMS/`, `KingOracle/`, `GdalFile/` provider directories
+
+`Utilities/SchemaMgr/**` and `Utilities/TestCommon/**` are **not** shipped. `SchemaMgr` is built with `add_library(... STATIC)`, so it is compiled into every provider rather than linked from a shared object: its headers are a compile-time boundary only and cannot break a binary swap. The other `Providers/**` headers are not installed either.
+
+The provider↔core contract is a single symbol, `CreateConnection`, resolved with `dlsym` / `GetProcAddress` (see `Fdo/Unmanaged/Src/Fdo/ClientServices/ProviderDef.h`). `_load`/`_unload` were never part of it. On Windows the export mechanism is `FDO_API`/`FDORDBMS_API` = `__declspec(dllexport)`, with no FDO `.def` export lists to keep in step.
+
+### Same source is not the same runtime
+
+A Debug and a Release build of the same source are **different runtimes**, not the same runtime at different speed, so a library copied between them is not a compatibility test:
+
+- Debug is ASan/LSan-instrumented and Release is not. An instrumented provider loaded by a non-instrumented core (or the reverse) is a mismatched allocator and runtime, and ASan insists on being first in the initial library list.
+- The two configurations differ in optimisation, and therefore in what the object code expects at a boundary — see the NULL-`this` note in [CPP_STYLE.md](./CPP_STYLE.md).
+
+Keep each tree's `build_area/**` and installed FDO (`/usr/local/fdo-4.2.0`) belonging to the configuration being built, and reinstall FDO in the tree that consumes it rather than pointing one configuration at the other's artefacts. This is the Linux counterpart of the Windows rule that a provider DLL and `FDO.dll` must share toolset and flag flavour (`/MD` vs `/MDd`, `_ITERATOR_DEBUG_LEVEL`).
+
+### Checking a revision range
+
+1. **Source.** `svn diff -r A:B --summarize`, then keep only the paths under an `Inc/` directory. For those, `svn diff -r A:B <paths> | grep -E '^[-+].*virtual'` answers the question that matters most: was a virtual function added, removed or reordered?
+2. **Symbols.** Diff `nm -D --defined-only` over the shipped `lib64` of the old and new SDKs. A removed symbol is only a break if something imported it — check for undefined references to it in both the old and the new binaries before reporting one.
+3. **Old providers.** Resolve every provider `.so` in the *previous* SDK against the union of the current build's exports. Anything unresolved is a genuine hot-swap break.
+4. **Layout.** Compile a `sizeof`/`offsetof` probe against the previous SDK's `include/` and against the current headers, and diff the output. `FdoPtr<T>` holds exactly one `T*`, so an `FdoPtr<X>` member becoming a plain `X*` is size-, offset- and vtable-neutral — as is adding a `static` member function, or an override of a virtual that already exists in a base class. Adding a data member to a class in a *shipped* header is the change that is not safe.
+
+The baselines are already on disk, so this needs no extra build: `artifacts/<conf>/fdosdk-<ver>.<rev>-<distro>-<arch>.tar.gz` names the revision that produced it, and any `build_area/**/_CPack_Packages/**/TGZ/fdosdk-*/` staging tree has the same `include/` and `lib64/`. Windows binaries do not need a Windows host to inspect — `llvm-readobj --coff-exports`, `objdump -p` and `pefile` all read PE exports and imports on Linux.
+
+### Policy gate: which mode are we in?
+
+The mode is the line in [Current cycle](#current-cycle) at the top of this file. Read it before touching anything under `Fdo/Unmanaged/Inc/**`, `Utilities/**/Inc/**`, a shipped provider header, or before removing or renaming anything a shipped library exports — and state the mode you assumed when you report the change.
+
+- **`freeze`** — the maintenance cycle. The [checking a revision range](#checking-a-revision-range) steps are mandatory for any change that could reach the shipped surface, and a change that would break it is escalated, not made: if a task seems to need one, stop and ask rather than reformulating the task so that it avoids the question.
+- **`additive`** — still shipping, no longer changing shape. New interfaces, new classes and new non-virtual members are fine. Changing an existing virtual in any way (adding, removing, reordering) is not, and neither is changing a data member of a shipped class: appending a virtual "at the end" still breaks every provider that implements the interface.
+- **`free`** — feature development. Change the surface deliberately, but not silently: name the removed or renamed symbols and the changed layouts in the change description, so the baseline can be re-cut. The blast radius is a coordination problem rather than a compatibility one, and it outlives the cycle change — a provider-ABI break invalidates every provider in the SDK, and `mapguide` consumes the FDO SDK tarball from `artifacts/`, so FDO and MapGuide have to be rebuilt and released together.
+
+An explicit instruction in the task ("we are in feature development now, ignore the freeze") overrides the line for that task only; say which one you followed. Only the mode line's *value* is cycle state — everything else in this section is durable guidance and should not be edited to change the mode. The baseline revisions in that line are the ones the frozen surface was taken from when the cycle opened, not the trees' current revision, so they are expected to fall behind as the branches advance; do not "refresh" them.
+
+## ELF symbol interposition and library init hooks
+
+Interposition is the other way the core/provider boundary surprises you, and it is ELF-only. A symbol with default visibility that more than one shared library in the process defines is resolved by link order, not by which library "owns" it. `libFDO`'s initialiser called a global `_load()` while the GenericRdbms providers defined their own `_load()` as an ELF constructor, so the call could bind to a provider's definition: the geometry package's TLS key was never created and `threadDataKey_S` stayed at its `0` sentinel. The fix was to rename the hooks uniquely (`FdoGeometryThreadDataLoad`) and give them hidden visibility.
+
+- Internal init/teardown hooks get a unique name and hidden visibility. Never introduce a function-scope `extern` with a generic name (`_load`, `_unload`, `init`, `cleanup`) that another library in the process might also define.
+- That code must stay inside the non-Windows branch: `__attribute__((constructor))` and `__attribute__((visibility(...)))` are GCC/Clang only, and the Windows build uses `DllMain` instead. An attribute that escapes into the `#ifdef _WIN32` path breaks the MSVC build. The geometry, `Fdo.cpp` and provider hooks are all split this way — keep them split.
+- On PE there is no equivalent hazard, because an import is bound to a named DLL. A fix here is not a Windows fix and does not change the Windows export tables.
+
 ## Code style guidelines (shell)
 
 1. **Container engine** — source `./container_engine.sh` and use `$DOCKER_CMD` (plus `$DOCKER_RUN_EX_ARGS`, `$DOCKER_VOLUME_OPT`, `$DOCKER_RUN_AS_ROOT_ARGS`). Never hardcode `docker` or `podman`. Append `$DOCKER_VOLUME_OPT` to **every** host-path `-v` mount. It is `:z` (shared SELinux label) when SELinux is enforcing, because the same tree is mounted by the build, test, installer and interactive containers: a private (`:Z`) label can only be held by one container at a time, so a second `:Z` mount relabels the tree and any container already running loses access to its own mounts (`EACCES`/`Permission denied`, even as root, since `CAP_DAC_OVERRIDE` does not bypass SELinux). A force-created `:Z` will break a running interactive container for as long as the shared label is not restored (`podman unshare chcon -R -t container_file_t -l s0 <tree>`).
@@ -390,8 +466,10 @@ See [CPP_STYLE.md](./CPP_STYLE.md) — applies to edits under `MgDev` and `fdo`.
 
 ## Validation (definition of done)
 
-- **Shell/template-only changes** — run `bash -n` (or `sh -n`) on every touched script. If `templates/**` changed, re-run `env_setup.sh` and review the regenerated Dockerfiles.
+- **Shell/template-only changes** — run `bash -n` (or `sh -n`) on every touched script. If `templates/**` changed, re-run `env_setup.sh` and review the regenerated Dockerfiles. Also check `git status` for files the scripts wrote outside the gitignored paths.
 - **Source-tree changes (`MgDev` or `fdo`)** — a run of `./build_thin.sh` against the **baseline distro** is the required validation. The baseline distro is the latest Ubuntu version supported by the build scripts (currently 22.04).
+- **Release vs Debug** — a Debug (ASan) pass does not validate the Release build. Release's optimiser assumes `this` is never NULL and deletes the NULL guards that Debug's `-O0` keeps, so a suite can pass in Debug and segfault in Release; run the affected suite in **both** configurations. See the NULL-`this` note in [CPP_STYLE.md](./CPP_STYLE.md).
+- **Shipped-header changes** — check the [current mode](#current-cycle) first. A change to a header the SDK installs can move the provider-facing ABI; see [FDO API/ABI compatibility](#fdo-apiabi-compatibility) for how to rule it in or out.
 - **Container-based validation** — run it in the container that is already running for that target and build configuration (`$DOCKER_CMD exec`), not in a freshly started one; see [Running commands inside build containers](#running-commands-inside-build-containers).
 - **Memory-leak fixes** — a full run of the affected suite in the baseline Debug container, reporting the before/after leak totals and the direct-record count, plus an update to the matching `docs/*memory-leaks.md`. See [Debugging memory leaks](#debugging-memory-leaks-asanlsan).
 - **Locking/thread-safety changes** — reproduce the failure first (a deadlock proves itself: single-threaded process, no CPU, waiting in `futex_do_wait`), then show the affected suite green. A lock that only exists for Windows cannot be signed off by reading the diff, because the two platforms do not share the semantics being changed — see **Platform locking semantics** above.
@@ -403,6 +481,7 @@ See [CPP_STYLE.md](./CPP_STYLE.md) — applies to edits under `MgDev` and `fdo`.
 - **ASLR/ASAN on Ubuntu 22.04 hosts** — set `sudo sysctl vm.mmap_rnd_bits=28` before building; see `README.md` for details.
 - **WSL2** — use Docker Desktop; Rancher Desktop is not suitable.
 - **`env_test_thin.sh` may be flaky** — prefer an interactive build container for debugging.
+- **The WFS and WMS suites query live public servers** (for example `services.ga.gov.au`, `services.land.vic.gov.au`), so treat their failures as environmental until a change in the tree is proven to be the cause.
 - MapGuide has not been tested on Ubuntu versions older than 22.04.
 - 32-bit (`x86`) Linux builds are not supported.
 - `make_installer.sh` requires `makeself` at `~/makeself`.

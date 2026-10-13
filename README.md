@@ -271,7 +271,7 @@ The King Oracle suite takes no init file. `run_fdo_tests.sh` points it at the co
 
 `host.docker.internal` works under Podman and Docker Desktop, and under Docker on Linux when the container is run with `--add-host=host.docker.internal:host-gateway`; Podman also provides the native alias `host.containers.internal`. To target a different host, edit the `service=` value in the file.
 
-> The ODBC suite has no equivalent init file here: on Linux its DSNs must be configured separately, as the dynamic DSN setup in the FDO sources is Windows-only.
+> The ODBC suite has no equivalent init file here: on Linux its DSNs must be configured separately, as the dynamic DSN setup in the FDO sources is Windows-only. What the provider can and cannot open on Linux — and why the `.xls`/`.mdb`/`.dbf`/`.txt` story has no Linux equivalent of the Windows Access Database Engine — is in [docs/odbc-linux-support.md](./docs/odbc-linux-support.md).
 
 ## 5. Running integration test suites
 

@@ -19,6 +19,12 @@ One of the two externally-versioned trees checked out into this repository:
 Both are Subversion (SVN) working copies. The working tree may be edited freely, but
 changes must never be committed back to SVN (no `svn` write commands).
 
+## API/ABI mode
+
+The phase the source trees are in with respect to their shipped public surface: `freeze` (it
+must not change), `additive` (it may grow, but must not change shape) or `free` (it may
+change deliberately). The current mode is recorded in `AGENTS.md`.
+
 ## Target
 
 The product being built: either `mapguide` or `fdo`.
