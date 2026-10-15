@@ -25,7 +25,7 @@ services:
     environment:
       POSTGRES_USER: "postgres"
       POSTGRES_PASS: "changeme"
-      POSTGRES_MULTIPLE_EXTENSIONS: "postgis"
+      POSTGRES_MULTIPLE_EXTENSIONS: "postgis,pgrouting"
       POSTGRES_DB: "template_postgis"
   postgis_pg12:
     image: "kartoza/postgis:12.0"
@@ -34,7 +34,7 @@ services:
     environment:
       POSTGRES_USER: "postgres"
       POSTGRES_PASS: "changeme"
-      POSTGRES_MULTIPLE_EXTENSIONS: "postgis"
+      POSTGRES_MULTIPLE_EXTENSIONS: "postgis,pgrouting"
       POSTGRES_DB: "template_postgis"
   postgis_pg14:
     image: "kartoza/postgis:14-3.3"
@@ -43,7 +43,7 @@ services:
     environment:
       POSTGRES_USER: "postgres"
       POSTGRES_PASS: "changeme"
-      POSTGRES_MULTIPLE_EXTENSIONS: "postgis"
+      POSTGRES_MULTIPLE_EXTENSIONS: "postgis,pgrouting"
       POSTGRES_DB: "template_postgis"
   postgis_pg16:
     image: "kartoza/postgis:16-3.4"
@@ -52,7 +52,7 @@ services:
     environment:
       POSTGRES_USER: "postgres"
       POSTGRES_PASS: "changeme"
-      POSTGRES_MULTIPLE_EXTENSIONS: "postgis"
+      POSTGRES_MULTIPLE_EXTENSIONS: "postgis,pgrouting"
       POSTGRES_DB: "postgis_30_sample"
       # NOTE: Disable pg_cron, otherwise it will hold an "exclusive lock" on the template db
       # preventing database creation from working
