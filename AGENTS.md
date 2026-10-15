@@ -474,6 +474,29 @@ Interposition is the other way the core/provider boundary surprises you, and it 
 - That code must stay inside the non-Windows branch: `__attribute__((constructor))` and `__attribute__((visibility(...)))` are GCC/Clang only, and the Windows build uses `DllMain` instead. An attribute that escapes into the `#ifdef _WIN32` path breaks the MSVC build. The geometry, `Fdo.cpp` and provider hooks are all split this way — keep them split.
 - On PE there is no equivalent hazard, because an import is bound to a named DLL. A fix here is not a Windows fix and does not change the Windows export tables.
 
+### #965: the deferred static destructors are harmless — do not try to "fix" them
+
+GCC's default `-fgnu-unique` emits a `STB_GNU_UNIQUE` symbol for vague-linkage data: the `static Fdo…[] = {...}`
+tables declared inside member functions in the provider `*Capabilities` headers, and function-local statics in
+inline functions such as `fdo::node_generic_mul4::set_empty()::empty` in `Fdo/Unmanaged/Src/Spatial/rtree.h`. As
+soon as glibc resolves one it refuses to unload that DSO (`LD_DEBUG=files` prints `activating NODELETE for …` and
+never `destroying`), and because `libFDO` holds relocation dependencies on the providers (`… needed by
+libFDO-4.2.0.so (relocation dependency)`), one unique symbol pins the whole group. `dlclose()` therefore unloads
+nothing and no teardown runs while the process lives. That is ticket #965, and it is not worth fixing:
+
+- The destructors are deferred, not lost — `_dl_fini` runs `.fini_array` and `__cxa_finalize` for every still-loaded
+  DSO at process exit, `NODELETE` or not. This is why a post-`dlclose` `/proc/self/maps` check and `LD_DEBUG` are
+  the way to see the pinning, and why a suite that still exits `OK` is no evidence that teardown ran.
+- What they release is bounded process-lifetime state (sqlite3's optional global init, one 56-byte `ProjConverter`,
+  GDAL's driver manager, one pthread key/mutex per GenericRdbms provider), and the DSO is never reloaded, so
+  nothing goes stale and nothing grows unboundedly.
+- LeakSanitizer is unaffected either way: its check runs before `_dl_fini`, so those frees never reach the report.
+- The `__attribute__((destructor))` teardown the ticket proposes does nothing on its own — the same pinning defeats
+  it — and would run the teardown *twice* at exit, because both callbacks are exit-time on Linux.
+- Forcing the unload (`-fno-gnu-unique`) was measured and is harmful: `libWMSProvider` segfaults on `dlclose()`
+  (GDAL register-then-destroy followed by unloading libgdal; reproducible from a libgdal-only DSO), and the OGR
+  suite gains a leak record and a second static init. Do not re-attempt it.
+
 ## Code style guidelines (shell)
 
 1. **Container engine** — source `./container_engine.sh` and use `$DOCKER_CMD` (plus `$DOCKER_RUN_EX_ARGS`, `$DOCKER_VOLUME_OPT`, `$DOCKER_RUN_AS_ROOT_ARGS`). Never hardcode `docker` or `podman`. Append `$DOCKER_VOLUME_OPT` to **every** host-path `-v` mount. It is `:z` (shared SELinux label) when SELinux is enforcing, because the same tree is mounted by the build, test, installer and interactive containers: a private (`:Z`) label can only be held by one container at a time, so a second `:Z` mount relabels the tree and any container already running loses access to its own mounts (`EACCES`/`Permission denied`, even as root, since `CAP_DAC_OVERRIDE` does not bypass SELinux). A force-created `:Z` will break a running interactive container for as long as the shared label is not restored (`podman unshare chcon -R -t container_file_t -l s0 <tree>`).

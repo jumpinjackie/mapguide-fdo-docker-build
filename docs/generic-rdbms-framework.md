@@ -187,6 +187,20 @@ has to describe as `RDBI_INT` (FDO Int32), and an unsigned one has to widen to `
 the wrong FDO type — FDO ticket #227 (`FdoISQLDataReader` returned every MySQL `INT` column as
 `FdoDataType_Double`) — or, when the type is too narrow, as a truncation error at fetch time.
 
+The *name* `rdbi_desc_slct` returns is the bare column name, never a table-qualified one: each
+driver reports the name its vendor client gives it (MySQL's `MYSQL_FIELD.name`, PostgreSQL's
+`PQfname`, ODBC's `SQLDescribeCol`), so a join that selects a same-named column from two tables
+describes both with that one name. `FdoRdbmsSQLDataReader` restores the distinguishability the
+interface needs when it builds its column list: the first occurrence keeps the name and each later
+one gets a `$<n>` suffix (`SHARED_COL`, `SHARED_COL$1`, …), which is what makes every column
+reachable by name. That name generator is a generic-layer concern, so it covers every
+GenericRdbms provider — FDO ticket #228 (`GetColumnName` could not distinguish `table1.column1`
+from `table2.column1`) was the unsequenced `*(dest + propsize + 1 + idx) = buffer[idx++]` in it:
+the digit landed one slot past the NUL terminator, which left the name unchanged and spun the
+retry loop forever as soon as a third select-list item repeated a name. The King Oracle provider
+does not sit on this reader; its own `c_KgOraSQLDataReader` constructor disambiguates the same way
+for its own SQL reader.
+
 ---
 
 ## 4. What is GDBI?
