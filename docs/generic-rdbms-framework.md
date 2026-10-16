@@ -397,6 +397,49 @@ tables, and commits. The lock and the metadata updates are both conditional on t
 FDO-enabled (`GetHasMetaSchema()`); a provider that can apply a schema without a metaschema does
 so without them.
 
+### Identifier quoting: one delimiter per provider
+
+Every name the framework puts into a statement is formatted by the physical manager rather than by
+the code that needs it: `FdoSmPhMgr::GetSQLObjectName`
+([`Utilities/SchemaMgr/Inc/Sm/Ph/Mgr.h`](Utilities/SchemaMgr/Inc/Sm/Ph/Mgr.h)) wraps a name
+in `GetSQLObjectNameDelimiter()`, and `GetSQLAliasName` does the same for a select-list alias. The
+default delimiter is the ANSI double quote, and it is empty for a provider whose
+`SupportsAnsiQuotes()` returns false; **MySQL overrides both** — `SupportsAnsiQuotes()` is false and
+the delimiter is the backtick, MySQL's own identifier quote.
+
+That is **FDO ticket #229**: the provider should delimit its identifiers with MySQL's own backtick
+rather than with the ANSI double quote.
+The provider used to delimit every identifier with `"` and get away with it because RDBI put each
+connection into `sql_mode='ANSI_QUOTES'` in `mysql_connect`
+([`Src/MySQL/Driver/connect.cpp`](Providers/GenericRdbms/Src/MySQL/Driver/connect.cpp)). That mode
+redefines the double quote, so it also turned MySQL's ordinary `"..."` string literal into an
+identifier, and because RDBI *assigned* `ANSI_QUOTES` to `sql_mode` rather than adding it, it
+replaced the server's own mode — strict mode, `ONLY_FULL_GROUP_BY`, `NO_ZERO_DATE` — for the life of
+every connection the provider opened. The provider now quotes natively and leaves the session's SQL
+mode as the server set it. Two consequences when working on this:
+
+- a native statement a test issues has to quote with the provider's delimiter:
+  `UnitTestUtil::GetSQLObjectName` exists for that. Raw `"..."` in a MySQL statement is a **string
+  literal**, not an identifier, so it is not a portable way to write a table name in a test;
+- a provider that does not delimit identifiers at all still gets the double-quoted select-list alias
+  it has always had: an alias introduces a name, so it is not subject to the identifier-quoting
+  restrictions that make `SupportsAnsiQuotes()` false for that provider.
+
+Leaving the session's `sql_mode` alone means the server's own mode now applies to everything the
+provider runs, which is the point — but it also stopped hiding two things RDBI's clobber used to
+paper over, and both are fixed:
+
+- `ONLY_FULL_GROUP_BY` (on by default in MySQL 5.7 and 8.0) rejects an `ORDER BY` naming a column a
+  `DISTINCT` select list does not carry. The MySQL provider's bulk primary-key and column readers
+  ordered by `ordinal_position` without selecting it, so both now select the column *last* — last
+  because a row field is bound to its result column by position, in
+  [`Src/SchemaMgr/Ph/Rd/QueryReader.cpp`](Providers/GenericRdbms/Src/SchemaMgr/Ph/Rd/QueryReader.cpp).
+- Strict mode (`STRICT_TRANS_TABLES`, `NO_ZERO_DATE`) now rejects the values the server used to
+  accept silently. `MySqlFdoInsertTest::insertDate` inserts `0000-00-00 01:11:00` and so fails
+  against a default MySQL 8 server, where the same suite passes against MySQL 5.6 (`NO_ZERO_DATE` is
+  not in 5.6's default mode). That is the server's configuration being honoured, not a provider
+  defect.
+
 ---
 
 ## 7. A SELECT, end to end

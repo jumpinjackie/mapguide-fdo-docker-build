@@ -11,6 +11,8 @@ TEST_WFS=0
 TEST_ODBC=
 TEST_MYSQL=
 TEST_POSTGIS=
+TEST_SQLSERVER=
+TEST_SQLSERVER_PERF=0
 TEST_ORACLE=0
 TEST_LOG_PATH=$(pwd)
 
@@ -121,6 +123,13 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             TEST_POSTGIS="$2"
             shift
             ;;
+        --with-sqlserver-init)
+            TEST_SQLSERVER="$2"
+            shift
+            ;;
+        --with-sqlserver-perf)
+            TEST_SQLSERVER_PERF=1
+            ;;
         --with-oracle)
             TEST_ORACLE=1
             ;;
@@ -179,6 +188,8 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             echo "  --with-odbc-init [Run ODBC Tests against provided init file]"
             echo "  --with-mysql-init [Run MySQL Tests against provided init file]"
             echo "  --with-postgis-init [Run PostGIS Tests against provided init file]"
+            echo "  --with-sqlserver-init [Run SQL Server Spatial Tests against provided init file]"
+            echo "  --with-sqlserver-perf [Set FDO_SQS_PERF=1 for the SQL Server Spatial suite]"
             echo "  --with-fdocore [Run the FDO Core suite]"
             echo "  --with-sdf [Run the SDF suite]"
             echo "  --with-sqlite [Run the SQLite suite]"
@@ -203,6 +214,7 @@ done
 [ -n "$TEST_ODBC" ] && [ ! -f "$TEST_ODBC" ] && echo "WARNING: ODBC init file not found: $TEST_ODBC (suite will be skipped)"
 [ -n "$TEST_POSTGIS" ] && [ ! -f "$TEST_POSTGIS" ] && echo "WARNING: PostGIS init file not found: $TEST_POSTGIS (suite will be skipped)"
 [ -n "$TEST_MYSQL" ] && [ ! -f "$TEST_MYSQL" ] && echo "WARNING: MySQL init file not found: $TEST_MYSQL (suite will be skipped)"
+[ -n "$TEST_SQLSERVER" ] && [ ! -f "$TEST_SQLSERVER" ] && echo "WARNING: SQL Server Spatial init file not found: $TEST_SQLSERVER (suite will be skipped)"
 
 # Bail out early if nothing is selected, otherwise the run would silently do nothing
 SELECTED_SUITES=0
@@ -218,6 +230,7 @@ SELECTED_SUITES=0
 [ -f "$TEST_ODBC" ] && SELECTED_SUITES=$((SELECTED_SUITES + 1))
 [ -f "$TEST_POSTGIS" ] && SELECTED_SUITES=$((SELECTED_SUITES + 1))
 [ -f "$TEST_MYSQL" ] && SELECTED_SUITES=$((SELECTED_SUITES + 1))
+[ -f "$TEST_SQLSERVER" ] && SELECTED_SUITES=$((SELECTED_SUITES + 1))
 
 if [ "$SELECTED_SUITES" -eq 0 ]; then
     echo "ERROR: No test suites selected, nothing to run."
@@ -261,6 +274,21 @@ echo "FDO install completed in $(format_elapsed $((SECONDS - INSTALL_START)))"
 # one using a non-ASCII value -- failing.
 locale-gen en_US en_US.UTF-8 fr_FR ja_JP.EUC-JP
 update-locale
+
+# FDO's narrow (char) ODBC path emits UTF-8, and unixODBC converts that narrow SQL to wide using
+# LC_CTYPE. A C program starts in the "C" locale no matter what the environment says, so the suites
+# call setlocale() themselves (Thirdparty/cppunit/HostApp/TestMain.cpp) -- but that only helps if the
+# environment asks for a UTF-8 LC_CTYPE. In the "C" locale the driver reads the UTF-8 bytes as
+# Latin-1, so a non-ASCII name in a statement literal matches nothing and the statement silently
+# returns no rows; that is how the SQL Server provider's schema-attribute lookups failed. Only
+# LC_CTYPE is defaulted: LC_NUMERIC and LC_COLLATE stay in the "C" locale the suites expect.
+if [ -z "$LC_CTYPE" ] && [ -z "$LC_ALL" ]; then
+    LC_CTYPE=C.UTF-8
+    export LC_CTYPE
+    LC_CTYPE_DEFAULTED=1
+fi
+
+echo "LC_CTYPE: $LC_CTYPE${LC_CTYPE_DEFAULTED:+ (defaulted by this script)}"
 
 echo "Starting unit tests"
 
@@ -342,6 +370,23 @@ then
     start_suite "MySQL"
     ./UnitTestMySql initfiletest=$TEST_MYSQL >& $TEST_LOG_PATH/MySql_unit_test_log.txt
     check_for_errors $? "MySql unit test returned an error, please check $TEST_LOG_PATH/MySql_unit_test_log.txt for more information" "0" "$TEST_LOG_PATH/MySql_unit_test_log.txt"
+    popd >& /dev/null
+fi
+
+if [ -f "$TEST_SQLSERVER" ];
+then
+    pushd Providers/GenericRdbms/Src/UnitTest >& /dev/null
+    start_suite "SQL Server Spatial"
+    if [ "$TEST_SQLSERVER_PERF" == "1" ]; then
+        # FDO_SQS_PERF=1 opts the provider in to the round-trip reductions
+        # (memoized SQLDescribeParam() and the cached database object catalog).
+        # Any other value, including unset, keeps the original behaviour, so the
+        # flag is off unless --with-sqlserver-perf asks for it.
+        FDO_SQS_PERF=1 ./UnitTestSQLServerSpatial initfiletest=$TEST_SQLSERVER >& $TEST_LOG_PATH/SqlServerSpatial_unit_test_log.txt
+    else
+        ./UnitTestSQLServerSpatial initfiletest=$TEST_SQLSERVER >& $TEST_LOG_PATH/SqlServerSpatial_unit_test_log.txt
+    fi
+    check_for_errors $? "SqlServerSpatial unit test returned an error, please check $TEST_LOG_PATH/SqlServerSpatial_unit_test_log.txt for more information" "0" "$TEST_LOG_PATH/SqlServerSpatial_unit_test_log.txt"
     popd >& /dev/null
 fi
 

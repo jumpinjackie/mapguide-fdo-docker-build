@@ -86,6 +86,14 @@ services:
       MYSQL_ROOT_PASSWORD: "fdotest"
     cap_add:
       - SYS_NICE  # CAP_SYS_NICE
+  # Two SQL Server fixtures, because the Windows and Linux SQL Server Spatial suites must not share an
+  # instance. Both derive their datastore name from the OS account (`fdo_<account>`: `fdo_user` there,
+  # `fdo_root` here), and FdoDatastoreTest enumerates, creates and destroys datastores server-wide —
+  # which its own documentation says assumes a private server. They run on different ports so both
+  # can be up at once.
+
+  # The Windows suite's instance: port 1433 and the image's default collation, unchanged, because
+  # mapguide-fdo-build-windows points its harness at port 1433.
   mssql:
     image: "mcr.microsoft.com/mssql/server:2017-latest"
     ports:
@@ -95,3 +103,23 @@ services:
       ACCEPT_EULA: "Y"
     volumes:
       - ./db_tmp:/tmp
+
+  # The Linux suite's own instance, which templates/scripts/container/test_init/SqlServerSpatialInit.txt
+  # points at. Case-sensitive collation, for the same reason mysql_56 pins latin1_bin below: a datastore
+  # created without an explicit collation inherits the server's, and the stock default
+  # (SQL_Latin1_General_CP1_CI_AS) makes the unique index on f_classdefinition(classname, schemaname)
+  # reject two classes whose names differ only in case, failing FdoApplySchemaTest::TestSchema for an
+  # environmental reason rather than a provider one.
+  #
+  # MSSQL_COLLATION is only honoured when the server is created and only by SQL Server 2017, so a
+  # changed value needs the container recreated, not restarted. There is deliberately no ./db_tmp
+  # bind here: SQL Server keeps its databases in /var/opt/mssql, which no fixture persists, and
+  # leaving /tmp unshared keeps the two instances independent.
+  mssql_cs:
+    image: "mcr.microsoft.com/mssql/server:2017-latest"
+    ports:
+      - "1434:1433"
+    environment:
+      SA_PASSWORD: "Sql2016!"
+      ACCEPT_EULA: "Y"
+      MSSQL_COLLATION: "Latin1_General_CS_AS"

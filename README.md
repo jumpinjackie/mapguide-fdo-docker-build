@@ -227,10 +227,11 @@ To run *every* suite the runner supports in one go — the six defaults plus WMS
 /tmp/work/scripts/run_fdo_tests.sh --log-path /tmp/work/artifacts/test-logs --fdo-build-dir /tmp/work/build_area/fdo \
     --with-wms --with-wfs --with-oracle \
     --with-mysql-init /tmp/work/scripts/test_init/MySqlInit.txt \
-    --with-postgis-init /tmp/work/scripts/test_init/PostGisInit.txt
+    --with-postgis-init /tmp/work/scripts/test_init/PostGisInit.txt \
+    --with-sqlserver-init /tmp/work/scripts/test_init/SqlServerSpatialInit.txt
 ```
 
-The PostGIS, MySQL and King Oracle suites need the `dbs` compose stack running first; ODBC has no shipped init file, so add `--with-odbc-init <file>` of your own to include it. WMS and WFS need outbound network access to the public OGC services they test against.
+The PostGIS, MySQL, SQL Server and King Oracle suites need the `dbs` compose stack running first; ODBC has no shipped init file, so add `--with-odbc-init <file>` of your own to include it. WMS and WFS need outbound network access to the public OGC services they test against. `--with-sqlserver-perf` runs the SQL Server suite with `FDO_SQS_PERF=1`, which opts into the provider's memoised `SQLDescribeParam()` and cached database-object catalog; over four SQL Server fixtures that cut `SQLDescribeParam` calls by ~73% and wall-clock time from 82 s to 34 s, with every fixture still `OK` and no change in the LSan record count. See [docs/sqlserver-spatial-linux-support.md](./docs/sqlserver-spatial-linux-support.md#the-fdo_sqs_perf1-opt-in-measured).
 
 These are derived from the reference copies in the FDO source tree at `fdo/Providers/GenericRdbms/Src/UnitTest/`; only edit the SVN copies if you need a different configuration. The `service=` entry is the database host (`[dbname@]host:port`).
 
@@ -255,10 +256,10 @@ export NLSPATH=/tmp/work/build_area/fdo/nls/linux/en_US/%N
 Some FDO suites (PostGIS, MySQL, ODBC, Oracle) need a live database. Start the required services from the `dbs` compose fixtures, for example:
 
 ```
-docker compose -f dbs/docker-compose.yml up -d postgis_pg16 mariadb oracle_xe_11g mssql
+docker compose -f dbs/docker-compose.yml up -d postgis_pg16 mariadb oracle_xe_11g mssql_cs
 ```
 
-> The whole stack cannot be started at once: several services publish the same host port (`5432` for the PostGIS variants, `3306` for the MariaDB/MySQL variants). Start one service per port.
+> The whole stack cannot be started at once: several services publish the same host port (`5432` for the PostGIS variants, `3306` for the MariaDB/MySQL variants). Start one service per port. The two SQL Server fixtures are the exception — `mssql` (1433) and `mssql_cs` (1434) sit on different ports on purpose, so the Windows and Linux SQL Server Spatial suites can each have their own instance at the same time; see the collation note below for why that matters.
 
 > The `mysql_56` service pins a case-sensitive (`latin1_bin`) collation, because FDO class and schema names are case-sensitive while a datastore created without an explicit collation inherits the server's (case-insensitive) default. With a case-insensitive server, the unique index on `f_classdefinition(classname, schemaname)` rejects two classes whose names differ only in case, and `FdoApplySchemaTest::TestSchema` fails with `Duplicate entry 'aCxdATA-Acad' for key 'f_classdef_schnm_idx'`. A datastore created before this was pinned keeps its old collation until it is dropped and recreated (the FDO suites recreate their own datastores). MariaDB and MySQL 8.0 would need their own `--collation-server=*_bin` equivalent if they are ever held to the same standard.
 
@@ -266,6 +267,36 @@ The database containers run on their own compose network, separate from the buil
 
  * `PostGisInit.txt` → `service=host.docker.internal:5432`
  * `MySqlInit.txt` → `service=host.docker.internal:3306`
+ * `SqlServerSpatialInit.txt` → `service=host.docker.internal,1434`, the `mssql_cs` fixture (a comma before the port, as SQL Server's `SERVER=` keyword expects)
+
+The SQL Server suite also needs the *Microsoft ODBC Driver 17 for SQL Server*, which no template installs — the FDO build only ever installs the unixODBC **driver manager**. Install it in the container before running the suite:
+
+```
+wget -q https://packages.microsoft.com/keys/microsoft.asc -O- | gpg --dearmor > /etc/apt/trusted.gpg.d/microsoft.gpg && \
+wget -q https://packages.microsoft.com/config/ubuntu/22.04/prod.list -O /etc/apt/sources.list.d/mssql-release.list && \
+apt-get update && ACCEPT_EULA=Y apt-get install -y msodbcsql17
+```
+
+`FDO_SQLSERVER_ODBC_DRIVER` overrides the driver name the provider looks up (default `ODBC Driver 17 for SQL Server`). What the provider needed to become portable, and the defects that had to be fixed for it — an `RDBI_INT` column sized as `sizeof(long)`, `nvarchar(max)` values read as raw UTF-16, an `SQLParamData` token that clobbered the adjacent byte count, and a wide-format `%s` — are in [docs/sqlserver-spatial-linux-support.md](./docs/sqlserver-spatial-linux-support.md).
+
+> The SQL Server instance needs a **case-sensitive** collation, for the reason described for `mysql_56` above: FDO class and schema names are case-sensitive, and a datastore created without an explicit collation inherits the server's. With the image's default (`SQL_Latin1_General_CP1_CI_AS`) the unique index on `f_classdefinition(classname, schemaname)` rejects two classes whose names differ only in case, and `FdoApplySchemaTest` fails with `Cannot insert duplicate key row in object 'dbo.f_classdefinition' with unique index 'f_classdef_schnm_idx'. The duplicate key value is (aCxdATA, Acad)`. Changing the *model* database's collation makes every datastore the suites create inherit it. The `mssql_cs` fixture pins it when the server is **created** (`MSSQL_COLLATION=Latin1_General_CS_AS`), which is the only point at which SQL Server honours it, and the shipped init file already points at that fixture; on an existing instance:
+
+```
+docker exec dbs_mssql_1 /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Sql2016!' \
+    -Q "ALTER DATABASE model COLLATE Latin1_General_CS_AS"
+```
+
+Datastores created before the change keep their old collation, so drop them (the suites recreate their own datastores) — and note that a failed apply leaves an open transaction behind, which makes later fixtures slow or stuck until the connection is closed.
+
+If the `ALTER DATABASE model` route is refused while the database is in use, the reliable way with the fixture's own image is to create a *fresh* server with the collation already set, which SQL Server 2017 does honour (`Attempting to change default collation to Latin1_General_CS_AS` appears in its startup log):
+
+```
+podman run -d --name sqs_cs -e ACCEPT_EULA=Y -e SA_PASSWORD='Sql2016!' \
+    -e MSSQL_COLLATION=Latin1_General_CS_AS -p 1434:1433 \
+    mcr.microsoft.com/mssql/server:2017-latest
+```
+
+Then point an init file at `service=host.docker.internal,1434`, which is what the shipped `SqlServerSpatialInit.txt` already does. Two further things are worth knowing before you read a failure as a regression. A datastore written by a build older than the locale fix holds mangled non-ASCII identifiers (a column stored as `prÃ¶vince` instead of `prövince`), so drop it — `ALTER DATABASE fdo_root SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE fdo_root;` — and re-run; `datastore=<name>` on the command line does not move the suite to a fresh datastore. And a case-sensitive collation is **necessary but not sufficient**: with it, `FdoApplySchemaTest` reports `Run: 5   Failure total: 1` — the duplicate-key failure is environmental and goes away, and what remains is a master-file comparison of the generated schema, which is a provider-versus-test-data question rather than an environment one. Both are written up in [docs/sqlserver-spatial-linux-support.md](./docs/sqlserver-spatial-linux-support.md#known-issues).
 
 The King Oracle suite takes no init file. `run_fdo_tests.sh` points it at the compose stack instead, setting the `KG_ORA_SERVICE`, `KG_ORA_USERNAME`, `KG_ORA_PASSWORD` and `KG_DEFAULT_ORA_CONNECTION` environment variables that the FDO sources document (see `CMake__README.txt` under the King Oracle provider) to `//host.docker.internal:1521/xe` as `fdounittest`. Anything already exported in the environment wins, so another Oracle instance can still be targeted. `fdounittest` is created by the `oracle_xe_11g` service itself: it mounts the suite's `ora_init.sql` into the image's `/docker-entrypoint-initdb.d/`, which runs it as SYS on startup.
 
