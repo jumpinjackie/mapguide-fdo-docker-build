@@ -406,6 +406,318 @@ master-file comparisons, an rdbi-level connect, a mangled `Länd` class name, an
 `TestInParamsStoreProcVariant`'s BLOB payload — and the unfixed tree died before printing any of them,
 so they are attributed by path rather than by a before/after run.
 
+**11. The unit tests were built without `SQL_SERVER_XPLAT`**
+
+`SqlServerConnectTests::do_rdbi_connect` selects SQL Server authentication (`Uid`/`Pwd`) over
+`Trusted_Connection=yes` under `SQL_SERVER_XPLAT`, and the Windows project defines that macro for every
+configuration — `UnitTestSQLServerSpatial.vcxproj` carries `WIN32;SQL_SERVER_XPLAT;...` in all four. No
+CMake file defined it, so this build compiled the `#else` branch and asked SQL Server for integrated
+Windows authentication, which it cannot do:
+
+```
+ConnectTests.cpp:125:Assertion
+Test name: SqlServerConnectTests::connect
+assertion failed
+- Expression: RDBI_SUCCESS == do_rdbi_connect (rdbi_context, id)
+```
+
+`ConnectTests::connect` and `::info` failed on every run (`Run: 4   Failure total: 2`). The rest of the
+suite was unaffected because `SqlServerConnectionUtil` — the helper the other tests connect through —
+branches on whether the init file supplied a username instead of on this macro, which is why the
+failure looked like a provider defect when it was a build omission.
+
+The definition belongs on **`SQLServerSpatialUnitTests`** (`UnitTest/SQLServerSpatial/CMakeLists.txt`),
+not on `UnitTestSQLServerSpatial`: those sources are compiled into that static library and the
+executable only links it, so a definition on the executable never reaches them — the first attempt here
+did exactly that and changed nothing. `ConnectTests` is `OK (4)` now, and `::info` prints the server's
+real vendor information (`ODBC version 4, precision(0,38), scale(-84,127), string(1,8000)`).
+
+**12. A test file's non-ASCII literals were destroyed by an editing tool**
+
+`SqlServerFdoUpdateTest.cpp` is Windows-1252 upstream. An editing pass during this port read it as
+UTF-8, replaced the undecodable `ä` and `ö` bytes with U+FFFD (EF BF BD), and wrote it back — invisible
+to anything that renders text, and unflagged by `file`, because the result is valid UTF-8. The test
+then asked for a class named `L<U+FFFD>nd:Parcel` while the datastore held `Länd`, so
+`testDefect810181` failed with
+
+```
+Class 'Lï¿½nd:Parcel' not found
+```
+
+The catalog was right and the test was wrong: `f_classdefinition.schemaname` really did hold
+`L`+`C3 A4`+`nd`. The four literals now use `\u00E4`/`\u00F6` escapes, so the source is pure ASCII and
+cannot be damaged again. A byte-level scan found no other occurrence — 0 in the change set's 42 files,
+and the only four non-ASCII data files are intact masters whose tests pass.
+
+Two traps this cost a cycle each: in a UTF-8 locale `grep -P '\xef\xbf\xbd'` reports **0** because it
+matches the *characters* `ï¿½` rather than the U+FFFD bytes, so only a byte-level check settles it; and
+`file` reporting "UTF-8 text" says nothing about whether the text is *right*. `FdoUpdateTest` went
+from 2 failures to 1.
+
+The same trap caught a later edit of `SqlServerFdoSqlCmdTest.cpp`, which had one non-ASCII byte — the
+`ö` of `SQLCMD_8BIT_TABLE_NAME` (`L"Fd"`+`ö`+`L"SqlTest"`) — and a tool that rewrites the whole file
+turns that byte into U+FFFD, because the file is Windows-1252 while the tool reads UTF-8 and nothing
+warns. It left the name self-consistent (the same macro builds both the `create` and the `drop`) and
+still broke the table's DDL, so the literal now uses a `\u00F6` escape like the four above and the file
+is pure ASCII. A byte-level scan of the whole change set afterwards found that one occurrence and no
+other, which is the check to re-run after any bulk edit of these test files.
+
+**13. `decimal(p,0)` columns in the RDBI's 5–10 digit band read back one row out of step — `define.c`**
+
+`desc_slct.c` maps `SQL_DECIMAL`/`SQL_NUMERIC` with `scale == 0` to `RDBI_SHORT` below five digits,
+`RDBI_LONG` from five to ten, and `RDBI_DOUBLE` above ten, and it sizes the middle band's result buffer
+with `sizeof(long)` — **8 bytes on LP64**. `get_o_t_s.c` binds `SQL_C_LONG` for `RDBI_LONG`, which is a
+4-byte C type on every platform. unixODBC takes a column-wise array's element stride from the C type
+rather than from the `BufferLength` it is handed (that number is the RDBI layer's `binary_size`), so the
+driver wrote 4-byte elements at a 4-byte stride into a buffer the RDBI layer allocated and read at an
+8-byte stride. Every row from the second on read half of its own value and half of its neighbour's.
+
+Being a *read* defect is what made it look like something else. `FdoUpdateTest`'s
+`UpdateMultiIdFeatureClass` asserts `Value == 5000000` on a `value decimal(8,0)` column and failed for
+PIN 4 alone, but the physical row was correct the whole time —
+
+```
+pin |value  |revisionnumber|# employees
+1   |5000000|0.0           |200
+4   |5000000|1.0           |250
+```
+
+— because the parcel `UPDATE` this test issues for PIN 4 is byte-for-byte the one it issues for PIN 2
+(`set revisionnumber = revisionnumber+1, "# employees"=? where "prövince" =? and "pin" =?`).
+Instrumenting the read-back loop showed what the five-row result actually delivered:
+
+```
+pin=[1] val_i=5000000 val_d=21474836485000000 val_s=[5000000]   # own low word + PIN 2's
+pin=[2] val_i=5000000 val_d=21474836485000000 val_s=[5000000]   # own low word + PIN 3's
+pin=[3] val_i=5000000 val_d=5000000            val_s=[5000000]   # PIN 5's low word + unwritten tail
+pin=[4] val_i=0       val_d=0                  val_s=[0]         # unwritten tail
+```
+
+`5000000 + (5000000 << 32)` is exactly two adjacent 4-byte values read as one 8-byte one, and the last
+two rows read past the 20 bytes the driver had written. The `Value = 0` the earlier session recorded
+belonged to the fourth *row*, not to a fourth-PIN update — which is also why removing PIN 4's owned-object
+update, or reordering the inserts, changed nothing.
+
+The fix is in `define.c` — the result-column path, where the RDBI layer's buffer width is known:
+
+```c
+	odbcdr_get_o_t_s( context, datatype, size, &odbcdr_datatype, &odbcdr_size );
+
+	if ( datatype == RDBI_LONG && size > (int) sizeof(SQLINTEGER) )
+		odbcdr_datatype = SQL_C_SBIGINT;
+```
+
+It deliberately does **not** go in `get_o_t_s.c`, which `define.c` and `bind.c` share. A bind's C type
+has to match the *caller's* buffer, and one caller disagrees with the RDBI layer about how wide
+`RDBI_LONG` is: `SqlServerGeometryTests::do_insert_geometry` binds `RDBI_LONG, sizeof(long)` against an
+`FdoInt32 *featId`, so widening the bind read 4 bytes of adjacent stack and the insert failed with
+`Numeric value out of range`. Result columns have no such caller — the RDBI layer supplies the address
+*and* the stride — so only they need the wider C type. A define that really does pass 4 bytes still gets
+`SQL_C_LONG`, which covers the `DataTypeTests` `NUMERIC`/`DECIMAL`/`DEC` (6,0) round trips; the
+`SelectTests` `phone` and `odbcdr_get_gen_id` defines pass an `int64_t`/`sizeof(long)` and are repaired
+by the wider type rather than broken by it (`get_gen_id` had only 4 of its 8 bytes written before). On
+Windows `sizeof(long) == 4`, so the condition is false and this compiles to the same `SQL_C_LONG`.
+
+`FdoUpdateTest` is `OK (12)` now, where it was `Run: 12   Failure total: 1`; `SqlServerGeometryTests`
+stays `OK (4)`, `DataTypeTests` `OK (30)` and `SelectTests` `OK (5)`. The same `RDBI_LONG` band is still
+wrong in the shared driver the **ODBC** provider compiles — see
+[Relationship to the sibling ODBC driver](#relationship-to-the-sibling-odbc-driver).
+
+**14. The SQL Server profile's expected schema still encoded a case-insensitive instance — `LogicalPhysicalBender.xslt`**
+
+`FdoApplySchemaTest::TestSchema` compares the generated logical/physical schema against the shared
+`apply_schema_test*_master.txt` after both sides have been through a stylesheet:
+`LogicalPhysicalBender.xslt` bends the master into the profile's *expected* output, and
+`LogicalPhysicalFormatter.xslt` formats the generated schema into the thing it is compared with. Four
+rules in the bender encode the fixture this suite used to run against — a SQL Server with no explicit
+collation, and therefore the image's case-*in*sensitive default — and each removes from the expected
+output something a case-sensitive instance legitimately creates. Both sides then disagree by
+construction:
+
+| Bender rule | What it removes | Change |
+| --- | --- | --- |
+| `lp:class[@name='aCxdATA' and (SqlServer or SQLServerSpatial)]`, a deletion | the `aCxdATA` class, which cannot be created on a case-insensitive server because `AcXData` is already there | narrowed to `SqlServer` |
+| `lp:property[@name='GEOMETRY' and hybrid 0 and (SqlServer or SQLServerSpatial)]`, a deletion | the case-variant `GEOMETRY` property of `Transformer` | narrowed to `SqlServer` |
+| `lp:column[(SqlServer or SQLServerSpatial) and @name='GEOMETRY1' and local-name(..)='table']`, plus the matching exclusion in the `lp:column[@dataType]` rule below it | the disambiguated `GEOMETRY1` column | narrowed to `SqlServer` |
+| the `ancestor::lp:class` fallbacks in `bendTableName` and `bendColumnName` (a name with no explicit rule is taken from its class or property) | maps the case-variant's disambiguated names back onto names that cannot both exist: `ACXDATA1` → `acxdata`, `GEOMETRY1` → `geometry` | `ACXDATA1` → `acxdata1` and `GEOMETRY1` → `geometry1` added ahead of them |
+
+The first failure was the one hunk the class deletion predicts — 16 lines added to the `Acad` schema,
+nothing removed:
+
+```
++<class xsi:type="Class" name="aCxdATA" description="Xdata" baseClass="" abstract="False" tableName="dbo.acxdata1" tblCreator="False" fixedTbl="False">
++<property xsi:type="Data" name="ClassName" .../>
++<property xsi:type="Data" name="SchemaName" .../>
++<property xsi:type="Data" name="Seq" description="seq" dataType="int32" .../>
++</class>
+```
+
+That one hunk is not the whole story, though: `CheckOutput` asserts per file, so only the *first*
+mismatching master is reported and clearing test2 simply exposed a second, previously masked one in
+test3 — `Transformer`'s two geometry properties, where the expected output had a single `Geometry`
+property with `columnName="geometry"` and the generated one has `GEOMETRY`/`geometry` *and*
+`Geometry`/`geometry1`. Same cause, one level down. MySQL's and PostGIS's profiles never had any of the
+four rules and pass against the same masters, which is the shape the SQL Server profile now produces:
+`FdoApplySchemaTest` is `OK (5)` where it was `Run: 5   Failure total: 1`, with MySQL `OK (6)` and
+PostGIS `OK (5)` unchanged.
+
+The Windows harness reaches the same rules through the same `SQLServerSpatial` provider name, so its SQL
+Server fixture needs the case-sensitive collation too — which [Known issues](#known-issues) already
+requires of any instance this suite runs against (a case-insensitive one cannot hold two class names
+that differ only in case).
+
+**15. The extended coordinate system file is looked up under a name that does not exist — `Mgr.cpp`**
+
+`FdoSmPhSqsMgr::GetExtendedCsysFilename()` asked for `GetHomeDir() + "extendedCoordSys.txt"`, while the
+file ships and installs as **`ExtendedCoordSys.txt`**. The two names differ only in the case of the
+first letter, which is why this survived: Windows finds the file either way. On Linux the `fopen` fails,
+and the loader is written to treat a missing file as ordinary —
+`// Not an error if file not found. No extended coordinate systems in this case.` — so **nothing is
+reported** and the list is simply empty.
+
+That silence is what made this look like an unimplemented feature. SQL Server's own catalogue
+(`sys.spatial_reference_systems`) carries only geodetic systems; everything else is expected to come
+from this file, so with the list empty every spatial context that names one of those coordinate systems
+fails the provider's strict match:
+
+```
+(SpatialContext.cpp: 644) Error creating spatial context California, coordinate system CA-I is not in current datastore.
+```
+
+Six of the eight failures still open at the time were this one defect: `FdoSelectTest` (24 tests),
+`FdoSpatialContextTest::testAdjustExtents` and `::testDottedSpatialContext`, and
+`SqlServerSchemaMgrTests::testGenGeom` and `::testSpatialContextsGeog` all passed once the file was
+found. The name is now spelled as it is installed, and the comment in `Owner.h` that documented the old
+spelling is corrected with it.
+
+The file the tests must read is **not** the one the provider ships: `Src/UnitTest/ExtendedCoordSys.txt`
+(337 lines) defines the fixture's own systems — `CA-I` with `PROJCS["California test",...]`, which is
+what the expected-output files contain — while the installed `com/ExtendedCoordSys.txt` (2 784 lines) is
+the real-world catalogue and has no `CA-I` at all. The Windows project resolves this by copying the
+provider next to the test binary (`UnitTestSQLServerSpatial.vcproj` copies
+`SQLServerSpatialProvider.dll` and its `com` directory into `$(OutDir)`, and the post-build step copies
+the *test's* `ExtendedCoordSys.txt` into `$(OutDir)\com`), so `getComDir()` — which scans the loaded
+modules for the provider library's directory — resolves to the test's own copy. A CMake build installs
+the provider instead, so its `getComDir()` resolves to the installed catalogue.
+
+The port therefore gives the provider the same ability the Windows layout provides implicitly:
+
+- `getComDir()` honours **`FDO_SQLSERVER_COM_DIR`** when it is set, and otherwise behaves exactly as
+  before. The variable is read in the non-Windows branch only, so the MSVC build is untouched; the
+  Windows harness already gets the test's `com` directory by staging the provider, and does not need it.
+- The SQL Server unit-test `CMakeLists.txt` stages `<build>/Providers/GenericRdbms/Src/UnitTest/com/`
+  holding the test's `ExtendedCoordSys.txt` and the MetaSchema scripts, mirroring the project file.
+- `run_fdo_tests.sh` exports `FDO_SQLSERVER_COM_DIR=$PWD/com` for that suite, and
+  [Validation](#validation) documents setting it when running the suite by hand.
+
+The default is unchanged, so a deployed provider still reads the catalogue next to it — the variable
+only matters to a harness that wants the provider to read a different one.
+
+**16. Expected-output files with Windows line endings compared unequal on Linux — `UnitTestUtil.cpp`**
+
+Several masters are checked into SVN with **CRLF** and only some of them carry the `svn:eol-style`
+property (`apply_schema_test2_master.txt` has `native`; `synonyms1_SQLServerSpatial_master.xml` has
+none), so which ending a file has depends on its history rather than on its content. `CompareFiles`
+opened both files with `fopen(..., "r")` and compared them line by line with `strcmp` — and reading a
+file in text mode strips the CR **on Windows but not on Linux**. On Windows the two files compared
+equal; on Linux every line differed:
+
+```
+synonyms1_SQLServerSpatial_master.xml SQLServerSpatial_2050750910_synonyms1.xml differ: char 40, line 1
+```
+
+with the two files byte-identical apart from 1 030 CRs (34 181 vs 33 151 bytes, and exactly 1 030 of
+them). `SqlServerSchemaMgrTests::testSynonyms` was the only failure this produced — the other CRLF
+masters are either unused on Linux or have the property. `CompareFiles` now normalises the terminator
+each line arrives with, so a file compares equal whether it has CRLF or LF. (The first attempt at this
+looked at the last character of the line, which `fgets` has already set to `\n` — the CR is the
+*second-to-last* character of a Windows line.)
+
+**17. The comparison sort order depended on the XSLT engine — `UnitTestUtil.cpp`**
+
+`Config2SortedFile` sorts an exported document before it is compared with its master, "so that the
+Spatial Contexts, Schemas and Schema Mappings are always in the same order". The sort key for spatial
+contexts was a bare `<xsl:sort select="@gml:id" />`, with no `lang` or `case-order`, so the order came
+from **the XSLT processor's default collation** — and that differs by implementation. libxslt compares
+code points, where `'S'` (0x53) sorts before `'c'` (0x63), so `South` precedes `sc_1`; MSXML's is
+case-insensitive, so `sc_1` precedes `South`. The masters were cut on Windows, so `testMeta` and
+`testNoMeta` failed on Linux with a diff that moved `sc_1`/`sc_2` after `South`/`South Duplicate` and
+changed nothing else — 20 lines moved, none added or removed.
+
+The key is now spelled out as `translate(@gml:id, 'A…Z', 'a…z')`, which both engines evaluate
+identically. Case-folding reproduces the order in the existing masters (checked entry by entry), so the
+masters do not change and the Windows suite keeps producing the same order.
+
+Only that one key is folded. Folding the `@name` keys as well looked like the same fix, but it
+**reordered** `TIME_COLUMN` against `TIMESTAMP_COLUMN` (`'_'` sorts before `'s'` only after folding)
+and broke `MySqlSchemaMgrTests::testGenDefault` and `PostGisSchemaMgrTests::testGenDefault`, whose
+masters already agree with the code-point order. Those sorts are therefore left alone, and the reason is
+recorded beside them.
+
+**18. `SQLFetch` wrote a row count over the provider's own stack — `fetch.c` (the Release-only crash)**
+
+A Release (`-O3 -DNDEBUG`) build of the suite died in `odbcdr_fetch2` before the second fixture could
+run, and the Debug build of the same source was fine. The backtrace is in
+[Known issues](#known-issues); the cause is a single local's type:
+
+```c
+int rows_in_last_fetch;
+...
+SQLSetStmtAttr( c->hStmt, SQL_ATTR_ROWS_FETCHED_PTR, &rows_in_last_fetch, SQL_IS_POINTER);
+```
+
+`SQL_ATTR_ROWS_FETCHED_PTR` takes a **`SQLULEN`**, and the driver writes that much — 8 bytes on LP64 —
+through the pointer it was given. Declaring the target as a 4-byte `int` means `SQLFetch` writes 8 bytes
+into a 4-byte local and overwrites the 4 bytes that follow it. Which local follows is the compiler's
+choice, and in the Release frame it is `c`, the cursor pointer: `0x5603f88f1d00` becomes
+`0x560300000000`, the low half replaced by the upper half of the row count, and the next dereference
+(`c->hStmt`, at `fetch.c:207`) faults. Debug builds the frame differently and survives, which is why
+this only ever appeared in Release — and why running the suite in both configurations is worth doing.
+
+A hardware watchpoint on `&c` confirmed it: the write came from inside `SQLFetch`, through
+libmsodbcsql, with no provider frame in between. `rows_in_last_fetch` is now a `SQLULEN`, and the
+handful of places that pass it to an `int` parameter or print it are cast, so the narrowing is explicit.
+
+The same declaration is in the **shared** `Src/ODBCDriver/fetch.c` the ODBC provider compiles, so that
+provider has the defect too — see
+[Relationship to the sibling ODBC driver](#relationship-to-the-sibling-odbc-driver).
+
+## Test results
+
+**The whole suite passes**: `Run: 288   Failure total: 0`, reported as `OK (288)`. It got there in
+stages — `Failure total: 14` when the case-insensitive-instance and out-parameter defects were still
+in, `8` after the first round of fixes, and `0` now:
+
+| Fixed by | Tests it cleared |
+| --- | --- |
+| fix 11 `SQL_SERVER_XPLAT` | `SqlServerConnectTests::connect`, `::info` |
+| fix 12 U+FFFD literals | `SqlServerFdoUpdateTest::testDefect810181` |
+| fix 13 `RDBI_LONG` stride | `SqlServerFdoUpdateTest::UpdateMultiIdFeatureClass` |
+| fix 14 bender expectations | `SqlServerFdoApplySchemaTest::TestSchema` |
+| fix 15 extended csys file | `FdoSelectTest` (all 24), `testAdjustExtents`, `testDottedSpatialContext`, `testGenGeom`, `testSpatialContextsGeog` |
+| fix 16 CRLF comparison | `testSynonyms` |
+| fix 17 sort collation | `testMeta`, `testNoMeta` |
+| the `sql_variant` test decoding its own payload | `TestInParamsStoreProcVariant` |
+
+The eight failures that were open before this round were **not** one missing feature, which is what
+they looked like: six were fix 15 (the provider silently loading an empty coordinate system catalogue),
+one was fix 16 and one was fix 17. Nothing in the suite needed geography-typed support added — the
+`testSpatialGeog` in that list is `FdoSelectTest`'s spatial-context helper, not a geography round trip.
+The provider still has no geography support (see [Known issues](#known-issues)), but nothing in the
+suite exercises it.
+
+Two hypotheses are ruled out rather than fixed. The expected-output and NLS data files under
+`UnitTest/` are **not** corrupted — a byte-level scan of all 444 files found no U+FFFD, so the
+master-file failures were content and ordering differences rather than encoding damage. And the
+remaining failures were not caused by any of this port's earlier changes: fixes 13 and 18 were both
+A/B tested by reverting them.
+
+Fixtures measured individually, Debug and Release unless noted: `FdoApplySchemaTest` OK (5),
+`FdoUpdateTest` OK (12), `DataTypeTests` OK (30), `SelectTests` OK (5), `FdoSpatialContextTest` OK (6),
+`SchemaMgrTests` OK (10), `FdoSelectTest` OK (24), `GeometryTests` OK (4). The sibling suites that share
+the unit-test harness are unchanged: `UnitTestMySql` `OK (249)` and `UnitTestPostGis` `OK (140)`, in
+both configurations.
+
 ## Relationship to the sibling ODBC driver
 
 `Providers/GenericRdbms/Src/SQLServerSpatial` is largely a copy of `Providers/GenericRdbms/Src/ODBC`,
@@ -416,6 +728,22 @@ so the same defects exist there and were **not** fixed by this work:
   2-byte local — a stack smash with the same signature as fix 3 above. It is exercised only by the
   `Odbc*` suites, which are not run here.
 - The `%s`-in-a-wide-format hazard (fix 5) is a trap for any file in either provider.
+- The `RDBI_LONG` stride mismatch (fix 13) is present verbatim in the *shared* `Src/ODBCDriver` (the
+  ODBC provider compiles that directory, not a private copy): its `desc_slct.c` gives the same 5–10
+  digit `decimal`/`numeric` band `RDBI_LONG` with a `sizeof(long)` buffer, its `get_o_t_s.c` binds
+  `SQL_C_LONG`, and its `define.c` has no promotion to a wider C type. It is left alone for the same
+  reason as `boundParmID`: nothing here exercises it — the `Odbc*` suites need drivers this container
+  does not have, and `UnitTestSQLServerSpatial` compiles the provider's own driver copy.
+- `ODBCDriver/fetch.c` declares `rows_in_last_fetch` as an `int` and registers it with
+  `SQL_ATTR_ROWS_FETCHED_PTR` (fix 18), so that provider has the Release-only stack overwrite too and
+  will fault in `odbcdr_fetch2` the first time one of its suites runs without `-O0`. Same reasoning:
+  not reachable from here, and it is the same one-line type change when someone can test it.
+
+Two of the fixes are *not* provider-specific even though only this suite noticed them: `CompareFiles`
+(fix 16) and the comparison sort key (fix 17) live in the GenericRdbms unit-test harness that MySQL and
+PostGIS share, so they apply to those suites as well. Both were validated by re-running those suites —
+green before and after — because the sort-key change in particular reorders output and could have
+disturbed their masters.
 
 ## Validation
 
@@ -425,9 +753,33 @@ Run from the build area with the message catalogue in place:
 cd /tmp/work/build_area/fdo/Providers/GenericRdbms/Src/UnitTest
 export NLSPATH=/tmp/work/build_area/fdo/nls/linux/en_US/%N
 export LC_CTYPE=C.UTF-8    # required; see fix 8. run_fdo_tests.sh defaults it
+export FDO_SQLSERVER_COM_DIR=$PWD/com   # required; see fix 15. run_fdo_tests.sh defaults it
 ./UnitTestSQLServerSpatial initfiletest=<init file>            # whole suite
 ./UnitTestSQLServerSpatial initfiletest=<init file> FdoSelectTest   # one fixture
 ```
+
+`FDO_SQLSERVER_COM_DIR` is what makes the provider read the *test's* coordinate system catalogue rather
+than the one installed beside the provider (fix 15); `$PWD/com` is the directory the build stages for
+exactly that. Without it, the spatial-context fixtures fail with *coordinate system … is not in current
+datastore*. `run_fdo_tests.sh --with-sqlserver-init` exports it for you.
+
+The staged directory is created by CMake when the build is **configured**, not when it is compiled, so a
+build tree that predates that rule, or that has only been built, will not have it — re-run
+`cmake .` (or any build step, which reconfigures when the CMake files changed) before running the suite.
+`testSynonyms` depends on the same data, which is not obvious from its name: the export it compares
+contains the datastore's spatial contexts, so a missing catalogue shows up there too.
+
+Two more things the suite needs to be current, both of which fail *quietly* by reproducing the old
+behaviour rather than by erroring:
+
+- The **installed** provider, not just the built one. The suite resolves the provider through
+  `providers.xml` and loads it from `/usr/local/fdo-4.2.0/lib64`, so every provider change needs
+  `cmake --build . --target install` before it takes effect; building `UnitTestSQLServerSpatial` alone
+  leaves the old library in place, and the run then looks exactly as it did before the change.
+- The **staged `com` directory**, whose `ExtendedCoordSys.txt` is the test's own. Check it is the
+  337-line fixture file and not the 2 784-line installed catalogue — installing refreshes
+  `lib64/com/ExtendedCoordSys.txt` with the real one, which is correct, and a `FDO_SQLSERVER_COM_DIR`
+  that points somewhere else (or nowhere) then has no effect.
 
 A Debug build is ASan/LSan-instrumented, so a green run still exits non-zero — judge it by
 `OK (<n>)` in the output, not by the exit code. Read the report with care in both directions: the
@@ -447,10 +799,10 @@ no LSan records at all, and `FdoApplySchemaTest` `Run: 5   Failure total: 1` —
 is gone and the remaining failure is the master-file comparison described under
 [Known issues](#known-issues).
 
-The suite as a whole is **not** green yet. Everything except `FdoApplySchemaTest` passes on both
-instances; that fixture reports `Run: 5   Failure total: 1` on each, but for *different* reasons, so
-both are worth running. The split was found by re-running the same fixtures against a throwaway
-case-sensitive instance (`MSSQL_COLLATION=Latin1_General_CS_AS`):
+The suite is green now. Earlier in the port it was not, and the split below is what the measurements
+looked like while `FdoApplySchemaTest` was still failing — it is kept because it records why the
+case-sensitive fixture is required. Every fixture listed passes on **both** instances today; the
+collation's remaining effect is on `FdoApplySchemaTest`'s *failure mode*, which no longer arises:
 
 | Fixture | case-insensitive fixture | case-sensitive instance |
 |---|---|---|
@@ -459,24 +811,24 @@ case-sensitive instance (`MSSQL_COLLATION=Latin1_General_CS_AS`):
 | `DataTypeTests` | OK (30) | OK (30) |
 | `SelectTests` | OK (5) | OK (5) |
 | `FdoInsertTest` | OK (14) \* | OK (14) |
-| `FdoApplySchemaTest` | `Run: 5   Failure total: 1` | `Run: 5   Failure total: 1` |
+| `FdoApplySchemaTest` | fails on the collation (below) | OK (5) |
 
 \* after dropping the datastore an earlier build wrote; before that it failed with
 `Property 'Prövince' not found`.
 
-`FdoApplySchemaTest`'s one remaining failure is `TestSchema`'s duplicate-key error, so it wants the
-collation change above. Its other failure was a different thing altogether and is fixed: `TestNoMeta`
-is a negative test that applies a schema which already exists and asserts the exception text, and it
-expected that text to end in a trailing space. The catalogue text in
+`FdoApplySchemaTest`'s failure on a case-insensitive instance is `TestSchema`'s duplicate-key error,
+which is why the suite is pinned to `mssql_cs`. One of its other failures was a different thing
+altogether and is fixed: `TestNoMeta` is a negative test that applies a schema which already exists and
+asserts the exception text, and it expected that text to end in a trailing space. The catalogue text in
 `Utilities/SchemaMgr/Nls/SmMessage.mc` has never had one, so the test compared
 `Cannot add schema X to database; it already exists` against `Cannot add schema X to database; it
 already exists ` — a one-character mismatch that fails on any platform, while the schema operation
 under test had in fact behaved correctly. Deleting the stray space removed that failure.
 
-What `FdoApplySchemaTest::TestSchema` complains about depends on the instance, which is itself the
-point. On the fixture it is the duplicate-key error from the collation problem above. On a
-case-sensitive instance the schema operations finally succeed and it is a **master-file comparison**
-instead — the two are described under [Known issues](#known-issues).
+The same fixtures were then run against a **Release** tree, because fix 10 changed shared bind code and
+a Debug pass does not validate Release. `UnitTestMySql` is `OK (249)` there, matching Debug, and the
+whole SQL Server suite runs to completion and passes as well — it did not before fix 18, which is the
+Release-only stack overwrite the compiler's optimiser exposed. Both configurations are green now.
 
 The changes are part of the official build, not just a hand-built tree: a full Debug `build_thin.sh`
 pass on ubuntu22 (`./build_thin.sh --target fdo --distro ubuntu --tag 22 --cpu x64 --debug`)
@@ -584,16 +936,17 @@ way to confirm the memoisation is actually engaging, because it is invisible fro
   garbled value printed (`Value = <replacement characters>`). Both point at string parameter
   marshalling disagreeing about width in the SQL-command path, not at the test.
 
-  `TestInParamsStoreProcVariant` is a **separate, still-open** failure, and it is not the overflow: it
-  binds a `sql_variant` OUT as an `FdoBLOBValue` and then reinterprets the payload as a `wchar_t[]`
-  with `sizeof(wchar_t)` strides (`SqlServerFdoSqlCmdTest.cpp:842`) — a Windows-shaped expectation of
-  2-byte `wchar_t` over a UTF-16 payload, which is what produces the `Value = <replacement
-  characters>` in the log on Linux. Whether the provider should hand back platform-wide text for a
-  BLOB-bound `sql_variant`, or the test should decode its own payload, is still undecided.
+  `TestInParamsStoreProcVariant` was a **separate** failure, and it was not the overflow: it binds a
+  `sql_variant` OUT as an `FdoBLOBValue` and then reinterpreted the payload as a `wchar_t[]` with
+  `sizeof(wchar_t)` strides (`SqlServerFdoSqlCmdTest.cpp:842`) — a Windows-shaped expectation of
+  2-byte `wchar_t` over a UTF-16 payload, which is what produced the `Value = <replacement
+  characters>` in the log on Linux. A BLOB is bytes by definition and the test chose that parameter
+  type, so the test now decodes its own payload as UTF-16 (one `bytes[i] | bytes[i+1] << 8` per code
+  unit) and asserts on the decoded text; the provider's contract is unchanged.
 
-  A case-sensitive instance is what `SqlServerFdoApplySchemaTest::TestSchema` needs; with it, and with
-  the datastore recreated as described below, everything measured here passes except that fixture's
-  master-file comparison, which is the next bullet.
+  A case-sensitive instance is what `SqlServerFdoApplySchemaTest::TestSchema` needs. With it, and with
+  the datastore recreated as described below, the whole suite passes — that fixture included, once
+  fix 14 corrected the expected output it was comparing against.
 
 - **A datastore written before fix 8 must be recreated — the identifiers in it are mangled.** Fix 8
   turned out to cover the last failure as well, but only for a datastore created *after* it, and the
@@ -613,23 +966,24 @@ way to confirm the memoisation is actually engaging, because it is invisible fro
   recreate the fixture. This is the same operational note as the collation change above: state
   written by an older build has to go.
 
-- **`SqlServerFdoApplySchemaTest::TestSchema` fails a master-file comparison on a case-sensitive
-  instance — open.** Once the collation is corrected the schema operations under test succeed and what
-  is left is the serialized schema differing from its master:
+- **`SqlServerFdoApplySchemaTest::TestSchema` failed a master-file comparison on a case-sensitive
+  instance — fixed by [fix 14](#14-the-sql-server-profiles-expected-schema-still-encoded-a-case-insensitive-instance--logicalphysicalbenderxslt).** Once the
+  collation was corrected the schema operations under test succeeded and what was left was the
+  serialized schema differing from its master:
 
   ```
   Output file ..._apply_schema_test2_LPhF.xml differs from expected output file
   ..._apply_schema_test2_master.txt
   ```
 
-  The difference is small and precise — one hunk, 16 lines **added** and none removed. The generated
-  schema carries a class the master does not: `aCxdATA`, with properties `Seq`, `ClassName` and
-  `SchemaName`. `aCxdATA` is one of the case-mixed names the case-sensitivity test introduces, which
-  suggests the master was cut against an instance where that class could not be created at all — a
-  case-insensitive one, where the apply fails as described above — rather than against a correctly
-  configured server. Whether the answer is to re-cut the master or to change the provider is not yet
-  decided. This only became visible once the collation was corrected, because before that the apply
-  failed earlier and the comparison was never reached.
+  The difference was small and precise — one hunk, 16 lines **added** and none removed: the generated
+  schema carried a class the expected output did not, `aCxdATA`, with properties `Seq`, `ClassName`
+  and `SchemaName`. The reading offered here at the time — that the master was cut against a
+  case-insensitive instance where the class could not be created, so the *expected* side was stale —
+  turned out to be right, but the stale side was not the shared master: it was `LogicalPhysicalBender.xslt`,
+  which carried a SQL-Server-only rule deleting that class from the expected output. See fix 14 for the
+  four rules that had to change (and the second, previously masked mismatch behind them). `TestSchema`
+  passes now, and the masters are unmodified.
 
 - **The datastore-enumerating tests assume a private server.** The suite names its datastores
   `fdo_<account>` (`fdo_root` in these containers, `fdo_user` on the Windows build machine) and a
@@ -643,3 +997,35 @@ way to confirm the memoisation is actually engaging, because it is invisible fro
   datastores and `DROP USER fdolimitedprivilegeuser` inside each `*_limiteduser` database.
 - **`DataTypeTests`' geometry roundtrip** passes now (fix 3), but no geography/`geography`-typed
   roundtrip has been exercised.
+- **The Release build of the suite segfaulted in `DataTypeTests`' first test — fixed by
+  [fix 18](#18-sqlfetch-wrote-a-row-count-over-the-providers-own-stack--fetchc-the-release-only-crash).**
+  A Debug pass does not validate Release, so a Release tree was built and the affected suites run
+  against it (fix 10 touched shared bind code). This entry is kept for the diagnosis. The SQL Server
+  suite could not get past its second fixture:
+
+  ```
+  Program received signal SIGSEGV, Segmentation fault.
+  #0  odbcdr_fetch2(_odbcdr_context_def*, char*, int, int, int, int*)+464
+  #1  rdbi_fetch
+  #2  GdbiCommands::fetch
+  #3  GdbiQueryResult::ReadNext
+  #4  FdoSmPhRdGrdQueryReader::ReadNext
+  #5  FdoSmPhSqsMgr::GetDbVersion
+  #6  FdoRdbmsSqlServerConnection::CheckForUnsupportedVersion
+  #7  FdoRdbmsSqlServerConnection::Open
+  #8  DataTypeTests::setUp
+  ```
+
+  `#0+464` is a load through a garbage pointer: the local cursor pointer read `0x5603_0000_0000` where
+  the live heap address was `0x5603_f88f_1d00`, i.e. its low 32 bits had been replaced. A hardware
+  watchpoint on that local showed the writer to be `SQLFetch` itself — `SQL_ATTR_ROWS_FETCHED_PTR` was
+  registered against a 4-byte `int` while the driver writes a 8-byte `SQLULEN` through it, so the row
+  count landed on the neighbouring local. Debug's frame layout put something else there and survived,
+  which is why it only ever showed in Release; it is unrelated to fix 13, which was ruled out by
+  reverting it and reproducing the same crash. `DataTypeTests` is `OK (30)` in Release now, and the
+  whole suite runs there.
+
+  The same defect is still present in the **shared** `Src/ODBCDriver/fetch.c`, which the ODBC provider
+  compiles: that provider will crash the same way the first time one of its suites runs against a
+  Release build. It is left alone for the same reason as the other shared-driver items — nothing in
+  this container can exercise it.

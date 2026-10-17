@@ -3,37 +3,39 @@
 **Question asked:** what load-balancing capability, if any, does MapGuide currently have that
 would let a deployment be scaled horizontally by adding more MapGuide server instances?
 
-**Answer:** **Yes — one, and it is real, wired end to end, and shipped.** MapGuide has a *site*
-model in which several MapGuide server processes cooperate, plus a `MgLoadBalanceManager` that
-round-robins *service requests* between them and a client-side (`MgSiteManager`) round-robin that
-spreads *new sessions* across the servers a Web Tier is configured with. Both are round-robin with
-failover; neither is load-aware.
+**Answer:** **There is one usable axis, and it is narrower than "add servers to the site".** MapGuide
+has a *site* model in which several MapGuide server processes are meant to cooperate — a site server
+owning the repository, and *support servers* holding the processor-intensive services — and the code
+for it (`MgLoadBalanceManager`, service registration, per-service round-robin queues, failover) is all
+present, shipped, and wired end to end. **But that arrangement cannot serve a request** (§9.1.1): a
+server that is not the site server cannot open a repository, cannot satisfy the permission check that
+every resource-reading service performs, and cannot be replaced by a second site server either. The
+machinery works; the deployment does not.
 
-It is also **narrower than "run N identical servers behind a load balancer"**, and the difference
-matters:
+What *does* work is the axis the shipped documentation never mentions: the Web Tier honours a
+**comma-separated list of MapGuide servers** in `webconfig.ini`, round-robining new sessions across
+them with sticky routing (§4.1). Each entry must be a **complete site** with its own repository, so
+this is replication of a site, not scaling of one — which makes repository content effectively
+immutable in that topology (§9.2).
 
-- The **resource repository is a Berkeley DB XML environment** opened by **exactly one** server per
-  site — the site server. Every other server reaches it *by proxying Resource requests through the
-  site server*, not by sharing storage. The repository cannot be placed on network storage and
-  opened by several servers.
-- Therefore the horizontal-scaling axis MapGuide actually supports is **splitting the
-  processor-intensive services (Mapping, Rendering, Tile, Feature, Drawing) onto additional
-  servers, with the site server retaining Site + Resource**. That is exactly what the shipped
-  in-product help describes, and exactly what the code does.
+So the honest summary is:
+
+- **Scaling compute across servers without replicating data: not available in 4.0.** The design exists
+  in the code and the shipped help text describes it, but four independent barriers (§9.1.1) stop it.
+- **Running N complete sites behind one Web Tier: available and shipped**, at the cost of keeping N
+  repositories in step out of band and treating content as a deployment artifact.
+- Underneath both: the repository is a **Berkeley DB XML environment** opened by exactly one server
+  (§6.1), and no component of either balancer is load-aware (§6.5).
 - The mechanism the code calls *"deprecated support servers"* is a **client-side** vectoring path
-  that was retired in 2008 (r3288, ticket #669) because letting each service call pick its own
-  server broke a Web Layout whose API call sequence spanned more than one host. The *server-side*
-  support-server machinery stayed, and is what does the work today.
+  retired in 2008 (r3288, ticket #669) — *"All load balanced servers should support all services"*.
+  That message was the marker: after it, the intended load-balanced deployment was N complete
+  servers, and the server-side split that the help text still recommends was left behind.
 
-A second, weaker axis also exists and is **undocumented**: the Web Tier honours a
-**comma-separated list of MapGuide servers** in `webconfig.ini`, round-robining new sessions
-across them with sticky routing. It is only safe when every listed server is a *full* site server
-with its own repository, i.e. it is replication of a site, not scaling of a site.
-
-This document records the evidence, the configuration surfaces, the limits, and — because nothing
-here was exercised at runtime — a concrete verification plan. It is a static analysis of the trees
-at the revisions below. **No source change is proposed or required**, so the API/ABI mode is not
-engaged.
+Two caveats on the above, both deliberate. The §9.1.1 finding is static analysis and contradicts the
+product's own documentation, so it is the one claim here that most wants the runtime check in §11 —
+and §9.1.1 names exactly which experiment decides it. And nothing here was exercised at runtime at
+all: this is an analysis of the trees at the revisions below, with a concrete verification plan.
+**No source change is proposed or required**, so the API/ABI mode is not engaged.
 
 | Item | Revision / version |
 |------|--------------------|
@@ -77,8 +79,13 @@ flowchart LR
 ```
 
 The essential asymmetry: **the whole site has one repository, one Site service and one Resource
-service, but as many compute servers as you care to add.** The Web Tier's job is trivial (it talks
-to the site server); all the interesting routing happens inside the server tier.
+service, and the design adds as many compute servers as you care to add.** The Web Tier's job is
+trivial (it talks to the site server); all the interesting routing happens inside the server tier.
+
+> One thing this diagram does not show, and cannot: the workers are unreachable in practice. The shape
+> is what the code and the shipped help describe, and a worker will accept a mapping or rendering call
+> and execute it once — but it cannot pass a permission check, because that requires the repository it
+> does not have. See [§9.1.1](#911-why-the-split-does-not-work).
 
 ### 1.2 Two round-robins, one table
 
@@ -403,11 +410,17 @@ It also means a Site op (a session creation, say) sent to a support server execu
 server, so the session is stamped with the site server regardless of which server the Web Tier
 picked; see §4.3.
 
-This is why a support server with `ResourceService = 0` still works: every
+This is why a support server with `ResourceService = 0` *appears* to work: every
 `RequestService(MgServiceType::ResourceService)` across the codebase — `MgCacheManager`,
 `MgPackageManager`, `MgFdoConnectionManager`, `MgServiceOperation`, `LoadPackageCommand`,
 `Server.cpp` — transparently becomes a proxy call to the site server. A support server's own
 per-process caches are still its own, which is what §3.6 is about.
+
+> The appearance is where it ends. `MgCacheManager` is one of those callers, and it does not use the
+> proxied interface — it requires the concrete server class. Every service that reads a resource is
+> therefore unable to run on a support server; see [§9.1.1](#911-why-the-split-does-not-work). The
+> proxy machinery in this section is real, but the only caller that gets to rely on it end to end is
+> the site server itself, which hosts the service locally anyway.
 
 ### 3.4 Registration is asymmetric — the site server's list is authoritative
 
@@ -919,6 +932,53 @@ startup, so a hand edit needs a restart while `SetConfigurationProperties` does 
 from the Site Administrator does work, and is the supported way to drain a server without editing
 anything.
 
+### 5.5 Does an administrative change apply to all servers?
+
+**No.** Every configuration page in the Site Administrator opens a single `MgServerAdmin` connection
+to a single server and writes *that server's* `serverconfig.ini`:
+
+| Page | Opens | Section it writes |
+|---|---|---|
+| Configure Server ([serverproperties.php:109](../mapguide/MgDev/Web/src/mapadmin/serverproperties.php#L109)) | one server | `[GeneralProperties]`, the three connection sections |
+| Configure Services ([servicesproperties.php:76](../mapguide/MgDev/Web/src/mapadmin/servicesproperties.php#L76)) | one server | the per-service property sections |
+| Configure Logs ([logproperties.php:136](../mapguide/MgDev/Web/src/mapadmin/logproperties.php#L136)) | one server | the `*LogProperties` sections |
+| External Files ([unmanageddatamanagement.php:74](../mapguide/MgDev/Web/src/mapadmin/unmanageddatamanagement.php#L74)) | one server | `[UnmanagedDataMappings]` |
+
+There is exactly one multi-server affordance in the whole UI: the checkbox column on **Manage
+Servers**, which posts a list of servers to update. That is **client-side iteration, not server-side
+fan-out** — the page loops over the ticked servers and calls `SetOnline` / `SetOptionalServerServices`
+on each one in turn
+([servermanagement.php:142](../mapguide/MgDev/Web/src/mapadmin/servermanagement.php#L142)). Only half
+of it works:
+
+- `SetOnline` → `MgServerAdmin::BringOnline`/`TakeOffline` — **applies to every server you ticked**.
+- `SetOptionalServerServices` → the disabled write from §5.3 — **applies to nothing**. The service
+  checkboxes in that loop are decorative.
+
+So the answer to "if you apply some setting, does it apply to all?" is **no, not even the one page
+that offers to**. Four things *look* site-wide and are not:
+
+| Looks site-wide | What is really happening |
+|---|---|
+| users, groups, roles | one store — the **Site repository** (`MgRepositoryType::Site`, §6.2) — not a copy per server |
+| library resources | one store — the Library repository |
+| sessions | created and registered on the site server |
+| the site's **server list** and each server's **service flags** | the only genuinely propagated configuration, pushed by registration / `EnableServices` (§3.4, §5.4) |
+
+Everything else — ports, connection limits, timeouts, pool sizes, log settings, repository and tile
+cache paths, `PreCacheMaps`, unmanaged-data mappings — is per server and nothing re-applies it. In the
+Web-Tier list topology (§9.2), where every server is a complete site, that means **each setting has to
+be applied once per server**, by hand or by configuration management.
+
+That is the strongest practical argument for §9.3's container approach: render the configuration from
+the image plus a per-container identity, rather than letting N hand-edited `serverconfig.ini` files
+drift apart. It is also why a deployment checklist for a multi-server site should list "apply setting
+X to every server" as an explicit step rather than a click.
+
+> Note the asymmetry with the *client* side: the Web Tier's `webconfig.ini` list is honoured and the
+> Web Tier does round-robin over it (§4.1), but a Web Tier container is also just one file to edit —
+> there is no propagation there either.
+
 ---
 
 ## 6. What is *not* balanced and *not* shared
@@ -951,6 +1011,10 @@ why §2.4 only ever has one process call `OpenRepositories()`.
 Consequence: you scale *services*, not *repository access*. Every new support server adds compute and
 adds load to the site server, because its Resource calls converge there.
 
+That consequence is academic, because there cannot be a working support server (§9.1.1). It is left in
+place because it is the reason the *repository* is the thing to watch in the topology that does work:
+in §9.2 each site owns one, and the count of repositories is the count of sites.
+
 ### 6.2 Sessions are owned and pinned
 
 The session repository is opened by the same site-server-only call as the library repository
@@ -973,6 +1037,10 @@ the server's own service properties, editable per server in the Site Administrat
 serving the same tile set will each build their own cache; there is no shared tile cache and no
 invalidation of one server's cache by another's writes beyond the resource-change push in §3.6,
 which drops *definitions*, not tile images.
+
+That default is what MapGuide expects, and it is deliberate: **pointing several servers at one
+tile cache does not work**, even though the code contains a lock-file protocol that looks like it
+was meant to allow exactly that. §9.6 works through why, and what to do instead.
 
 ### 6.4 Caches and pools are per process
 
@@ -1023,9 +1091,81 @@ written up for separate action in
 [mapguide-web-tier-dead-guards-handoff.md](./mapguide-web-tier-dead-guards-handoff.md); nothing has
 been changed in the source tree.
 
+### 6.7 What a single-instance mental model gets wrong
+
+The natural summary of everything above is: *treat each instance's data and config as fixed, assume
+read-only `Library://` access, and allow mutability only through FeatureSources backed by a shared
+data store.* That is very nearly right, and the three places it is wrong are the ones that cause
+trouble in practice. §6.1–6.6 supply the evidence; this section is the checklist they add up to.
+
+#### Three corrections to that model
+
+**1. The Session repository is per-instance and *is* written to.** "Read-only resource service" is
+right for `Library://` and wrong for `Session://`. `MgMap::Save()` writes
+`Session:<sessionid>//<name>.Map` ([Map.cpp:1040](../mapguide/MgDev/Common/MapGuideCommon/MapLayer/Map.cpp#L1040)),
+the viewer saves runtime map state on every interaction, and temporary layers, selection and layout
+all live there. Session writes are the *normal* case, not an exception to it — and they are safe
+precisely *because* sessions are pinned to one server (§4.3). The accurate invariant is
+**`Library://` immutable; `Session://` freely mutable because it is instance-local.**
+
+**2. Feature transactions are process-affine, and the transaction id does not say so.** The
+transaction pool is a process-local singleton
+([ServerFeatureTransactionPool.h:81](../mapguide/MgDev/Server/src/Services/Feature/ServerFeatureTransactionPool.h#L81))
+and a transaction id is a **plain UUID with no server encoding**
+([.cpp:233](../mapguide/MgDev/Server/src/Services/Feature/ServerFeatureTransactionPool.cpp#L233)) —
+unlike a session id, which encodes its owner (§4.3). So `BeginTransaction` on one instance returns an
+opaque id and `CommitTransaction` must land on **that same instance**; nothing in the id makes that
+happen. If a client authenticates with a user name and password but no session id, every request
+re-round-robins (§4.3) and the commit is lost — it surfaces as "transaction not found", not as a
+routing error. The same applies to savepoints, and `MgLongTransactionManager` keeps its
+session→long-transaction-name mapping in a **static** cache
+([LongTransactionManager.h:62](../mapguide/MgDev/Server/src/Common/Manager/LongTransactionManager.h#L62)).
+
+> **Rule: a client that uses feature transactions must be session-affine.** Nothing in the feature
+> API states this.
+
+**3. "Shared data store" has to mean genuinely shared.** File-backed providers — SDF, SHP, SQLite —
+resolve their data from a **local filesystem path** (`DefaultFileLocation`). Two instances whose
+FeatureSource names `/data/roads.sdf` are reading *different files* unless that path is truly shared,
+and if it is shared over a network filesystem, concurrent writes are the same locking hazard as §6.1
+one layer down. The mutability this model grants applies to **RDBMS-backed** FeatureSources (Oracle,
+PostgreSQL, SQL Server, MySQL). Note also the distinction: editing feature **data** propagates because
+the store is shared, whereas editing a FeatureSource **resource** is a repository write and does not
+(§3.6 is site-local).
+
+#### The rest, by category
+
+| Category | Per-instance state, and why it bites |
+|---|---|
+| **Scope** | `MgServerResourceService::sm_changedResources` — the changed-resource list behind notification — is a **static** ([.cpp:42](../mapguide/MgDev/Server/src/Services/Resource/ServerResourceService.cpp#L42)); each instance drains its own. |
+| **Affinity** | Sessions, feature transactions, savepoints, long-transaction names. All keyed per process; all depend on session pinning rather than on anything enforcing it. |
+| **Health view** | `MgSiteManager`'s check-servers thread and each `MgSiteInfo` status are per-process (§4.5), so two instances can disagree about whether a peer is up. |
+| **Authorization** | Users, groups and roles live in the per-site repository, so **identity itself diverges** between sites — every user must exist in every site, and one permission change is N writes. |
+| **Cache invalidation** | Feature-source, layer-definition, permission and session caches are process-local, and §3.6 does not cross sites. |
+| **Output-affecting config** | `[GeneralProperties] LinuxFontDirectories`, `[FontAliases]`, tile extent offset, CS-Map dictionary paths, and the product version. Differ these and the *same map renders differently per instance* — so "fixed" is not enough, they must be **identical**. |
+| **Periodic work** | Repository checkpoints, session expiry, resource-change dispatch and `PreCacheMaps` each run on their own per-instance timers. |
+| **Per-instance limits** | `[ResourceServiceProperties] SessionRepositoriesLimit` (default 200) is per instance, so the deployment's real session ceiling is the sum — and each instance cleans up only its own. |
+| **Locally-written artifacts** | `[TileServiceProperties] TileCachePath`, `WfsDocumentPath`/`WmsDocumentPath`, `Logs/`, `Temp/`. All local, all per instance. |
+| **Admin by construction** | `MgServerAdmin` operations are per-server: "get log" means *that* server's log, and Online/Offline moves one server (§5.4). |
+
+#### What a load-balanced deployment must supply for itself
+
+There is no cluster. No leader election, no quorum, no distributed lock, no gossip — nothing in the
+tree coordinates independent instances. Anything needing coordination has to come from outside:
+configuration management to keep N `serverconfig.ini` files identical (§5.5), a package step to keep
+N repositories in step (§9.2), an external scheduler if periodic work should happen once rather than
+N times, and session affinity at the front end for anything transaction-shaped.
+
+#### What is genuinely unaffected
+
+Reads and writes against a shared RDBMS FeatureSource; WMS and WFS serving; session-scoped map state;
+rendering and printing; and any operation whose inputs all arrive with the request. What is *not*
+unaffected is anything that (a) writes to a repository, (b) needs state that crosses instances, or
+(c) needs two calls to land on the same instance without a session to guarantee it.
+
 ---
 
-## 7. Documented capability vs. code: the four drifts
+## 7. Documented capability vs. code: the five drifts
 
 Worth recording so the next reader does not have to re-derive them.
 
@@ -1044,6 +1184,12 @@ Worth recording so the next reader does not have to re-derive them.
    servers; the shipped Site Administrator can do neither (add is a dead menu constant, service
    assignment's write is commented out — §5.3, r2707/#389). The workflow is real, but its front end
    is the API or the config file.
+5. **The documented way to scale is a deployment the software refuses to run.** `about_services.htm`
+   says to "split off the other services and allocate them to another server", naming Mapping and
+   Rendering as the ones worth moving. That split is refused three separate ways — a non-site server
+   cannot open a repository, cannot satisfy a permission check, and a second site server in the same
+   site is rejected outright. See [§9.1.1](#911-why-the-split-does-not-work). The *setting* exists and
+   is fully wired; the *capability* does not.
 
 Additionally, staleness in the in-product help: it says "seven services" and omits KML from the
 Admin UI matrix, while the balancer carries 11 queues and `KmlService` is a first-class flag. The
@@ -1061,11 +1207,11 @@ reflected back into the help pages.
 
 | Goal | Supported today? | How |
 |---|---|---|
-| Add servers to raise **map rendering / mapping** throughput | **Yes**, this is the designed use case | site server + N support servers each with `RenderingService`/`MappingService`; site server round-robins per call |
-| Distribute **tile generation** | **Yes** | same, `TileService = 1` on support servers; accept per-server tile caches |
-| Distribute **feature queries** | **Yes**, with the Resource proxy cost | `FeatureService = 1` on support servers |
-| Redistribute services without a restart | **Yes** | `EnableServices` / Online-Offline (§5.4) |
-| Survive the loss of a **support server** | **Partly** | its queues drain on first failed call; sessions pinned to it die; it rejoins after re-registration |
+| Add servers to raise **map rendering / mapping** throughput | **Only by adding complete servers** | Mapping/Rendering on a non-site server fail from the second cache hit onward (§9.1.1); the working arrangement is N complete servers behind the Web Tier list (§9.2) |
+| Distribute **tile generation** | **Only by adding complete servers** | the tile cache checks permissions too ([ServerTileService.cpp:485](../mapguide/MgDev/Server/src/Services/Tile/ServerTileService.cpp#L485)); same barrier |
+| Distribute **feature queries** | **Only by adding complete servers** | `DESCRIBESCHEMA` and `GETSPATIALCONTEXTS` hit the same check (§9.1.1) |
+| Redistribute services without a restart | **Yes, but only within a complete server** | `EnableServices` / Online-Offline (§5.4) |
+| Survive the loss of a **support server** | **Not applicable** | a support server cannot serve a resource-reading request at all (§9.1.1) |
 | Survive the loss of the **site server** | **No** | it owns the repositories and the only Site/Resource service; there is no failover and no second site server permitted (§2.3) |
 | Spread **requests/sessions across several full servers** | **Yes, but only as replication** | comma-separated `webconfig.ini` list; each entry must be a complete site with its own repository |
 | Share **one resource repository** across hosts | **No** | Berkeley DB XML, single-opener (§6.1) |
@@ -1080,7 +1226,8 @@ reflected back into the help pages.
 The honest one-line summary: **MapGuide scales by fanning computation out from a single
 repository-owning site server, not by running interchangeable server replicas.** If that is what a
 deployment needs, it works today. If it needs interchangeable replicas sharing one library, that
-would be a new feature, and §6.1 is the reason it is not a configuration change.
+would be a new feature — and §10 lays out what building one would involve, ranked by effort from the
+hours-scale fixes to the architectural ones — §6.1 is the reason it is not a *configuration* change.
 
 ---
 
@@ -1090,7 +1237,15 @@ Sections 9.1 and 9.2 are written in terms of addresses and ports, because that i
 validates. Sections 9.3 onwards express the same two topologies as containers, which changes *how*
 you satisfy those rules and adds three failure modes that do not exist on bare metal.
 
-### 9.1 Site server + two rendering/mapping servers (the supported topology)
+### 9.1 Site server + two rendering/mapping servers (the documented topology — and why it does not work)
+
+> **Read §9.2 first.** While writing this section it became clear that the service-splitting model it
+> describes — the one the shipped Site Administrator help recommends — **cannot work in MapGuide 4.0**
+> for Mapping, Rendering or Feature, because `MgCacheManager::CheckPermission` requires the *local*
+> resource repository and only the site server opens one. The evidence is in
+> [§9.1.1](#911-why-the-split-does-not-work). The recipe is retained because it is what the shipped
+> documentation tells you to build, and because knowing *why* it fails is what makes §9.2's
+> arrangement make sense rather than look arbitrary.
 
 The shape this configuration produces:
 
@@ -1190,8 +1345,101 @@ cannot add servers (§5.3):
 > The Site Administrator does not offer Resource on non-site servers for this reason. Hand-editing
 > the key is the only option now that service assignment no longer writes from the UI (§5.3).
 
-`GETSITEINFO` should then list the site server plus both workers, and losing one worker should move
-its calls to the other after the first failure.
+`GETSITEINFO` would then list the site server plus both workers — but the workers will not survive
+their second request. See below.
+
+#### 9.1.1 Why the split does not work
+
+Three facts, each independently verifiable, compose into a barrier.
+
+**1. Only the site server opens the repositories.** `MgServerManager::IsSiteServer()` is
+`[HostProperties] SiteService` (§2.3), and `MgServiceManager::Initialize` calls `OpenRepositories()`
+only inside `if (m_serverManager->IsSiteServer())` — there is no `else`
+([ServiceManager.cpp:129](../mapguide/MgDev/Server/src/Common/Manager/ServiceManager.cpp#L129),
+[:141](../mapguide/MgDev/Server/src/Common/Manager/ServiceManager.cpp#L141)). On any other server
+`sm_siteRepository`, `sm_sessionRepository` and `sm_libraryRepository` are still `NULL`, and
+`OpenRepositories` is called from nowhere else in the tree.
+
+**2. Every permission check needs a *local* resource service, and there are only two ways to ask.**
+Neither survives a proxy:
+
+- `MgCacheManager::CheckPermission` fetches the service, `dynamic_cast`s it to
+  `MgServerResourceService`, and throws `MgServiceNotAvailableException` when the cast fails
+  ([CacheManager.cpp:151](../mapguide/MgDev/Server/src/Common/Manager/CacheManager.cpp#L151)).
+  `MgProxyResourceService` is a **sibling** of `MgServerResourceService` (both derive from
+  `MgResourceService`), so the cast always fails on a server that does not host the service.
+  With `ResourceService = 1` the cast succeeds and the call reaches
+  `MgServerResourceService::CheckPermission`, which builds a repository manager from
+  `*sm_libraryRepository` ([ServerResourceService.cpp:1921](../mapguide/MgDev/Server/src/Services/Resource/ServerResourceService.cpp#L1921))
+  — a null repository reference, which is undefined behaviour, and the `ACE_ASSERT` that might have
+  caught it is compiled out of Release.
+- `MgResourceService::HasPermission` is the proxy-friendly-looking alternative — but the base
+  implementation **throws** `MgNotImplementedException`
+  ([ResourceService.cpp:243](../mapguide/MgDev/Common/PlatformBase/Services/ResourceService.cpp#L243))
+  and `MgProxyResourceService` does not override it, while the server implementation simply delegates
+  to `CheckPermission`.
+
+Either API is unimplemented for a non-site server; they just fail in different places.
+
+**3. Mapping and Rendering reach that check on every cache *hit*.** `MgMappingUtil::StylizeLayers`
+resolves each layer definition through `MgCacheManager::GetResourceLayerDefinitionCacheItem`
+([MappingUtil.cpp:445](../mapguide/MgDev/Server/src/Services/Mapping/MappingUtil.cpp#L445)), whose
+permission check sits in the `else` — the already-cached branch
+([CacheManager.cpp:437](../mapguide/MgDev/Server/src/Common/Manager/CacheManager.cpp#L437)). The
+rendering service does the same
+([ServerRenderingService.cpp:1564](../mapguide/MgDev/Server/src/Services/Rendering/ServerRenderingService.cpp#L1564)),
+as do the feature paths
+([ServerDescribeSchema.cpp:580](../mapguide/MgDev/Server/src/Services/Feature/ServerDescribeSchema.cpp#L580),
+[ServerGetSpatialContexts.cpp:97](../mapguide/MgDev/Server/src/Services/Feature/ServerGetSpatialContexts.cpp#L97)),
+and the tile cache checks permissions through `HasPermission`
+([ServerTileService.cpp:485](../mapguide/MgDev/Server/src/Services/Tile/ServerTileService.cpp#L485),
+[TileCacheDefault.cpp:547](../mapguide/MgDev/Server/src/Services/Tile/TileCacheDefault.cpp#L547)).
+
+**4. The one arrangement that would dodge all of the above is explicitly refused.** The obvious
+workaround is to make each server a *complete* site server — `SiteService = 1`, its own
+`MachineIp`/`IpAddress`, its own repositories — and simply list it as a support server of the first.
+That is rejected: when a server whose service flags include the Site service registers with a site
+server, and its address is not the site server's own, `EnableServicesOnServers` throws
+`MgLogicException` — *"There are more than one Site servers within a site?"*
+([LoadBalanceManager.cpp:836](../mapguide/MgDev/Server/src/Common/Manager/LoadBalanceManager.cpp#L836)).
+
+Composed: the site's server list can only contain servers that are **not** site servers (§2.3), and
+those cannot open a repository, so they cannot pass a permission check. Combined with fact 4, there is
+**no configuration in which two MapGuide servers cooperate as one site** for anything that reads a
+resource — which is every service except `Site` itself. On a server that is not the site server the
+**first** render of a map succeeds (the layer definition is fetched through the proxied resource
+service and no permission check runs) and the **second** render of the same map fails, either with
+`MgServiceNotAvailableException` at the cache manager's cast or by dereferencing a null repository one
+frame deeper. There is no setting that avoids both, because the two possible values of
+`ResourceService` are the only two options and each fails in one of those two places.
+
+**This is a model that was abandoned, not a bug that was missed.** The dates line up:
+
+| Revision | Date | What it did |
+|---|---|---|
+| r3288 | 2008-08-26 | Deprecated support servers from the client side — *"All load balanced servers should support all services"* ([SiteConnection.cpp:500](../mapguide/MgDev/Common/MapGuideCommon/Services/SiteConnection.cpp#L500)) |
+| r3391 | 2008-10-17 | Added `MgCacheManager::CheckPermission` with the `dynamic_cast<MgServerResourceService*>` guard a distributed Mapping/Rendering server can never satisfy (`svn blame Server/src/Common/Manager/CacheManager.cpp`) |
+
+Both by Autodesk engineers, seven weeks apart. After r3288 the load-balanced deployment was N
+*complete* servers — §9.2 — and r3391 then put the old model's server-side split permanently out of
+reach. Three other places tell the same story:
+
+- `MgServiceOperation::AuthenticateCurrentUser` only authenticates `if (serverManager->IsSiteServer())`
+  ([ServiceOperation.cpp:640](../mapguide/MgDev/Server/src/Common/Base/ServiceOperation.cpp#L640)) —
+  a non-site server does not authenticate at all.
+- `MgSecurityManager`'s cache is refreshed by the **Site** service out of the resource service
+  ([ServerSiteService.cpp:166](../mapguide/MgDev/Server/src/Services/Site/ServerSiteService.cpp#L166)),
+  so a server whose Site service is proxied never populates its own.
+- Neither the Site Administrator nor the installer can produce a support server (§5.3, §9.3.1).
+
+So the honest reading is that the *setting* is real and the *capability* is vestigial: the shipped
+help text's advice to "split off" Mapping and Rendering describes a deployment that MapGuide 4.0
+cannot run. **§9.2 is the multi-server arrangement you can actually ship**, and §8's verdict table
+says so.
+
+> This is static analysis, and it contradicts the product's own help text, so it deserves the runtime
+> check in §11 rather than trust. The decisive experiment is cheap: two servers per §9.1 and render
+> the same map twice — the second render is where it shows.
 
 ### 9.2 Several complete sites behind one Web Tier (replication, not scaling)
 
@@ -1280,6 +1528,14 @@ connected through any valid v4 addresess"*
 address they advertise. That is compatible with containers, but it moves the problem from
 "configure a host" to "make an address resolvable", and MapGuide is stricter about that than most
 software.
+
+> **Which of the two topologies to actually build.** §9.3.3 shows the site-server-plus-workers shape,
+> because that is the shape the shipped help text describes and the one almost everyone has in mind.
+> Per [§9.1.1](#911-why-the-split-does-not-work) it **cannot serve more than one request per cached
+> resource**, so the containers in it are only useful singly. The topology that works in containers is
+> the one in §9.3.4: one compose project per **complete** site (§9.3.3 applied with
+> `MG_IS_SITE_SERVER=1` and no workers), joined by a Web Tier that lists them. Read §9.3.3 as "how to
+> containerise a site", not as "how to containerise a site and its workers".
 
 #### 9.3.1 Three container traps that do not exist on bare metal
 
@@ -1603,9 +1859,848 @@ event-driven (§3.5). Sessions are still pinned by the session id, so a session 
 is replaced — even with the same IP — is gone unless the session repository survived on a volume
 (§4.3, §6.2). And the balancers still see none of the orchestrator's health or load data (§6.5).
 
+### 9.4 Data setup for a load-balanced deployment
+
+This is the part of a multi-instance deployment that is easiest to get wrong, because the failure mode
+of a misconfigured path is not an error — it is a different answer. §6.7 establishes that the
+repository must be identical everywhere; this section is about the *data* the repository points at,
+and where it should live so that N instances read the same bytes.
+
+#### 9.4.1 Two path substitutions, and only one of them deduplicates
+
+MapGuide substitutes two different path tokens when it reads a resource, and they behave in opposite
+ways for a multi-instance deployment:
+
+| Token | Resolves to | Same across instances? |
+|---|---|---|
+| `%MG_DATA_PATH_ALIAS[Name]%` ([ResourceDefs.h:411](../mapguide/MgDev/Common/PlatformBase/Services/ResourceDefs.h#L411)) | a directory configured per instance in `[UnmanagedDataMappings]` — *"used to map a mapping name to an unmanaged data folder"* ([serverconfig.ini:596](../mapguide/MgDev/Server/src/Core/serverconfig.ini#L596)) | **Only if you configure it that way** — which is the point: it can point at a shared mount |
+| `%MG_DATA_FILE_PATH%` ([ResourceDefs.h:398](../mapguide/MgDev/Common/PlatformBase/Services/ResourceDefs.h#L398)) | `[ResourceServiceProperties] LibraryResourceDataFilePath` — `Repositories/Library/DataFiles/` ([serverconfig.ini:418](../mapguide/MgDev/Server/src/Core/serverconfig.ini#L418), opened per repository in [LibraryRepository.cpp:49](../mapguide/MgDev/Server/src/Services/Resource/LibraryRepository.cpp#L49)) | **Never** — it is inside that instance's own repository |
+
+So the choice when publishing file-based data is:
+
+- **Unmanaged data + alias** → the bytes live *outside* the repository on a shared volume; each
+  instance's repository holds only the token. **One copy of the data for N instances.** This is the
+  only mechanism in MapGuide that deduplicates file-based data.
+- **Resource data** (the file stored in the repository) → the repository holds the bytes, so there are
+  N copies in N repositories, and keeping them in step is the package/copy exercise from §9.2.
+
+The practical consequence: **store the least possible in the repository and the most possible behind
+an alias.** A FeatureSource resource is a few hundred bytes of XML either way; the gigabyte of shapefiles
+should not be one of N copies.
+
+#### 9.4.2 Why aliases work, and exactly when they are resolved
+
+An alias needs no cooperation from the author — substitution is turned on by the server for
+FeatureSource resources specifically:
+
+```c++
+// turn on substitute unmanaged data mappings
+dataBindingInfo.SetSubstituteUnmanagedDataMappings(
+    resource->IsResourceTypeOf(MgResourceType::FeatureSource));
+```
+— [ApplicationRepositoryManager.cpp:363](../mapguide/MgDev/Server/src/Services/Resource/ApplicationRepositoryManager.cpp#L363)
+
+which makes `MgTagManager::SubstituteTags` expand any alias token it finds
+([TagManager.cpp:375](../mapguide/MgDev/Server/src/Services/Resource/TagManager.cpp#L375)) via
+`MgUnmanagedDataManager::SubstituteDataPathAliases`
+([UnmanagedDataManager.cpp:423](../mapguide/MgDev/Server/src/Common/Manager/UnmanagedDataManager.cpp#L423)).
+Substitution also happens on the paths that bypass the repository read — the FDO schema-mapping call
+([ServerGetSchemaMapping.cpp:41](../mapguide/MgDev/Server/src/Services/Feature/ServerGetSchemaMapping.cpp#L41))
+and the tile set definition
+([ServerTileService.cpp:501](../mapguide/MgDev/Server/src/Services/Tile/ServerTileService.cpp#L501)) —
+so a GDAL raster `Location` or a tile set can be aliased too. There is a worked example in the tree:
+[Portable/TestData/config.xml](../mapguide/MgDev/Portable/TestData/config.xml) uses
+`%MG_DATA_PATH_ALIAS[MG_TEST]%` as a raster `Location`, and the matching test maps it with
+`AddAliasMapping(L"MG_TEST", L"C:/Temp")`
+([Portable/UnitTest/TestResourceService.cpp:1177](../mapguide/MgDev/Portable/UnitTest/TestResourceService.cpp#L1177)).
+
+The important property: **the substitution is textual and local.** Which means the *same* FeatureSource
+resource, byte-for-byte identical on every instance, can resolve to `/mnt/reference/base` on one host
+and `/data/base` on another. That is what makes a repository portable across differently-mounted
+instances — and simultaneously what makes alias drift dangerous.
+
+#### 9.4.3 The three things that bite
+
+**1. A missing alias fails loudly; a *different* alias fails silently.** If the name is not found, the
+token is left in the document **verbatim** — the loop simply advances past it without substituting and
+without raising anything ([UnmanagedDataManager.cpp:468](../mapguide/MgDev/Server/src/Common/Manager/UnmanagedDataManager.cpp#L468)).
+The provider is then handed a connection string containing the literal `%MG_DATA_PATH_ALIAS[Foo]%`, so
+the symptom is an FDO connection error naming an impossible path: ugly, but diagnosable. The dangerous
+case is the alias existing with the *right name* and the *wrong value*: substitution succeeds, the
+connection opens, and that instance serves different data with no error anywhere. Nothing compares
+instances; there is no checksum and no validation. **Alias drift is the silent-divergence risk of this
+whole approach**, and it is why the alias set belongs in the same configuration management as
+`serverconfig.ini` itself.
+
+**2. Alias names are case-sensitive.** The mapping collection is built with
+`MgNamedCollection(caseSensitive = true)`
+([NamedCollection.h:267](../mapguide/MgDev/Common/Foundation/Data/NamedCollection.h#L267)), so
+`[Data]` and `[data]` are two different aliases — one of which is missing, which puts you back in the
+"fails loudly" case above.
+
+**3. There is no server API for aliases, and no propagation.** `AddAliasMapping` exists only in the
+Portable (mg-desktop) tree, not on the server. On a MapGuide Server an alias is set either in
+`[UnmanagedDataMappings]` or through the Site Administrator's **External Files** page, which writes to
+**one** server ([serverdatafunctions.php:908](../mapguide/MgDev/Web/src/mapadmin/serverdatafunctions.php#L908),
+§5.5). One piece of good news: this section refreshes **live** — `MgServerManager` intercepts it and
+calls `RefreshUnmanagedDataMappings` ([ServerManager.cpp:325](../mapguide/MgDev/Server/src/Common/Manager/ServerManager.cpp#L325)) —
+so aliases can be changed without restarting, which is not true of most of the config (§5.4).
+
+#### 9.4.4 Recommended shape
+
+For a load-balanced deployment, in order of preference:
+
+1. **Reference data that never changes during a release — bake it into the image, and use an alias for
+   the path.** The data is then read-only by construction, has no locking question, and the image layer
+   deduplicates it at the storage layer for free. Aliases give you the portability, not the sharing.
+   Updating it means rebuilding and rolling the image, which is a feature rather than a cost.
+2. **Reference data too large or too volatile to bake — a read-only bind mount, alias pointing at it.**
+   Same properties, without the image rebuild. Mount it read-only (`:ro`) so a misbehaving provider
+   cannot write to it.
+3. **Genuinely mutable data — an RDBMS FeatureSource.** This is the only case where shared mutability
+   is actually safe, and it is the case §6.7's model already grants. The connection string needs no
+   alias because the host is already symbolic.
+4. **Avoid: a shared read-write volume holding SDF/SHP/SQLite accessed by several instances.** SDF and
+   SHP are not designed for concurrent multi-writer access, and over a network filesystem this is the
+   §6.1 hazard one layer down. If file-based data must be written, write it from one instance and treat
+   the others as readers.
+
+Two supporting details:
+
+- **`EnumerateUnmanagedData` sees the local view.** It parses paths only under a declared mapping
+  ([UnmanagedDataManager.cpp:479](../mapguide/MgDev/Server/src/Common/Manager/UnmanagedDataManager.cpp#L479))
+  and is exposed both as a MapAgent operation
+  ([openapi.yaml:1513](./openapi.yaml)) and in the Site Administrator. It is a useful way to *compare*
+  instances: point it at the same alias on each and diff the listings.
+- **The FDO connection pool is keyed on the resolved string** (§6.4), per process — so aliases do not
+  create any cross-instance pool coordination, and two instances with different alias values simply
+  keep separate pools. Nothing detects the difference.
+
+#### 9.4.5 Provider concurrency: the providers answer this themselves
+
+The question worth settling before trusting a shared mount is whether a file-based FDO provider can be
+used from several processes at once. FDO has a capability for exactly this —
+`SupportsMultiUserWrite()` — and **every file-based provider returns `false`**:
+
+| Provider | Backing store | `SupportsWrite()` | `SupportsMultiUserWrite()` | `SupportsLocking()` |
+|---|---|---|---|---|
+| `OSGeo.SDF` | a SQLite file ([SdfConnectionCapabilities.cpp:143](../fdo/Providers/SDF/Src/Provider/SdfConnectionCapabilities.cpp#L143)) | `true` | **`false`** ([:148](../fdo/Providers/SDF/Src/Provider/SdfConnectionCapabilities.cpp#L148)) | `false` ([:83](../fdo/Providers/SDF/Src/Provider/SdfConnectionCapabilities.cpp#L83)) |
+| `OSGeo.SQLite` | a SQLite file | `true` | **`false`** ([SltCapabilities.h:56](../fdo/Providers/SQLite/Src/Provider/SltCapabilities.h#L56)) | — |
+| `OSGeo.SHP` | `.shp`/`.shx`/`.dbf` | `true` ([:131](../fdo/Providers/SHP/Src/Provider/ShpConnectionCapabilities.cpp#L131)) | **`false`** ([:136](../fdo/Providers/SHP/Src/Provider/ShpConnectionCapabilities.cpp#L136)) | `false` ([:59](../fdo/Providers/SHP/Src/Provider/ShpConnectionCapabilities.cpp#L59)) |
+| `OSGeo.GDAL` | raster files | **`false`** ([:96](../fdo/Providers/GDAL/Src/Provider/FdoRfpConnectionCapabilities.cpp#L96)) | — | — |
+| `OSGeo.OGR` | vector files | **`false`** ([OgrProvider.h:149](../fdo/Providers/OGR/Src/Provider/OgrProvider.h#L149)) | **`false`** ([:151](../fdo/Providers/OGR/Src/Provider/OgrProvider.h#L151)) | — |
+| MySQL / SQL Server Spatial / PostGIS | a database server | `true` | **`true`** ([FdoRdbmsConnectionCapabilities.cpp:113](../fdo/Providers/GenericRdbms/Src/Fdo/Capability/FdoRdbmsConnectionCapabilities.cpp#L113), inherited by PostGIS) | — |
+
+So the boundary is exactly where §6.7 puts it, and the providers themselves declare it: **file-based
+data supports multi-process *reads* and does not support multi-process *writes*; only the RDBMS
+providers claim multi-user write.** Two of them go further and also declare `SupportsLocking() == false`
+(SDF, SHP), which means there is not even a lock protocol to negotiate — nothing coordinates two
+writers, so concurrent writes are simply a corruption risk with no detection.
+
+Why read-only sharing nonetheless needs one caveat — three findings from the same code:
+
+1. **SDF is SQLite underneath** (`sqlite3fdo` in
+   [Providers/SDF/Src/Provider/CMakeLists.txt](../fdo/Providers/SDF/Src/Provider/CMakeLists.txt)), and
+   its SQLite interface opens the file with the **legacy `sqlite3_open()`**, which is
+   `READWRITE|CREATE` — unconditionally, with a `CREATE TABLE fdo_master` attempt and page-size calls
+   following it ([SQLiteDataBase.cpp:68](../fdo/Utilities/SQLiteInterface/SQLiteDataBase.cpp#L68)). The
+   SDF `ReadOnly` connection property and the file-mode inference
+   ([SdfConnection.cpp:269](../fdo/Providers/SDF/Src/Provider/SdfConnection.cpp#L269)) gate the
+   provider's *table-level* write operations, not the underlying open.
+
+   The saving grace is one level further down. The vendored SQLite **falls back to read-only when it
+   cannot open read-write**, and reports which it got:
+
+   ```c
+   ** Attempt to open a file for both reading and writing.  If that
+   ** fails, try opening it read-only.  ...
+   h = open(zFilename, O_RDWR|O_CREAT|O_LARGEFILE|O_BINARY, ...);
+   if( h<0 ){
+     ...
+     h = open(zFilename, O_RDONLY|O_LARGEFILE|O_BINARY);
+     if( h<0 ){ return SQLITE_CANTOPEN; }
+     *pReadonly = 1;
+   ```
+   — [os_unix.c:805](../fdo/Thirdparty/Sqlite3.3.13/Src/os_unix.c#L805) (SDF's copy, SQLite 3.3.13),
+   and again at [os_unix.c:4511](../fdo/Providers/SQLite/Src/sqlite/os_unix.c#L4511) in the SQLite
+   provider's own copy (3.7.0.1) — *"Failed to open the file for read/write access. Try read-only."*
+
+   So **a read-only file or read-only mount works**: the handle comes up read-only, the providers'
+   write attempts fail benignly (the `fdo_master` probe's return value is not even checked), and reads
+   succeed. What it does *not* do is protect you — the downgrade is silent and happens per connection,
+   so the first evidence that this deployment is read-only is a **failed write at write time**, not a
+   failed connection. Worth knowing before you conclude from a successful connect that writes work.
+   Note also that this fallback is legacy behaviour: modern SQLite removed it precisely because it
+   hides errors, so do not assume a future provider update keeps it.
+2. **The SQLite provider weakens durability and isolation on connect**, unconditionally:
+   `PRAGMA journal_mode=MEMORY` and `PRAGMA read_uncommitted=1`
+   ([SltProvider.cpp:434](../fdo/Providers/SQLite/Src/Provider/SltProvider.cpp#L434),
+   [:438](../fdo/Providers/SQLite/Src/Provider/SltProvider.cpp#L438)). A memory journal cannot be used
+   by another process to recover a crashed writer, and `read_uncommitted` removes the isolation that
+   would otherwise make concurrent readers coherent. This is a configuration chosen for single-process
+   speed, and it is not one to run against a file that another process may write. (One thing it does
+   *not* do: its `PrepareSpatialDatabase` DDL runs only for an in-memory connection —
+   [SltProvider.cpp:427](../fdo/Providers/SQLite/Src/Provider/SltProvider.cpp#L427) — so a file-based
+   database is not given new tables on connect.)
+3. **SDF serialises rather than fails** — `sqlite3_busy_timeout(mpDB, 1000*60)`, sixty seconds
+   ([SQLiteDataBase.cpp:78](../fdo/Utilities/SQLiteInterface/SQLiteDataBase.cpp#L78)). Concurrent
+   access waits for the lock rather than erroring, so a stuck writer presents as a minute-long stall
+   per operation instead of a failure. Better than corruption, worse than detection.
+
+**The net effect for a load-balanced deployment:** reads from a shared read-only mount are supported,
+and the providers handle the read-only downgrade for you (§9.5 builds exactly that); writes are not
+supported, by the providers' own declaration, and a write attempt against shared read-only data will
+fail at write time rather than at connect.
+
+#### 9.4.6 The short version
+
+Yes: the same alias set on every instance, pointing at a shared mount, is what makes file-based
+FeatureSources safe and deduplicated in a load-balanced deployment — and it is the *only* thing that
+does. The rules worth remembering are that `%MG_DATA_PATH_ALIAS[…]%` deduplicates while
+`%MG_DATA_FILE_PATH%` cannot, that a wrong alias is silent where a missing one is not, and that for
+data you do not need to mutate, a read-only image layer plus a portable alias beats a shared
+filesystem on both safety and simplicity.
+
+On the concurrency question specifically: **every file-based FDO provider declares
+`SupportsMultiUserWrite() == false`, and only the RDBMS providers declare `true`** (§9.4.5). Reads from
+several processes are fine; writes are not supported, and SDF and SHP additionally declare
+`SupportsLocking() == false`, so nothing even coordinates concurrent writers. That is the providers'
+own statement of the invariant this whole document has been circling: file-based data is read-only in a
+multi-instance deployment, and mutability belongs to a shared RDBMS.
+
+### 9.5 Reference implementation: one physical data set across N instances
+
+This is §9.4 turned into something runnable — N balanced MapGuide instances sharing **exactly one**
+set of flat data files, by bind-mounting the same directory read-only into every instance and pointing
+a single alias name at it.
+
+```mermaid
+flowchart TB
+    W["Web Tier - MapAgent<br/>IpAddress = site-a, site-b, ..., site-n"]
+
+    subgraph SITES["N complete MapGuide sites"]
+        direction LR
+        SA["MapGuide A<br/>alias REFDATA"] --- RA[("A repo")]
+        SB["MapGuide B<br/>alias REFDATA"] --- RB[("B repo")]
+        SN["MapGuide N<br/>alias REFDATA"] --- RN[("N repo")]
+    end
+
+    VOL[("refdata volume - ONE physical set<br/>of .sdf / .shp / .tif<br/>mounted read-only at /srv/refdata<br/>in every instance")]
+
+    W ==> SA
+    W ==> SB
+    W ==> SN
+    VOL -.-> SA
+    VOL -.-> SB
+    VOL -.-> SN
+```
+
+Three things are shared and one is not:
+
+- **shared**: the flat data (one directory, mounted read-only N times), the token name in the
+  repository (`%MG_DATA_PATH_ALIAS[REFDATA]%`), and the mount path (`/srv/refdata`) — the alias and the
+  mount must agree, and agreeing on *both* is what makes the bytes identical.
+- **not shared**: the repositories. N complete sites means N repositories (§9.2), each holding the same
+  small XML resources referencing that token. Deduplicating the repository is not possible; keeping it
+  tiny is.
+
+#### 9.5.1 The entrypoint addition
+
+Extend the §9.3.3 entrypoint to render the alias from the environment, so the alias set is identical by
+construction rather than by discipline — this is the control that removes the "wrong alias fails
+silently" hazard of §9.4.3:
+
+```sh
+# appended to mgserver-entrypoint.sh, after the serverconfig.ini patches
+: "${MG_REFDATA_DIR:=/srv/refdata}"
+
+if ! grep -q '^\[UnmanagedDataMappings\]' "$CFG"; then
+  printf '\n[UnmanagedDataMappings]\nREFDATA = %s\n' "$MG_REFDATA_DIR" >> "$CFG"
+else
+  # replace the value if the section is already present
+  sed -i "s|^REFDATA[[:space:]]*=.*|REFDATA = ${MG_REFDATA_DIR}|" "$CFG"
+fi
+```
+
+Because it is derived from one environment variable in one image, no instance can drift. Note the
+mapping is a directory, and the substitution appends a trailing slash
+([UnmanagedDataManager.cpp:453](../mapguide/MgDev/Server/src/Common/Manager/UnmanagedDataManager.cpp#L453)),
+so a FeatureSource references the file as `%MG_DATA_PATH_ALIAS[REFDATA]%roads.sdf` — no separator after
+the closing token.
+
+#### 9.5.2 The compose stack
+
+Builds on §9.3.2 (image) and §9.3.3 (entrypoint, fixed IPs, `extra_hosts`):
+
+```yaml
+version: "3"
+
+x-mg-common: &mg-common
+  image: localhost/mapguide-server:4.0.0
+  restart: unless-stopped
+  environment: &mg-env
+    MG_IS_SITE_SERVER: "1"          # every instance is a complete site
+    MG_REFDATA_DIR: "/srv/refdata"  # the one alias, identically named everywhere
+  volumes:
+    - type: bind
+      source: ./refdata             # ONE physical directory on the host
+      target: /srv/refdata
+      read_only: true               # read-only in every instance
+
+services:
+  mg-site-a:
+    <<: *mg-common
+    hostname: mg-site-a
+    environment:
+      <<: *mg-env
+      MG_MACHINE_IP: "172.30.0.10"
+      MG_SITE_IP: "172.30.0.10"
+    volumes:
+      - type: bind
+        source: ./refdata
+        target: /srv/refdata
+        read_only: true
+      - mg-a-repositories:/srv/mg/Repositories
+      - mg-a-logs:/srv/mg/Logs
+      - mg-a-temp:/srv/mg/Temp
+    networks: { mg: { ipv4_address: 172.30.0.10 } }
+
+  mg-site-b:
+    <<: *mg-common
+    hostname: mg-site-b
+    environment:
+      <<: *mg-env
+      MG_MACHINE_IP: "172.30.0.11"
+      MG_SITE_IP: "172.30.0.11"
+    volumes:
+      - type: bind
+        source: ./refdata
+        target: /srv/refdata
+        read_only: true
+      - mg-b-repositories:/srv/mg/Repositories
+      - mg-b-logs:/srv/mg/Logs
+      - mg-b-temp:/srv/mg/Temp
+    networks: { mg: { ipv4_address: 172.30.0.11 } }
+
+  # ... mg-site-c .. mg-site-n identical, with their own IP and their own volumes
+
+  mg-web:
+    image: localhost/mapguide-webtier:4.0.0
+    hostname: mg-web
+    restart: unless-stopped
+    ports: [ "8018:8008" ]
+    extra_hosts:
+      - "mg-site-a:172.30.0.10"
+      - "mg-site-b:172.30.0.11"
+    networks: { mg: { ipv4_address: 172.30.0.20 } }
+
+networks:
+  mg:
+    ipam:
+      config: [{ subnet: 172.30.0.0/24 }]
+
+volumes:
+  mg-a-repositories:
+  mg-a-logs:
+  mg-a-temp:
+  mg-b-repositories:
+  mg-b-logs:
+  mg-b-temp:
+```
+
+The Web Tier's `webconfig.ini` then lists every site (§9.3.4):
+
+```
+[GeneralProperties]
+FailoverRetryTime                  = 60
+
+[SiteConnectionProperties]
+IpAddress                          = 172.30.0.10,172.30.0.11
+```
+
+Notes on the shape:
+
+- **One directory, N read-only mounts.** `./refdata` on the host is the single physical set. Every
+  instance sees the same inode tree; nothing is copied. (A single named volume mounted `:ro` into all N
+  works identically if you would rather the engine manage it — populate it once with a one-shot loader
+  container, then mount it read-only everywhere.)
+- **The alias and the mount path are the same string in every service**, which is the whole trick. An
+  instance with a different `MG_REFDATA_DIR` would resolve the same FeatureSource to different bytes
+  (§9.4.3) — this is the failure the shared environment block exists to make impossible.
+- **Repositories stay per-instance** and stay small; §9.2's immutability discipline applies to them.
+
+#### 9.5.3 The resources that go in the repositories
+
+One publish, applied to every site. The FeatureSource is a few hundred bytes pointing at the alias:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<FeatureSource xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema" xsi:noNamespaceSchemaLocation="FeatureSource-1.0.0.xsd">
+  <Provider>OSGeo.SDF</Provider>
+  <Parameter>
+    <Name>File</Name>
+    <Value>%MG_DATA_PATH_ALIAS[REFDATA]%roads.sdf</Value>
+  </Parameter>
+</FeatureSource>
+```
+
+The connection property is provider-specific — SDF takes a file path in `File`
+([SDFProvider.h:25](../fdo/Providers/SDF/Src/Provider/SDFProvider.h#L25)), while SHP takes a directory
+in `DefaultFileLocation` ([ShpProvider.h:35](../fdo/Providers/SHP/Src/Provider/ShpProvider.h#L35)) and
+resolves the shapefile from the class name:
+
+```xml
+  <Provider>OSGeo.SHP</Provider>
+  <Parameter>
+    <Name>DefaultFileLocation</Name>
+    <Value>%MG_DATA_PATH_ALIAS[REFDATA]%</Value>
+  </Parameter>
+```
+
+Publishing the same package to every site is a loop over the N sites, and the MapAgent operation for
+it exists ([openapi.yaml:1581](./openapi.yaml)):
+
+```sh
+for host in 172.30.0.10 172.30.0.11; do
+  curl -sS -X POST "http://${host}:8008/mapagent/mapagent.fcgi" \
+    -F OPERATION=APPLYRESOURCEPACKAGE -F VERSION=4.0.0 \
+    -F USERNAME=Administrator -F PASSWORD=admin \
+    -F PACKAGE=@reference-data.mgp
+done
+```
+
+`ApplyResourcePackage` is atomic and affects only the library repository
+([ResourceService.h:265](../mapguide/MgDev/Common/PlatformBase/Services/ResourceService.h#L265)), which
+is exactly the guarantee needed: each site's repository ends up holding the same resources, each
+referencing the same alias, resolving to the same physical files.
+
+#### 9.5.4 What this deployment can and cannot do
+
+| Operation | Works? | Why |
+|---|---|---|
+| Render maps from the shared flat data | **Yes** | read-only access; the providers downgrade to read-only automatically (§9.4.5) |
+| Query features from the shared flat data | **Yes** | same |
+| Serve tiles built from it | **Yes** | each instance keeps its own tile cache (§6.3) |
+| **Insert/update/delete** against a flat FeatureSource | **No** | every file-based provider declares `SupportsMultiUserWrite() == false`, and the mount is read-only — the failure surfaces at write time, not at connect (§9.4.5) |
+| Add a new flat file and have all instances see it | **Yes** | it is the same directory; nothing to propagate |
+| Change an existing flat file safely | **Caution** | all N instances hold it open; replacing it under them is a read-while-write race. Publish a new file and repoint, or take the stack down |
+| Author resources | **Per site** | §9.2: publish to all N, do not edit one |
+| Mutate feature data | **Use an RDBMS** | the only shared-mutable option that is supported (§6.7, §9.4.4) |
+
+The one genuinely awkward case is **updating the data in place**. Because the volume is the source of
+truth for all N instances at once, there is no way to swap a file atomically while everyone is reading
+it. The practical options are to publish a new file name and update the FeatureSource resource (a
+package apply per site), or to accept a maintenance window. Making the data part of the *image* instead
+— §9.4.4's first preference — turns that into an ordinary image roll, at the cost of N copies on disk
+and a rebuild per data change. Choose per data set: a reference basemap that changes quarterly suits
+the image; a nightly-refreshed extract suits the shared volume.
+
+#### 9.5.5 Verifying it
+
+Four checks, in order — the first two need no MapGuide at all:
+
+1. **One physical set.** `ls -i refdata/roads.sdf` on the host, then
+   `docker compose exec mg-site-b ls -i /srv/refdata/roads.sdf` from two different instances. Identical
+   inode numbers confirm a shared mount rather than a copy.
+2. **Read-only everywhere.** `docker compose exec mg-site-a touch /srv/refdata/x` must fail with
+   `Read-only file system`. This is the guard that keeps §9.4.5's write restrictions honest.
+3. **The alias resolves on every instance.** `ENUMERATEUNMANAGEDDATA` with `PATH=[REFDATA]` on each
+   site ([openapi.yaml:1513](./openapi.yaml)) should list the same files; a missing alias would show as
+   an unsubstituted token, a *differently*-set alias as a different listing (§9.4.3).
+4. **The same read works everywhere.** Render the same map against each site in turn with one session
+   id and confirm identical output — then confirm the same request against a site whose
+   `MG_REFDATA_DIR` has been deliberately altered *fails*, which is the drift case made visible. This
+   last one is worth doing once in a test environment, because in production its symptom is a silently
+   different map.
+
+### 9.6 Tile generation across N instances
+
+The tempting move — point every instance's `[TileServiceProperties] TileCachePath` at one shared
+volume so a tile is generated once and read by all — is **not supported**, and the reasons are worth
+knowing because the tile cache is the one place in MapGuide that contains a genuine cross-process lock
+protocol. It looks like it was designed for sharing. It is undermined by four specific defects.
+
+#### 9.6.1 What the tile cache locking actually does
+
+Lock files live *next to the tiles*, in the cache directory:
+
+```c++
+//     <tilePathname> = <fullPath>/<row>_<column>.png/jpg
+//     <lockPathname> = <fullPath>/<row>_<column>.lck
+```
+— [TileCacheDefault.cpp:648](../mapguide/MgDev/Server/src/Services/Tile/TileCacheDefault.cpp#L648)
+
+…so on a shared cache they *are* visible to every instance. And `DetectTileLockFile` is explicitly
+written for that case — *"Detect if the tile file has been locked by another thread **or process**"* —
+and it polls rather than failing:
+
+```c++
+while (MgFileUtil::GetFileStatus(lockPathname, lockFileInfo))
+{
+    INT32 diffTime = (INT32)(currTime - lockFileInfo.st_mtime);
+    if (diffTime < sm_creationCutoffTime) { ACE_OS::sleep(sm_pollingInterval); }
+    else                                  { found = true; break; }   // stale
+}
+```
+— [TileCacheDefault.cpp:564](../mapguide/MgDev/Server/src/Services/Tile/TileCacheDefault.cpp#L564)
+
+`CreationCutoffTime` defaults to 120 s and `PollingInterval` to 1 s, and both are configurable
+(`[TileServiceProperties]`, marked "for internal use only" —
+[ConfigProperties.cpp:402](../mapguide/MgDev/Common/MapGuideCommon/System/ConfigProperties.cpp#L402)).
+So the design intent is real: instance B should wait on instance A's lock, then find the tile A just
+cached and return it.
+
+With the default `MetaTileFactor = 0` the single-tile path is what runs
+([TileCacheDefaultProvider.cpp:58](../mapguide/MgDev/Server/src/Services/Tile/TileCacheDefaultProvider.cpp#L58)),
+and the sequence is: check for a stale lock and delete it → `Get()` → on miss, take the in-process
+`sm_mutex` → re-test the lock → create the lock file → release the mutex → render → delete the lock
+([TileCacheDefault.cpp:207](../mapguide/MgDev/Server/src/Services/Tile/TileCacheDefault.cpp#L207),
+[:232](../mapguide/MgDev/Server/src/Services/Tile/TileCacheDefault.cpp#L232),
+[:251](../mapguide/MgDev/Server/src/Services/Tile/TileCacheDefault.cpp#L251),
+[:269](../mapguide/MgDev/Server/src/Services/Tile/TileCacheDefault.cpp#L269),
+[:277](../mapguide/MgDev/Server/src/Services/Tile/TileCacheDefault.cpp#L277)).
+
+#### 9.6.2 The four reasons it still does not work
+
+**1. Lock acquisition is atomic only within one process.** The comment is admirably clear about what
+makes the test-then-create safe:
+
+```c++
+// Lockfile test and creation is in same protected scope.
+{
+    ACE_MT(ACE_GUARD_RETURN(ACE_Recursive_Thread_Mutex, ace_mon, sm_mutex, NULL));
+```
+— [TileCacheDefault.cpp:229](../mapguide/MgDev/Server/src/Services/Tile/TileCacheDefault.cpp#L229)
+
+`sm_mutex` is a **process-local static**. Across processes the test and the create are separated by a
+window (`Get()`, `CreateFullPath`, `fopen`), so two instances can both miss, both find no lock, and
+both start rendering the same tile — precisely the duplicate work a shared cache was supposed to
+prevent. `fopen(path, "wb")` truncates rather than failing on collision, so the create itself detects
+nothing.
+
+**2. Tile writes are not atomic.** A tile is written in place:
+
+```c++
+void MgTileCacheDefault::Set(MgByteReader* img, CREFSTRING path)
+{ ... byteSink->ToFile(path); }
+```
+— [TileCacheDefault.cpp:882](../mapguide/MgDev/Server/src/Services/Tile/TileCacheDefault.cpp#L882),
+and `MgByteSink::ToFile` does `fopen(filename, "wb")` and streams into it
+([ByteSink.cpp](../mapguide/MgDev/Common/Foundation/Data/ByteSink.cpp)). There is no
+write-to-temp-then-rename. So a reader in another instance can see a half-written tile, and `Get()`
+does not validate what it reads — a truncated tile can be served and then persist. This is a
+correctness problem, not merely wasted work, and it is the strongest argument against sharing.
+
+**3. The staleness cutoff deletes live locks.** A lock older than `CreationCutoffTime` (120 s) is
+treated as abandoned and **deleted**, after which generation proceeds
+([TileCacheDefault.cpp:207](../mapguide/MgDev/Server/src/Services/Tile/TileCacheDefault.cpp#L207)).
+A legitimately slow tile — a large meta-tile over slow data, or a cold cache under load — can exceed
+120 s, at which point another instance discards its lock and duplicates the render while racing the
+same output file.
+
+**4. The alternative lock method is worse, and its comment is wrong.** Setting
+`MetaTileLockMethod > 0` (a TileSetDefinition parameter,
+[TileDefs.h:71](../mapguide/MgDev/Common/MapGuideCommon/Services/TileDefs.h#L71)) selects
+`MgMetatileLockUtil`, documented as *"Metatile helper class for file-based locking"*
+([MetatileLockUtil.h:23](../mapguide/MgDev/Server/src/Services/Tile/MetatileLockUtil.h#L23)). It
+involves no file at all:
+
+```c++
+static std::map<STRING, ACE_Condition<ACE_Recursive_Thread_Mutex>*> sm_lockMap;
+static ACE_Recursive_Thread_Mutex sm_tileMutex;
+```
+— [MetatileLockUtil.h:35](../mapguide/MgDev/Server/src/Services/Tile/MetatileLockUtil.h#L35)
+
+Both are in-process statics. A second process has its own empty map, so `WaitForLock` returns
+immediately and the two instances never coordinate. Choosing method 1+ therefore makes the
+cross-process case **strictly worse** than the default, and the documentation actively misleads about
+it.
+
+**5. A network filesystem weakens all of it further.** Defect 3's staleness test reads a `stat` mtime
+([TileCacheDefault.cpp:570](../mapguide/MgDev/Server/src/Services/Tile/TileCacheDefault.cpp#L570)).
+Under NFS, attribute caching (`acregmin`, default 3 s, commonly up to 60 s) can return a stale mtime,
+so the staleness decision is made on stale data; and NFS's create/rename semantics are historically
+inconsistent. Even the parts of the design that are sound assume local, coherent metadata.
+
+#### 9.6.3 What to do instead
+
+The goal — don't render the same tile N times — is achievable without sharing a *writable* cache. The
+right lever is **pre-seeding**, which removes the duplication for the tiles that actually matter:
+
+```mermaid
+flowchart LR
+    SEED["seed job runs once<br/>single instance or offline batch"] --> IMG[("read-only image layer<br/>complete tile cache<br/>deduped on disk across N instances")]
+    IMG --> A["instance A<br/>own writable layer"]
+    IMG --> B["instance B<br/>own writable layer"]
+    IMG --> N["instance N<br/>own writable layer"]
+    A -.->|"miss: renders and caches<br/>into its own layer only"| A
+    B -.->|"miss: renders and caches<br/>into its own layer only"| B
+```
+
+**Recommended: bake a seeded tile cache into the image.** Generate the cache once — a single instance,
+or an offline batch job walking the tile set — and `COPY` it into the server image at the same path
+`[TileServiceProperties] TileCachePath` points to. Each container then gets the image layer read-only
+*plus its own writable layer*, which is exactly the arrangement that works:
+
+- the seeded tiles are shared on disk (deduped by the image layer, as in §9.4.4) with no cross-process
+  coordination needed at all;
+- a cache **hit** is served straight from the shared layer;
+- a cache **miss** renders and writes into that container's own writable layer, so the write is a
+  local filesystem operation — no torn tiles, no lock contention, no NFS;
+- and no instance ever duplicates work for a tile that was seeded.
+
+The trade-off is that a miss still costs one render per instance the first time, and that a re-seed
+means an image rebuild. For a stable baseline (standard scales, known extents) that is a good trade:
+it converts the N× duplication into a one-time cost.
+
+**Alternative: route all tile requests to one instance.** Tiles are idempotent and cacheable, so
+pinning them at the front end is legitimate — one cache, one writer, no duplication, no hazard. The
+cost is that tile *generation* no longer scales out; tile *serving* still does, via a front-end cache
+or CDN. This is the simplest correct answer if the tile workload is not the bottleneck.
+
+**Not recommended: a shared read-write tile cache.** If you must, raise
+`[TileServiceProperties] CreationCutoffTime` well above the slowest plausible tile render to reduce
+defect 3, but defects 1 and 2 remain and they are the ones that produce wrong tiles rather than merely
+wasted CPU.
+
+#### 9.6.4 Two settings worth knowing either way
+
+- **`[TileServiceProperties] RenderOnly`** (default `0`) means *"Renders the tile only"* — set to `1`
+  it renders and **does not cache**
+  ([serverconfig.ini:453](../mapguide/MgDev/Server/src/Core/serverconfig.ini#L453),
+  gate at [TileCacheDefaultProvider.cpp:87](../mapguide/MgDev/Server/src/Services/Tile/TileCacheDefaultProvider.cpp#L87)).
+  That is the opposite of what a load-balanced deployment wants; leave it at `0`.
+- **A read-only `TileCachePath` fails on a miss, not on a hit.** With a wholly read-only cache path the
+  lock-file creation (`fopen(lockPathname, "wb")`) fails first, so a miss throws
+  `MgUnableToCreateLockFile` and the tile request fails
+  ([TileCacheDefault.cpp:253](../mapguide/MgDev/Server/src/Services/Tile/TileCacheDefault.cpp#L253)).
+  That is why the recommendation is a *read-only image layer under a writable container layer* rather
+  than a read-only mount: the seed is shared, and misses still have somewhere to land.
+
 ---
 
-## 10. Verification plan
+## 10. Improvements to better support load-balanced deployments
+
+Every defect this analysis turned up, ranked by effort. Three tiers, and two pivots worth naming up
+front: **M1 is the single change that would revive the site topology of §9.1**, and **A1 is the change
+that would make instances interchangeable** — most of tier 3 is either a consequence of A1 or a
+workaround for its absence.
+
+| # | Improvement | Effort | Value for L-B | Risk | Where |
+|---|---|---|---|---|---|
+| E1 | Add the four missing `throw`s | hours | High — unblocks `DisableAuthoring`, fixes 2 crash paths | very low | Web tier (§10.1) |
+| E2 | Non-mutating operation lookup | minutes | Medium — removes unbounded memory growth | very low | `HttpRequest.cpp` |
+| E3 | Document the `IpAddress` list | hours | High — the capability is real but undiscoverable | none | `webconfig.ini` |
+| E4 | Ship a `[SupportServers]` skeleton | hours | Medium — makes the topology discoverable | none | `serverconfig.ini` |
+| E5 | Correct the "file-based locking" comment | minutes | Medium — it actively misleads | none | `MetatileLockUtil.h` |
+| E6 | Warn on service/repository misconfiguration at startup | hours | High — turns silent misconfig into a log line | low | `ServerManager` |
+| E7 | Un-hide the tile lock knobs | hours | Medium | none | `serverconfig.ini` |
+| E8 | Promote the session-affinity assert out of `_DEBUG` | hours | Medium — it is a real invariant | low | `SessionCache.cpp` |
+| E9 | Document per-instance behaviour as deployment guidance | days | High — §5.5/§6.7 are drift problems | none | docs + in-product help |
+| M5 | Deployment-validation operation | days | High — makes drift detectable | low | new MapAgent op |
+| M2 | Harden the tile-cache lock for cross-process use | days | Medium — makes a shared cache safe | medium | `TileCacheDefault*` |
+| M3 | Port the alias management API to the server | days | High — enables config-as-code for §9.4 | low | port from `Portable/` |
+| M4 | Warn on an unresolvable alias token | hours | High — §9.4.3's silent failure | low | `UnmanagedDataManager` |
+| M7 | Guard the NULL repository statics | hours | Medium — converts UB into a diagnosis | low | `ServerResourceService` |
+| M6 | Make `MetaTileLockMethod` work or refuse it | days | Low–Medium | medium | `MetatileLockUtil` |
+| M8 | Populate or remove `m_externalServerMap` | days | Low | low | `LoadBalanceManager` |
+| **M1** | **Route permission checks through the interface** | **days** | **Pivotal — revives §9.1's topology** | **medium** | `CacheManager` + proxy + new op |
+| A5 | Load-aware balancing | weeks | Medium — uses stats that already exist | medium | both balancers |
+| A5b | Dynamic rebalancing by load | weeks | High | high | load manager + routing |
+| A6 | Cross-site change notification | weeks | High for multi-site | medium | `LoadBalanceManager` |
+| A4 | Cluster-scoped configuration management | weeks | High — removes §5.5 entirely | high | new subsystem |
+| A3 | Session sharing / replication | weeks+ | High — sessions survive instance loss | high | session cache + repo |
+| A7 | Coordination substrate | months | Enabling — prerequisite for A1/A2/A4 | high | new |
+| A1 | Repository replication or pluggable resource store | months+ | **Transformative** | very high | resource service |
+| A2 | Site-server failover | months+ | High — removes the single point of failure | very high | site + repository |
+
+> **Mode caveat.** M1, M3 and M5 all touch shipped headers — M1 adds an operation id to
+> `Common/PlatformBase/Services/ResourceService.h` and an override on `MgProxyResourceService`; M3 adds
+> methods to the same interface; M5 adds a MapAgent operation. All three are *additive* and
+> size/vtable-neutral in the ways [AGENTS.md](../AGENTS.md#fdo-apiabi-compatibility) describes, but the
+> cycle is in **`freeze`** ([Current cycle](../AGENTS.md#current-cycle)), so each needs the
+> [checking a revision range](../AGENTS.md#checking-a-revision-range) steps run before it is started
+> rather than assumed safe.
+
+### 10.1 Easy wins
+
+**E1 — Add the four missing `throw`s.** The highest value-per-line change available, and it is already
+written up with reproduction steps in
+[mapguide-web-tier-dead-guards-handoff.md](./mapguide-web-tier-dead-guards-handoff.md). Two of the four
+are crashes; one makes `[AgentProperties] DisableAuthoring`/`DisableWms`/`DisableWfs` actually work,
+which matters here because §6.6 establishes they are the *only* server-side clamp on authoring — and
+§9.2's multi-site topology depends on authoring being controlled by policy.
+
+**E2 — Non-mutating operation lookup.** `httpClassCreators[OperationName]` on line
+[326](../mapguide/MgDev/Web/src/HttpHandler/HttpRequest.cpp#L326) inserts a null entry for an unknown key,
+so a client guessing operation names grows the map without bound. One-line change; part of E1's patch
+anyway.
+
+**E3 — Document `[SiteConnectionProperties] IpAddress` as a list.** It *is* parsed as a comma-separated
+list ([SiteManager.cpp:258](../mapguide/MgDev/Common/MapGuideCommon/Services/SiteManager.cpp#L258)), but
+`webconfig.ini` documents it in the singular
+([webconfig.ini:117](../mapguide/MgDev/Web/src/webconfig.ini#L117)) — the "hint" of §4.1. Worth
+documenting at the same time: the multi-server `FailoverRetryTime = 60` guidance, and that sessions are
+pinned to whichever entry answered.
+
+**E4 — Ship a commented `[SupportServers]` skeleton in `serverconfig.ini`.** The section is *absent*
+from the shipped file (§5.2) and is only created by `AddServer`. Shipping it commented, with the
+`Identifiers`/`Name`/`IpAddress` shape, makes the whole site model discoverable to someone reading
+config — which is how most operators will meet it.
+
+**E5 — Correct `MgMetatileLockUtil`'s doc comment.** It says *"helper class for file-based locking"*
+([MetatileLockUtil.h:23](../mapguide/MgDev/Server/src/Services/Tile/MetatileLockUtil.h#L23)) and uses two
+in-process statics. Whoever tries to share a tile cache will read that comment first and be misled — as
+this analysis nearly was (§9.6.2, defect 4).
+
+**E6 — Warn at startup on misconfiguration.** Three cases that are currently silent and each cost an
+operator an afternoon: a non-site server with `ResourceService = 1` (§9.1's trap), a site server with an
+empty support-server list, and a server whose `TileCachePath` is not writable. An `ACE_DEBUG` warning
+alongside the existing `MG_LOG_SYSTEM_ENTRY(LM_ERROR, …)` calls in `ServerManager` would cost little.
+
+**E7 — Un-hide the tile-cache lock knobs.** `CreationCutoffTime` and `PollingInterval` are marked *"for
+internal use only"* ([ConfigProperties.cpp:402](../mapguide/MgDev/Common/MapGuideCommon/System/ConfigProperties.cpp#L402))
+even though they control whether a slow tile gets its lock deleted (§9.6.2, defect 3). Document them as
+tunable, with the trade-off.
+
+**E8 — Promote the session-affinity assert out of `_DEBUG`.** `MgSessionCache::GetSessionInfo` validates
+that a session belongs to this server only under `#ifdef _DEBUG`
+([SessionCache.cpp:151](../mapguide/MgDev/Server/src/Common/Manager/SessionCache.cpp#L151)); in Release
+the mismatch proceeds to a confusing `MgSessionExpiredException`. Making it a logged warning in Release
+and an exception under an opt-in flag would surface mis-routed sessions where they happen.
+
+**E9 — Document per-instance behaviour in the product's own help.** §5.5 (nothing propagates except the
+server list and service flags) and §6.7 (the per-instance checklist) are the two things a load-balanced
+operator most needs and cannot currently find anywhere in the shipped documentation. The same pages that
+recommend the unworkable service split (§7, drift 5) should say which configuration is per-server.
+
+### 10.2 Moderate — contained, additive
+
+**M1 — Route permission checks through the interface instead of `dynamic_cast`. Pivotal.**
+`MgCacheManager::CheckPermission` casts to the concrete `MgServerResourceService` and throws when it
+fails ([CacheManager.cpp:151](../mapguide/MgDev/Server/src/Common/Manager/CacheManager.cpp#L151)), which
+is why no support server can serve a mapping or rendering request (§9.1.1). The interface already has the
+right method — `MgResourceService::HasPermission` — it is just unimplemented on the proxy
+([ResourceService.cpp:243](../mapguide/MgDev/Common/PlatformBase/Services/ResourceService.cpp#L243)) and
+unused by the cache manager. The change is four parts:
+
+1. a new `opIdHasPermission` in `MgResourceService`, plus its `Op` class and a
+   `ResourceOperationFactory` case — the pattern is identical to `OpSetResource`;
+2. `MgProxyResourceService::HasPermission` forwarding the call with the caller's identity (the proxy
+   already carries it via `m_connProp`, as every other proxy method does);
+3. `MgCacheManager::CheckPermission` calling the interface rather than the concrete type — falling back to
+   a throw only when the service genuinely cannot evaluate permissions;
+4. tests, including one that runs a mapping request on a non-site server.
+
+The site server evaluates the permission locally, where the repository is, so the result is authoritative
+— the per-instance permission cache becomes an optimisation rather than a correctness requirement. This
+is the only route to §9.1's topology that does not require A1.
+
+**M2 — Harden the tile-cache lock for cross-process use.** Two independent fixes to the §9.6.2 defects:
+create the lock atomically (`open(lockPathname, O_CREAT|O_EXCL)`, so a racing peer gets `EEXIST` rather
+than silently truncating), and write tiles via temp-file-plus-`rename()` so a reader can never observe a
+partial image. `MgByteSink::ToFile` already special-cases a *temporary* file source by renaming
+([ByteSink.cpp:180](../mapguide/MgDev/Common/Foundation/Data/ByteSink.cpp#L180)), so the mechanism exists.
+This does not on its own make a shared cache a good idea — defect 3 (live-lock deletion) and the NFS
+metadata question remain — but it turns "unsafe" into "safe but still not the best option".
+
+**M3 — Port the alias management API to the server.** `AddAliasMapping` exists only in
+`Portable/MgPortable` ([UnmanagedDataManager.cpp:393](../mapguide/MgDev/Portable/MgPortable/Services/Resource/UnmanagedDataManager.cpp#L393)),
+so on a server an alias is a file edit per instance (§9.4.3, caveat 3). Adding
+`AddAliasMapping`/`DeleteAliasMapping`/`EnumerateAliasMappings` to the server resource service makes the
+alias set programmatically identical across N instances — which is the control §9.5.1 has to fake with
+`sed`.
+
+**M4 — Warn when an alias token cannot be resolved.** Today the token is left verbatim
+([UnmanagedDataManager.cpp:468](../mapguide/MgDev/Server/src/Common/Manager/UnmanagedDataManager.cpp#L468))
+and the provider fails later with an impossible path. An `LM_WARNING` naming the alias at substitution
+time turns a two-hour diagnosis into a log line — and it is the cheap half of drift detection.
+
+**M5 — A deployment-validation operation.** A new MapAgent operation (or a section added to
+`GETSITEINFO`) that reports, per server: service flags, `TileCachePath`, repository paths, the alias set
+(or a hash of it), product version, and the `[HostProperties]` set. Both of this document's silent-failure
+classes — configuration drift (§5.5) and alias drift (§9.4.3) — are solved by being able to ask. It is
+read-only, additive, and makes E1's `DisableAuthoring` state observable too.
+
+**M6 — Make `MetaTileLockMethod` work, or refuse it.** The parameter is documented as selecting a
+file-based lock but selects an in-process one (§9.6.2, defect 4), and its non-default value makes
+cross-process behaviour *worse*. Either implement it with real inter-process locking or reject/warn on a
+non-zero value so nobody sets it thinking it helps.
+
+**M7 — Guard the NULL repository statics.** `MgServerResourceService` dereferences
+`*sm_libraryRepository` unconditionally
+([ServerResourceService.cpp:1921](../mapguide/MgDev/Server/src/Services/Resource/ServerResourceService.cpp#L1921)),
+and those statics are only ever assigned by `OpenRepositories()`, which only the site server calls. An
+explicit `MgServiceNotAvailableException` — *"this server does not host the resource service"* — converts
+undefined behaviour into a diagnosis, and makes a misconfigured support server explain itself.
+
+**M8 — Populate or remove `m_externalServerMap`.** It is declared, documented *"Other servers at
+different sites"*, freed in the destructor, and never filled
+([LoadBalanceManager.h:134](../mapguide/MgDev/Server/src/Common/Manager/LoadBalanceManager.h#L134)). As a
+member it advertises multi-site awareness that does not exist (§9.2). Either implement it (A6) or delete
+it, so the next reader is not misled as this analysis was.
+
+### 10.3 Major — architectural
+
+**A1 — Repository replication, or a pluggable resource store. Transformative.** The single constraint
+behind almost every limitation in this document is that the repository is a Berkeley DB XML environment
+opened by exactly one process (§6.1). Three shapes, in increasing fidelity to "interchangeable
+instances":
+
+- **a caching proxy in front of one authority** — keep the single writer, add replicas that forward
+  writes to it. Closest to M1's spirit but for the *repository* rather than permissions. Cheapest route
+  to read scaling, and it does not need a new storage engine.
+- **replicate between sites** — the `m_externalServerMap` member (M8) suggests this was once intended;
+  it would need conflict resolution, which a resource repository has no natural ordering for.
+- **a shared RDBMS-backed resource store** — the only shape that gives genuinely interchangeable
+  writers, and the largest change: Berkeley DB XML is embedded, transactional and single-opener by design.
+
+**A2 — Site-server failover.** Today the site server is a single point of failure with no failover, and a
+second one is actively refused (*"There are more than one Site servers within a site?"*,
+[LoadBalanceManager.cpp:836](../mapguide/MgDev/Server/src/Common/Manager/LoadBalanceManager.cpp#L836)).
+Failover needs A1 plus A7.
+
+**A3 — Session sharing or replication.** Sessions are pinned by the session id and lost with their host
+(§4.3, §6.2). Making them survive needs either a shared session store or replication plus the ability to
+re-route a session — which in turn changes the affinity model the whole client side is built on.
+
+**A4 — Cluster-scoped configuration management.** §5.5 is unambiguous: nothing propagates except the
+server list and service flags. Pushing arbitrary settings to all members would delete a whole class of
+drift, and would need the cross-member broadcast that currently stops at a site's boundary (§3.6).
+
+**A5 — Load-aware balancing, and then dynamic rebalancing.** Two steps, because they have different risk
+profiles. *A5 first*: both balancers are plain round-robin while ignoring the CPU, queue-depth and
+uptime figures `GETSITEINFO` already publishes (§3.2, §6.5) — using local observations to weight
+selection is a contained change. *A5b*: rebalancing in-flight work across instances needs shared state
+and a migration story, which is A7's problem.
+
+**A6 — Cross-site resource-change notification.** §3.6's invalidation broadcast is site-local, so other
+*sites* keep stale caches after a change. Extending it needs A1's identity model to know what a "site
+peer" is.
+
+**A7 — A coordination substrate.** Leader election, distributed locks, configuration gossip — the layer
+A1, A2 and A4 would all sit on. MapGuide has none of it today (§6.7), and building it is a project in
+its own right rather than a change to the server.
+
+### 10.4 If you only do three things
+
+1. **E1** — four `throw`s. It is hours of work, it fixes two crashes, and it makes the only server-side
+   authoring clamp functional. The handoff document makes it mechanical.
+2. **M1** — route permission checks through the interface. It is the difference between "§9.1 describes a
+   topology you cannot build" and "it works", and it is contained enough to be a single reviewed change.
+3. **E3 + E6 + E9** — document the list, warn on the misconfigurations, and write the per-instance
+   guidance into the help. These cost almost nothing and remove the two failure modes this document
+   spends most of its length warning about: undiscoverable capability, and silent drift.
+
+Everything in §10.3 is worth doing only after deciding whether MapGuide should keep the
+one-repository-per-site model at all. Until A1 exists, the honest answer to "can we horizontally scale
+MapGuide?" stays what §8 says: **N complete sites behind one Web Tier, with the repository treated as a
+deployment artifact — not N interchangeable workers.**
+
+---
+
+## 11. Verification plan
 
 Nothing above was exercised at runtime; every claim is a code or config citation. To convert it into
 measured fact on this repo's build, in increasing cost:
@@ -1641,14 +2736,24 @@ measured fact on this repo's build, in increasing cost:
    and that the feature is reachable from the shipped installer, with no second server required.
    The `httpyac` suite in `test/` can carry this as a new request file; the two operations are
    already in [openapi.yaml](./openapi.yaml).
-5. **Two real servers in one site.** Two containers from the same image, mutually reachable on
-   2810–2812, one with `SiteService = 1` and both with `MachineIp`/`SiteConnectionProperties`
-   matching §9.1. Verify, in order: the support server appears in the site server's
-   `EnumerateServers`; `GETSITEINFO` reports both; change `RenderingService` on the site server to
-   `0` **through `MgServerAdmin::SetConfigurationProperties`** and confirm a rendering request is
-   proxied while the site server stays up (site server log, and
-   `MgLoadBalanceManager`/`ServiceManager` trace at `[GeneralProperties] LogsDetail = SiteService:3`);
-   kill the support server and confirm the next rendering call still succeeds.
+5. **Two real servers in one site — which also settles §9.1.1.** Two containers from the same image,
+   mutually reachable on 2810–2812, one with `SiteService = 1` and both with
+   `MachineIp`/`SiteConnectionProperties` matching §9.1. Expect the first of the following to fail
+   early, which is itself the finding:
+
+   - The site server should list the worker in `EnumerateServers` and `GETSITEINFO` should report
+     both. If the worker cannot be added at all, or throws `MgLogicException` on registration, that is
+     fact 4 of §9.1.1.
+   - Set `RenderingService = 0` on the site server and `MappingService`/`RenderingService = 1` on the
+     worker, then **render the same map twice**. Per §9.1.1 the first render succeeds and the second
+     throws — `MgServiceNotAvailableException` from `MgCacheManager.CheckPermission`, or a crash a
+     frame deeper if `ResourceService = 1` on the worker. This is *the* experiment: it is the
+     difference between "the split is slow" and "the split does not run".
+   - With `[GeneralProperties] LogsDetail = SiteService:3,MappingService:3`, the site server's log
+     shows the proxy hop and the worker's shows where it stopped.
+
+   If the second render succeeds, §9.1.1 is wrong and should be corrected in place — it is the one
+   claim in this document that contradicts the product's own documentation.
 6. **Confirm the administration drift (§5.3), which needs no second server.** In the Site
    Administrator, toggle a service checkbox for a server, save, and then read `[HostProperties]` back
    — with `MgServerAdmin::GetConfigurationProperties` or by restarting and reading
@@ -1675,7 +2780,7 @@ and 6 need no MapGuide deployment at all beyond the built package.
 
 ---
 
-## 11. Index — where each fact lives
+## 12. Index — where each fact lives
 
 | Concern | File |
 |---|---|
@@ -1697,6 +2802,16 @@ and 6 need no MapGuide deployment at all beyond the built package.
 | Repository engine and paths | [DbEnvironment.cpp](../mapguide/MgDev/Server/src/Services/Resource/DbEnvironment.cpp), `[ResourceServiceProperties]` in [serverconfig.ini](../mapguide/MgDev/Server/src/Core/serverconfig.ini#L383) |
 | Repository write surface, package publish, and the inert read-only switch | [ResourceService.h](../mapguide/MgDev/Common/PlatformBase/Services/ResourceService.h), [HttpRequestResponseHandler.cpp](../mapguide/MgDev/Web/src/HttpHandler/HttpRequestResponseHandler.cpp) |
 | Users/groups/roles live in the Site repository | [SiteResourceContentManager.cpp](../mapguide/MgDev/Server/src/Services/Resource/SiteResourceContentManager.cpp) |
+| Per-server config writes (no propagation) | [serverproperties.php](../mapguide/MgDev/Web/src/mapadmin/serverproperties.php), [servicesproperties.php](../mapguide/MgDev/Web/src/mapadmin/servicesproperties.php), [logproperties.php](../mapguide/MgDev/Web/src/mapadmin/logproperties.php), [servermanagement.php](../mapguide/MgDev/Web/src/mapadmin/servermanagement.php) |
+| Permission checks that require a local resource service (§9.1.1) | [CacheManager.cpp](../mapguide/MgDev/Server/src/Common/Manager/CacheManager.cpp), [ResourceService.cpp](../mapguide/MgDev/Common/PlatformBase/Services/ResourceService.cpp), [ServerResourceService.cpp](../mapguide/MgDev/Server/src/Services/Resource/ServerResourceService.cpp), [ServerTileService.cpp](../mapguide/MgDev/Server/src/Services/Tile/ServerTileService.cpp) |
+| Process-affine state — transactions, savepoints, long-transaction names, per-instance caches (§6.7) | [ServerFeatureTransactionPool.h](../mapguide/MgDev/Server/src/Services/Feature/ServerFeatureTransactionPool.h), [ServerFeatureTransactionPool.cpp](../mapguide/MgDev/Server/src/Services/Feature/ServerFeatureTransactionPool.cpp), [LongTransactionManager.h](../mapguide/MgDev/Server/src/Common/Manager/LongTransactionManager.h), [ServerFeatureService.cpp](../mapguide/MgDev/Server/src/Services/Feature/ServerFeatureService.cpp) |
+| Session repository writes, per instance (§6.7) | [Map.cpp](../mapguide/MgDev/Common/MapGuideCommon/MapLayer/Map.cpp) |
+| Unmanaged data aliases — the only dedup mechanism for file-based data (§9.4) | [UnmanagedDataManager.cpp](../mapguide/MgDev/Server/src/Common/Manager/UnmanagedDataManager.cpp), [ResourceDefs.h](../mapguide/MgDev/Common/PlatformBase/Services/ResourceDefs.h), [ApplicationRepositoryManager.cpp](../mapguide/MgDev/Server/src/Services/Resource/ApplicationRepositoryManager.cpp), [TagManager.cpp](../mapguide/MgDev/Server/src/Services/Resource/TagManager.cpp), [ResourceDataFileManager.cpp](../mapguide/MgDev/Server/src/Services/Resource/ResourceDataFileManager.cpp) |
+| Alias syntax worked example | [Portable/TestData/config.xml](../mapguide/MgDev/Portable/TestData/config.xml) (`%MG_DATA_PATH_ALIAS[MG_TEST]%`), [TestResourceService.cpp:1177](../mapguide/MgDev/Portable/UnitTest/TestResourceService.cpp#L1177) |
+| Tile cache locking — why it does not work across processes (§9.6) | [TileCacheDefault.cpp](../mapguide/MgDev/Server/src/Services/Tile/TileCacheDefault.cpp) (`DetectTileLockFile`, `GetTileForResource`, `Set`), [TileCacheDefaultProvider.cpp](../mapguide/MgDev/Server/src/Services/Tile/TileCacheDefaultProvider.cpp), [MetatileLockUtil.h](../mapguide/MgDev/Server/src/Services/Tile/MetatileLockUtil.h), [ByteSink.cpp](../mapguide/MgDev/Common/Foundation/Data/ByteSink.cpp) |
+| Improvement work tracked elsewhere (§10, E1) | [mapguide-web-tier-dead-guards-handoff.md](./mapguide-web-tier-dead-guards-handoff.md) |
+| Provider multi-user-write and locking capabilities (§9.4.5) | [SdfConnectionCapabilities.cpp](../fdo/Providers/SDF/Src/Provider/SdfConnectionCapabilities.cpp), [SltCapabilities.h](../fdo/Providers/SQLite/Src/Provider/SltCapabilities.h), [ShpConnectionCapabilities.cpp](../fdo/Providers/SHP/Src/Provider/ShpConnectionCapabilities.cpp), [OgrProvider.h](../fdo/Providers/OGR/Src/Provider/OgrProvider.h), [FdoRfpConnectionCapabilities.cpp](../fdo/Providers/GDAL/Src/Provider/FdoRfpConnectionCapabilities.cpp), [FdoRdbmsConnectionCapabilities.cpp](../fdo/Providers/GenericRdbms/Src/Fdo/Capability/FdoRdbmsConnectionCapabilities.cpp) |
+| SDF's SQLite backend — open mode, busy timeout (§9.4.5) | [SQLiteDataBase.cpp](../fdo/Utilities/SQLiteInterface/SQLiteDataBase.cpp), [SdfConnection.cpp](../fdo/Providers/SDF/Src/Provider/SdfConnection.cpp) |
 | Server listen address, and the installer's `--server-ip` behaviour | [Server.cpp](../mapguide/MgDev/Server/src/Core/Server.cpp), [install.sh](../templates/distros/ubuntu/install.sh) |
 | Address resolution / validation rules the container recipes depend on | [IpUtil.cpp](../mapguide/MgDev/Common/MapGuideCommon/Util/IpUtil.cpp) |
 | The server's generated launcher (env, `/var/lock`, working directory) | [mgserver.sh.in](../mapguide/MgDev/cmake/configs/mgserver.sh.in) |

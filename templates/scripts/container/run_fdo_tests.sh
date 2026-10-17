@@ -377,6 +377,14 @@ if [ -f "$TEST_SQLSERVER" ];
 then
     pushd Providers/GenericRdbms/Src/UnitTest >& /dev/null
     start_suite "SQL Server Spatial"
+    # The provider reads its coordinate system catalogue from a "com" directory next to the
+    # provider library, so an installed provider would use its own real-world catalogue rather
+    # than the coordinate systems the tests refer to (CA-I and friends). The build stages the
+    # test's own com directory beside this runner (see the SQL Server Spatial CMakeLists), and
+    # the provider honours FDO_SQLSERVER_COM_DIR, which is how the Windows build gets the same
+    # arrangement by staging the provider next to the test binary.
+    FDO_SQLSERVER_COM_DIR=$PWD/com
+    export FDO_SQLSERVER_COM_DIR
     if [ "$TEST_SQLSERVER_PERF" == "1" ]; then
         # FDO_SQS_PERF=1 opts the provider in to the round-trip reductions
         # (memoized SQLDescribeParam() and the cached database object catalog).
