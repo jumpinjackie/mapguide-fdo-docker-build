@@ -22,6 +22,13 @@ The FDO build installs only the **driver manager** (unixODBC), never a data-sour
 - The installer registers `OSGeo.ODBC.4.2` in `providers.xml` but ships **no driver at all** — see
   [`../templates/distros/ubuntu/install.sh`](../templates/distros/ubuntu/install.sh).
 
+In the `generic` build the driver manager is linked **statically** (`libodbc.a`, plus
+`libodbcinst.a`) so the SDK does not depend on a particular distro's unixODBC version. That works
+because the driver manager `dlopen()`s whatever drivers are registered — but only if its compiled-in
+config directory matches the distro's. `build_fdo_generic.sh` therefore configures unixODBC with
+`--sysconfdir=/etc`; without that flag the static copy looks in `/usr/local/etc/odbcinst.ini` and
+misses the drivers that distro packages register in `/etc`.
+
 So the provider's Linux behaviour is bounded by two things: whether a unixODBC driver exists for
 the data source, and whether that driver speaks enough SQL for the FDO schema manager. The
 file-format half of the coverage was never validated on Linux.
@@ -50,7 +57,7 @@ sources (all paths relative to the FDO working copy):
 
 | Format | Linux ODBC driver? | Detail |
 |--------|--------------------|--------|
-| `.mdb` (MS Access) | **Yes** | `mdbtools` — packaged as `odbc-mdbtools` (Ubuntu 22.04 / Debian 12) or `mdbtools-odbc` (Fedora). Ships `libmdbodbc.so` + `libmdbodbcW.so`, registered as `[MDBTools]` / `[MDBToolsW]` with the `Database=<abs path>` keyword. **Read-only, forward-only cursor**; thin `SQLGetInfo`; write support is experimental; registration is manual (the package does not write `odbcinst.ini`). |
+| `.mdb` (MS Access) | **Yes** | `mdbtools` — packaged as `odbc-mdbtools` (Ubuntu 22.04 / Debian 12) and `mdbtools-odbc` (Fedora). Rocky 8/EPEL 8 have no mdbtools package, so the `generic` build image cannot install it. Ships `libmdbodbc.so` + `libmdbodbcW.so` and registers `[MDBTools]` in `odbcinst.ini` itself. **Read-only, forward-only cursor**; thin `SQLGetInfo`; no SQL parser support for views, aliases, table-qualified column names, arithmetic expressions or date literals. |
 | `.accdb` | **Partial** | The same mdbtools driver detects and parses Jet-4-era `.accdb`; encrypted `.accdb` is not supported and fidelity is not guaranteed. |
 | `.xls` / `.xlsx` | **No** | No open-source or packaged Linux ODBC driver; commercial drivers only (CData/Devart/Easysoft). |
 | `.dbf` (dBase/xBase) | **No** | No open-source or packaged Linux ODBC driver; commercial xBase drivers only. |
@@ -80,28 +87,158 @@ under a 64-bit FDO/ODBC stack. It is not a supportable server story.
 Because DSN creation is Windows-only, configuring a DSN on Linux is a manual step:
 
 ```
-# /etc/odbcinst.ini  — register the driver
-[MDBTools]
-Description = MDB Tools ODBC driver
-Driver      = /usr/lib/x86_64-linux-gnu/odbc/libmdbodbcW.so
-FileUsage   = 1
-
 # /etc/odbc.ini  — define the DSN
-[MyAccessDb]
-Driver = MDBTools
-Database = /data/example.mdb
+[MyPostgresDb]
+Driver = PostgreSQL Unicode
+Database = mydb
 ```
 
-**`.mdb` — the one file format that can work.** Install `odbc-mdbtools` / `mdbtools-odbc`,
-register the driver as above, then connect with `DataSourceName=MyAccessDb` (or
-`ConnectionString=DRIVER={MDBTools};Database=/data/example.mdb`). Expect read-only, points-only
-semantics; data-level writes are non-transactional and locking/timeouts are unsupported.
+**`.mdb` — the one file format that can work.** Install `odbc-mdbtools` (which registers the
+`MDBTools` driver itself) and connect with an inline driver string:
+
+```
+ConnectionString="DRIVER={MDBTools};DBQ=/data/example.mdb"
+```
+
+Use `DBQ=`, not `Database=`, in a driver connection string: mdbtools accepts `Database=` only in a
+DSN entry. Use the inline form, not `DataSourceName=MyAccessDb`, for any query the provider has to
+generate SQL for: the provider disables the table aliases mdbtools cannot parse by recognising the
+`MDBTools` driver in the connection string, and a DSN name does not carry the driver name. Expect
+read-only, points-only semantics; data-level writes are non-transactional and locking/timeouts are
+unsupported.
 
 **`.xls` / `.xlsx` / `.dbf` / `.txt` / `.csv` — use the FDO GDAL/OGR provider instead.** These
 formats are native OGR drivers (`CSV`, `ESRI Shapefile`/DBF, `XLS` via FreeXL, `XLSX`, and `MDB`
 via mdbtools), and this build already enables both `OSGeo.Gdal.4.2` and `OSGeo.OGR.4.2`
 (`--with-gdal --with-ogr`). That is the honest cross-format story on Linux, and the same
 recommendation applies to MapGuide users.
+
+## Activating the SQL Server unit-test suite on Linux
+
+The SQL Server half of the ODBC provider's own suite now runs on Linux. It is the fixture registry
+`OdbcSqlServerTests` in `UnitTestOdbc`, and it reuses the same Microsoft ODBC Driver 17 for SQL
+Server that the SQL Server Spatial provider's suite uses — the driver is named by
+`FDO_SQLSERVER_ODBC_DRIVER`, defaulting to `ODBC Driver 17 for SQL Server`.
+
+```sh
+# mssql_cs from dbs/docker-compose.yml must be up (host port 1434)
+run_fdo_tests.sh --fdo-build-dir /tmp/work/build_area/fdo \
+    --no-default-suites --with-odbc-sqlserver
+```
+
+`--with-odbc-sqlserver` uses the shipped `test_init/OdbcSqlServerInit.txt`, which points at
+`host.docker.internal,1434` and logs in as `sa`. The registry name matters: without it the runner
+would execute every `Odbc*` suite against that one init file, and the Excel/dBase/Text fixtures
+need the Windows-only drivers described above (the Access fixtures have their own flag and
+registry).
+
+### What had to change
+
+The fixtures were all behind `#ifdef _WIN32`, and the shared driver had several assumptions that
+only held where `sizeof(long) == sizeof(int)`.
+
+| Change | Why |
+|--------|-----|
+| SQL Server fixture classes, their registrations and their implementations moved out of `#ifdef _WIN32` (the Access write fixtures and the Excel/dBase/Text ones stay guarded) | They are ordinary C++ and the driver is available on Linux. |
+| SQL Server fixture constructors made `public` | CppUnit's `CPPUNIT_TEST_SUITE_NAMED_REGISTRATION` instantiates the class; a private constructor fails to compile with GCC. |
+| `OdbcConnectionUtil` selects the driver by name (`FDO_SQLSERVER_ODBC_DRIVER`) instead of hard-coding `{SQL Server}` | There is no `SQL Server` driver on Linux. |
+| `Connection_WithDSN` falls back to the `DRIVER=...` string off Windows | `Setup*DSN()` is Windows-only, so no DSN exists to open. |
+| `OdbcStaticConnection::do_rdbi_init` calls `rdbi_init()` under `RDBI_STATIC` on every platform | It returned success without initialising the context off Windows. |
+| `OdbcDriver/connect.c` recognises `msodbcsql` / `tdsodbc` by substring (and `SQLNCLI`) | `SQL_DRIVER_NAME` is the driver library's file name on Linux; without this the driver was classified `Other`, losing the SQL Server cursor setup. |
+| `Odbc.cpp`'s `getComDir()` guards a `strrchr` NULL and matches the versioned library name by prefix | The first link-map entry without a slash (`linux-vdso.so.1`) produced a NULL dereference, and `libODBCProvider-4.2.0.so` never equalled `libODBCProvider.so`. |
+| Data-store DDL (`CREATE/DROP DATABASE`) runs with autocommit temporarily enabled | The connection runs with autocommit off, and SQL Server refuses `CREATE DATABASE` inside a transaction. |
+| `ODBCDriver/desc_slct.c` sizes `RDBI_INT` by `sizeof(int)` | It used `sizeof(long)`. On LP64 the RDBI layer stepped 8 bytes through a densely packed 4-byte array, so every second row was skipped and the remaining rows carried their neighbour's column values. |
+| `ODBCDriver/define.c` binds `RDBI_LONG` buffers wider than a `SQLINTEGER` as `SQL_C_SBIGINT` | Same class of bug for the 5–10-digit `numeric`/`decimal` band. |
+| `ODBCDriver/fetch.c` stores `SQL_ATTR_ROWS_FETCHED_PTR` in a `SQLULEN` | It was an `int`, so the driver's 8-byte write overran the stack slot. |
+| The ODBC reserved-word map became a function-local static | As a class-static it was defined in two images (provider DSO and unit-test executable) and its destructor ran twice at exit. |
+| `SQLCMD_8BIT_TABLE_NAME` is written as `L"Fd\u00e9SqlTest"` | The source contained a UTF-8 replacement character instead of `é`, which SQL Server rejects. |
+
+### Result
+
+Both configurations are green (86 fixtures at the time of writing; the current tree registers
+87, because `TestMaxBoolProperty` now runs as well):
+
+| Build | Result | LeakSanitizer |
+|-------|--------|---------------|
+| Debug (ASan/LSan) | `OK (87)` | 0 direct records; 5,056 B in 4 indirect records, all from `FdoExpressionEngineUtilDataReader::GetAggregateClassDef` (shared Expression Engine code, reached through `FdoAdvancedSelectTest::TestMaxBoolProperty`) |
+| Release | `OK (87)` | not instrumented |
+
+## Activating the Access unit-test suite on Linux
+
+The Access half of the ODBC provider's suite also runs on Linux, against the mdbtools driver. It is
+the fixture registry `OdbcAccessTests` in `UnitTestOdbc`. Unlike the Windows run — which is split
+into sub-suites because the Jet driver exhausts its connection limit — the mdbtools run is a single
+process:
+
+```sh
+# odbc-mdbtools installed in the build container
+run_fdo_tests.sh --fdo-build-dir /tmp/work/build_area/fdo \
+    --no-default-suites --with-odbc-access
+```
+
+No init file or DSN is needed: the fixtures build `DRIVER={MDBTools};DBQ=<exe dir>/MSTest.mdb`
+from the test executable's directory, where CMake stages `MSTest.mdb`.
+
+### What had to change
+
+| Change | Why |
+|--------|-----|
+| `OdbcConnectionUtil` uses `MDBTools` as the Access driver on Linux (`FDO_ACCESS_ODBC_DRIVER` overrides it) and builds a `DBQ=` connection string | The Windows fixtures name the Microsoft Access driver and a `MsTest` DSN; neither exists on Linux. |
+| `OdbcConnectionUtil::GetTestDataPath()` resolves `/proc/self/exe` off Windows | The Windows implementation used `GetModuleFileName`; the staged test data sits beside the runner on both platforms. |
+| `FdoRdbmsOdbcConnectionInfo` recognises `MDBTOOLS` as a file provider and accepts `DBQ=`/`DATABASE=` | The provider-info request otherwise reports an unknown datastore type. |
+| `ODBCDriver/connect.c` falls back to `SQL_DBMS_NAME` when `SQLGetInfo(SQL_DRIVER_NAME)` fails, and classifies `MDBTOOLS` | mdbtools returns `SQL_ERROR` for `SQL_DRIVER_NAME`; failing the connection there is wrong for any driver with a thin `SQLGetInfo`. |
+| `ODBCDriver/pkeys_.c` skips the `SQLSpecialColumns` approach for mdbtools | Its result set segfaults in `mdb_fetch_row`; the `SQLColumns` approach is used instead. |
+| `ODBCDriver/objects_.c` drops `VIEW` rows for mdbtools | mdbtools lists Access saved queries as views but cannot execute them, and it ignores the `SQLTables` type/name filters. |
+| `ODBCDriver/col_.c` describes columns with `SQLDescribeCol` for mdbtools | mdbtools implements only `SQL_DESC_NAME`, `SQL_DESC_TYPE`, `SQL_DESC_LENGTH`, `SQL_DESC_UNSIGNED` and `SQL_DESC_DISPLAY_SIZE`; every other `SQLColAttribute` is an error, and its `SQLColumns` reports `SQL_UNKNOWN_TYPE` for many columns. |
+| `ODBCDriver/col_.c` drops the `where 1 = 2` predicate from the column probe for mdbtools | mdbtools leaks a glib object for every `WHERE` expression it evaluates (see [mdbtools leaks a chunk per filtered query](#mdbtools-leaks-a-chunk-per-filtered-query)). The probe only reads the result set's shape and never fetches a row, so the predicate bought nothing; removing it took the suite from 86 to 10 leaked objects. |
+| `templates/scripts/container/lsan/odbc-mdbtools.supp`, applied by `run_fdo_tests.sh --with-odbc-access` | The residue is the driver's own leak, so it is suppressed (module-scoped) rather than reported as an FDO defect; the suite now runs clean. |
+| `ODBCDriver/desc_slct.c` executes a prepared statement before describing it for mdbtools | mdbtools returns zero result columns until `SQLExecute`; FDO describes the select list before executing. |
+| `FdoRdbmsFilterProcessor` has a `mUseTablePrefix` switch, and `FdoRdbmsOdbcConnection` clears aliases and prefixes for mdbtools | mdbtools' SQL parser rejects `FROM "T" D` and `"T"."COL"`; FDO otherwise generates both. |
+| Access fixtures are registered on Linux; the write fixtures (`Delete`, `Insert`, `Update`, `SqlCmd`), the two view selects, the date-filter test and the computed-identifier arithmetic test stay Windows-only | mdbtools is read-only, cannot execute saved queries, has no date-literal support and cannot parse arithmetic expressions. |
+
+### Result
+
+Both configurations are green (`OK (35)`, 35 fixtures):
+
+| Build | Result | LeakSanitizer |
+|-------|--------|---------------|
+| Debug (ASan/LSan) | `OK (35)` | clean: 0 records. mdbtools' own 17,706 B in 92 allocations are suppressed by `lsan/odbc-mdbtools.supp` (the runner reports "Suppressions used: 92 17706 libmdbsql.so") |
+| Release | `OK (35)` | not instrumented |
+
+### mdbtools leaks a chunk per filtered query
+
+Not an FDO leak, and not something the provider can release: mdb-tools' SQL engine allocates one
+304-byte glib object for every `WHERE` expression it evaluates and never frees it, so the cost is
+proportional to the number of filtered queries a connection runs.
+
+```
+Direct leak of 304 byte(s) in 1 object(s) allocated from:
+    #1 g_malloc0
+    #2 mdb_sql_eval_expr | mdb_sql_add_and      (libmdbsql.so.3)
+    #3 mdb_sql_run_query
+    #4 SQLExecute                               (libmdbodbc.so)
+```
+
+A twenty-line C client that opens the same `.mdb` through the driver, frees every statement,
+disconnects and frees every handle leaks identically, so it cannot be attributed to FDO ownership:
+
+```
+select * from "TABLE1"                  -> no leak
+select * from "TABLE1" where 1 = 2      -> 304 B
+select * from "TABLE1" where 1 = 2  (x5) -> 1,520 B
+```
+
+The suppressions file matches `libmdbsql.so`, the module the chunks are allocated under. Matching
+by function name is not durable: the chunks come from glib, which ships no unwind tables, so how
+much of the mdbtools stack LeakSanitizer can name depends on library load order. A leak in FDO
+never carries a `libmdbsql` frame, so it is still reported; a hypothetical FDO bug that drops a
+reference to an mdbtools allocation would be masked, which is the accepted cost of running the
+suite clean. Enabling the suppression needs `ASAN_OPTIONS=fast_unwind_on_malloc=0`, which is
+harmless here because the suite runs in about a second.
+
+The provider's own share of the leak was real and **is** fixed: the column probe no longer sends a
+constant predicate to mdbtools (86 -> 10 leaked objects). The ten that remain are the suite's own
+filtered queries.
 
 ## Bottom line
 

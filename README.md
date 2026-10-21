@@ -183,6 +183,8 @@ Pass any of the following to `run_fdo_tests.sh` to enable the optional suites:
 | `--with-postgis-init <file>` | PostGIS (`UnitTestPostGis initfiletest=<file>`) |
 | `--with-mysql-init <file>` | MySQL (`UnitTestMySql initfiletest=<file>`) |
 | `--with-odbc-init <file>` | ODBC (`UnitTestOdbc initfiletest=<file>`) |
+| `--with-odbc-sqlserver` | ODBC SQL Server fixtures (`UnitTestOdbc initfiletest=<shipped OdbcSqlServerInit.txt> OdbcSqlServerTests`) |
+| `--with-odbc-access` | ODBC Access fixtures against mdbtools (`UnitTestOdbc OdbcAccessTests`, with the driver's own leaks suppressed by `templates/scripts/container/lsan/odbc-mdbtools.supp`) |
 | `--with-oracle` | King Oracle (`UnitTest`) |
 | `--with-wms` | WMS |
 | `--with-wfs` | WFS |
@@ -231,7 +233,7 @@ To run *every* suite the runner supports in one go — the six defaults plus WMS
     --with-sqlserver-init /tmp/work/scripts/test_init/SqlServerSpatialInit.txt
 ```
 
-The PostGIS, MySQL, SQL Server and King Oracle suites need the `dbs` compose stack running first; ODBC has no shipped init file, so add `--with-odbc-init <file>` of your own to include it. WMS and WFS need outbound network access to the public OGC services they test against. `--with-sqlserver-perf` runs the SQL Server suite with `FDO_SQS_PERF=1`, which opts into the provider's memoised `SQLDescribeParam()` and cached database-object catalog; over four SQL Server fixtures that cut `SQLDescribeParam` calls by ~73% and wall-clock time from 82 s to 34 s, with every fixture still `OK` and no change in the LSan record count. See [docs/sqlserver-spatial-linux-support.md](./docs/sqlserver-spatial-linux-support.md#the-fdo_sqs_perf1-opt-in-measured).
+The PostGIS, MySQL, SQL Server and King Oracle suites need the `dbs` compose stack running first, as does the ODBC SQL Server suite (`--with-odbc-sqlserver`, which uses the shipped `OdbcSqlServerInit.txt` pointing at `mssql_cs`). The ODBC Access suite runs on Linux against the mdbtools driver (`--with-odbc-access`; the Ubuntu develop image installs `odbc-mdbtools`, and no DSN is needed). The Excel/dBase/Text ODBC fixtures still need drivers that only exist on Windows, so `--with-odbc-init <file>` is for a configuration you have prepared yourself. WMS and WFS need outbound network access to the public OGC services they test against. `--with-sqlserver-perf` runs the SQL Server suite with `FDO_SQS_PERF=1`, which opts into the provider's memoised `SQLDescribeParam()` and cached database-object catalog; over four SQL Server fixtures that cut `SQLDescribeParam` calls by ~73% and wall-clock time from 82 s to 34 s, with every fixture still `OK` and no change in the LSan record count. See [docs/sqlserver-spatial-linux-support.md](./docs/sqlserver-spatial-linux-support.md#the-fdo_sqs_perf1-opt-in-measured).
 
 These are derived from the reference copies in the FDO source tree at `fdo/Providers/GenericRdbms/Src/UnitTest/`; only edit the SVN copies if you need a different configuration. The `service=` entry is the database host (`[dbname@]host:port`).
 
@@ -302,7 +304,7 @@ The King Oracle suite takes no init file. `run_fdo_tests.sh` points it at the co
 
 `host.docker.internal` works under Podman and Docker Desktop, and under Docker on Linux when the container is run with `--add-host=host.docker.internal:host-gateway`; Podman also provides the native alias `host.containers.internal`. To target a different host, edit the `service=` value in the file.
 
-> The ODBC suite has no equivalent init file here: on Linux its DSNs must be configured separately, as the dynamic DSN setup in the FDO sources is Windows-only. What the provider can and cannot open on Linux — and why the `.xls`/`.mdb`/`.dbf`/`.txt` story has no Linux equivalent of the Windows Access Database Engine — is in [docs/odbc-linux-support.md](./docs/odbc-linux-support.md).
+> ODBC DSNs must be configured separately on Linux, as the dynamic DSN setup in the FDO sources is Windows-only. The SQL Server fixtures do not need a DSN (they use the `DRIVER=...` connection string) and run with `--with-odbc-sqlserver`; the Access fixtures build a `DRIVER={MDBTools};DBQ=...` string and run with `--with-odbc-access`. The remaining file-based fixtures (Excel/dBase/Text) still need drivers that only exist on Windows. What the provider can and cannot open on Linux — the mdbtools read-only and SQL-parser limits, and why the `.xls`/`.dbf`/`.txt` story has no Linux equivalent of the Windows Access Database Engine — is in [docs/odbc-linux-support.md](./docs/odbc-linux-support.md).
 
 ## 5. Running integration test suites
 

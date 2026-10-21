@@ -17,13 +17,14 @@ and this is the finding that makes the file dangerous to read casually — is th
 fifteen columns do not report the value their name promises** (`AVGOPTIME`, `TOTALOPTIME`, `UPTIME`);
 this was reproduced on a running server and traced to an out-of-type property cast (§ 6.1).
 
-Nothing in this document changes any source file. It is a static analysis of the trees plus a
-runtime exercise of a released build (details in § 5), so it proposes no source change and the API/ABI
-mode is not engaged.
+Nothing in this document changes any source file, with one exception: the `CPU`-column defect
+recorded in § 6.2 is fixed in the working copy — an internal `Server/` change that touches no shipped
+header or symbol. The rest is a static analysis of the trees plus a runtime exercise of a released
+build (details in § 5), so the API/ABI mode is not engaged.
 
 | Item | Revision / version |
 |------|--------------------|
-| `mapguide/MgDev` working copy | `branches/4.0/MgDev` r10218 (clean, no local mods) |
+| `mapguide/MgDev` working copy | `branches/4.0/MgDev` r10218, plus the § 6.2 fix in `Server/src/Common/Manager/ServerManager.cpp` (uncommitted) |
 | `fdo` working copy | `branches/4.2` r8411 |
 | API/ABI mode at time of writing | `freeze` (see [AGENTS.md](../AGENTS.md#current-cycle)) — no shipped header or symbol is touched by anything described here |
 | Build exercised at runtime | `mapguideopensource-4.0.0.10202` (Ubuntu 22.04), the released 4.0.0 Final installer, pre-installed in a throwaway dev container |
@@ -292,14 +293,57 @@ server-internal (read `Uptime`/`TotalOperationTime`/`AverageOperationTime` as `M
 `MgUtil::Int64ToString`), it does not touch a shipped header or symbol, and it is *not* made here —
 this document is the deliverable. Everything else the file offers is usable.
 
-### 6.2 Units and semantics that mislead
+### 6.2 The `CPU` column could log nonsense after long uptime (fixed in the working copy)
+
+A long-standing 32-bit-only defect in `MgServerManager::ComputeLinuxCpuLoad()` accounts for the
+`100` and `-2147483548` values reported against MapGuide 2.2 on 32-bit CentOS:
+
+- the four `/proc/stat` counters were read with `%i` into `int`. On ILP32 `long` is 32 bits, and
+  glibc's `vfscanf` converts through `strtol` before casting to `int`, so a value above `INT_MAX`
+  **saturates at 2147483647** rather than wrapping;
+- `/proc/stat` counts cumulative jiffies since boot (`USER_HZ` = 100) summed over every CPU, so on a
+  many-core host `idle` passes 2^31 after a few weeks to a few months of *host* uptime — the reason
+  it appeared "after some months of correct operation";
+- once `idle` stopped moving the numerator was 0 and the column was pinned at `100`; once the last
+  of `user`/`nice`/`sys` saturated as well the denominator was 0, `0.0/0.0` is NaN, and
+  `(INT32)NaN` is `INT_MIN` on x86, so `100 - INT_MIN` is exactly `-2147483548`.
+
+On LP64 (`long` is 64 bits) the same conversion truncates mod 2^32 instead of saturating, and the
+difference of two truncated values is still the correct delta, so the reported symptom is specific
+to 32-bit builds. The working copy (pending SVN commit) now:
+
+- reads the counters as `unsigned long long` (`%llu`) from a 256-byte line, and checks the `fgets` /
+  `sscanf` results instead of computing on indeterminate values;
+- retries the sample if a signal cuts the 1-second `ACE_OS::sleep()` short;
+- treats zero counter movement, or a counter that went backwards (a CPU was hot-unplugged), as "no
+  sample" and returns `-1` — the value the Windows path already uses when PDH fails — instead of
+  dividing 0 by 0;
+- clamps the ratio so the `double` → `INT32` conversion is always defined.
+
+A `-1` in the `CPU` column therefore means "could not be determined", not "0 %".
+
+The sample-to-percentage step is now a pure function, `MgServerManager::ComputeCpuUtilization()`, so
+it is covered without needing a live `/proc/stat`: `TestServerManager.cpp`'s `ComputeCpuUtilization`
+case in the `[ServerManager]` suite exercises busy / idle / static / backwards / post-2^31 samples
+(reverting the guards makes that case fail with `-1 == -2147483548`), and the `[ServerAdminService]`
+`GetInformationProperties` case asserts the property stays within `-1 … 100` end to end.
+
+Both are Linux-only, and deliberately so: `CpuSample` models the four counters on `/proc/stat`'s
+`cpu` line and `ComputeCpuUtilization()` only ever turns a pair of them into a percentage, whereas
+the Windows implementation reads a PDH `\Process(Idle)\% Processor Time` counter that already
+returns a percentage, so nothing on Windows builds a sample. The helper, its declaration and the
+test are guarded on `_WIN32` to keep Linux-only code out of the Windows build rather than shipping a
+public API about a file format Windows never reads.
+
+### 6.3 Units and semantics that mislead
 
 - `WORKINGSET` and `VIRTUALMEMORY` are documented as bytes, and are bytes on Windows, but on Linux
   they are `kB × 1000` — about 2 % low versus counting KiB as 1024 — and nothing in the file says so.
-- `CPU` is **whole-machine** CPU, sampled over a **blocking 1-second sleep** (`ACE_OS::sleep(1)` in
-  `ComputeLinuxCpuLoad`), not the server process's share; on a busy or containerised host it says
-  more about the neighbours than about MapGuide. It also means the tick takes ≥ 1 s and the value is
-  a one-second average of everything else on the box.
+- `CPU` is **whole-machine** CPU, sampled over a **blocking 1-second `/proc/stat` interval** (a
+  retried `ACE_OS::sleep(1)` in `ComputeLinuxCpuLoad`), not the server process's share; on a busy or
+  containerised host it says more about the neighbours than about MapGuide. It also means the tick
+  takes ≥ 1 s and the value is a one-second average of everything else on the box. `-1` means the
+  sample could not be taken (§ 6.2).
 - `TOTALOPTIME` is seconds (the 64-bit property is built from milliseconds / 1000) whereas
   `AVGOPTIME` is milliseconds — a unit change mid-line in the intended design, and both are the
   broken columns anyway.
@@ -310,7 +354,7 @@ this document is the deliverable. Everything else the file offers is usable.
 - Cache metrics cover the **feature-service cache** only (`MgFeatureServiceCache::GetCacheSize()` /
   `GetDroppedEntriesCount()`); resource/tile caches are not represented.
 
-### 6.3 Small inconsistencies in the surrounding machinery (by inspection, not exercised)
+### 6.4 Small inconsistencies in the surrounding machinery (by inspection, not exercised)
 
 - `IsLogFileInUse()` compares a filename from disk against the **configured** name, while
   `BuildFileName()` strips the `%d`/`%m`/`%y` specifier before opening the live file. So with an
@@ -325,7 +369,7 @@ this document is the deliverable. Everything else the file offers is usable.
   whole `Set*LogInfo` family is exercised only by the Portable unit tests), so the only supported
   changes are file edits plus a restart.
 
-### 6.4 Things this file is *not*
+### 6.5 Things this file is *not*
 
 - **Not the "Performance Report".** The Site Administrator's *Performance Report* page
   (`Web/src/mapadmin/performanceReport.php`) drives the **Profiling service**
@@ -343,7 +387,7 @@ this document is the deliverable. Everything else the file offers is usable.
   aggregation. It is useful *because* it is cheap and survives on a box where nothing else was
   installed; it is not a substitute for real metrics collection.
 
-### 6.5 Suggested use cases (given the above)
+### 6.6 Suggested use cases (given the above)
 
 1. **Memory trend on a long-lived production server.** `WORKINGSET`/`VIRTUALMEMORY` every 5 minutes
    gives a growth curve that distinguishes a leak from steady-state, after the fact.
@@ -357,7 +401,7 @@ this document is the deliverable. Everything else the file offers is usable.
    short bursts.
 5. **Cache thrash.** `CACHESIZE` flat while `CACHEDROPPEDENTRIES` climbs means the working set is
    outgrowing the cache.
-6. **Order-of-magnitude resource attribution**, with § 6.2 held firmly in mind — and with the
+6. **Order-of-magnitude resource attribution**, with § 6.3 held firmly in mind — and with the
    `UPTIME`/`TOTALOPTIME`/`AVGOPTIME` columns ignored.
 
 ## 7. Open questions / possible follow-ups

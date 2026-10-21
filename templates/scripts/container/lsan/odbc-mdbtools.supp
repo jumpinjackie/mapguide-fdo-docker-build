@@ -1,0 +1,24 @@
+# LeakSanitizer suppressions for the mdb-tools ODBC driver, applied to the ODBC provider's
+# Access suite (run_fdo_tests.sh --with-odbc-access).
+#
+# mdb-tools' SQL engine (libmdbsql) allocates a glib object for every WHERE expression it
+# evaluates and never frees it, so each filtered query costs one 304-byte chunk:
+#
+#     Direct leak of 304 byte(s) in 1 object(s) allocated from:
+#         #1 g_malloc0
+#         #2 mdb_sql_eval_expr       (libmdbsql.so.3)
+#         #3 mdb_sql_run_query
+#         #4 SQLExecute              (libmdbodbc.so)
+#
+# The same picture was measured for mdb_sql_add_and, which the AND-ed filters reach. The
+# allocation is never an FDO object: a standalone C client that opens the same .mdb through
+# the driver, frees every statement, disconnects and frees every handle leaks the same way,
+# and the chunks survive SQLDisconnect.
+#
+# Matching is by module rather than by function because these chunks are allocated by glib,
+# which has no unwind tables, so how much of the mdbtools stack LSan can name varies with
+# library load order. A leak in FDO does not carry a libmdbsql frame and is still reported.
+#
+# The driver is a test dependency only; the records are documented in
+# docs/odbc-linux-support.md and docs/fdo-provider-memory-leaks.md.
+leak:libmdbsql.so

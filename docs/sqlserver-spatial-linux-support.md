@@ -45,11 +45,25 @@ The provider is an ODBC *client*: it brings no driver of its own, exactly like t
 provider. The Microsoft driver is required — nothing else speaks TDS with the `geometry`/`geography`
 UDTs it relies on.
 
+The `develop_thin` images install it, so a build container made by `build_thin.sh` needs nothing else:
+`templates/distros/ubuntu/cmd_prepare_fdo_develop_ubuntu22.txt` and
+`templates/distros/generic/cmd_prepare_fdo_develop.txt` add the Microsoft package repository and
+`msodbcsql17`. **A container started before that change, or from an older image, does not have it** —
+and the failure is not self-evident: the whole suite fails from its first fixture with
+`RDBMS: No current open database.` (see [fix 19](#19-a-failed-connect-lost-the-driver-managers-diagnostic--connectc)).
+Check with `ls /opt/microsoft/msodbcsql17/lib64/` and install it there, or rebuild the image:
+
 ```sh
+# Ubuntu 22.04
 wget -q https://packages.microsoft.com/keys/microsoft.asc -O- | gpg --dearmor > /etc/apt/trusted.gpg.d/microsoft.gpg
 wget -q https://packages.microsoft.com/config/ubuntu/22.04/prod.list -O /etc/apt/sources.list.d/mssql-release.list
 apt-get update
 ACCEPT_EULA=Y apt-get install -y msodbcsql17
+
+# Rocky Linux 8 (the `generic` image's base): the RHEL 8 packages are compatible
+wget -q https://packages.microsoft.com/config/rhel/8/prod.repo -O /etc/yum.repos.d/mssql-release.repo
+rpm --import https://packages.microsoft.com/keys/microsoft.asc
+ACCEPT_EULA=Y yum install -y msodbcsql17
 ```
 
 That registers `[ODBC Driver 17 for SQL Server]` in `/etc/odbcinst.ini`. The provider looks the
@@ -64,6 +78,33 @@ FDO_SQLSERVER_ODBC_DRIVER="ODBC Driver 18 for SQL Server" ./UnitTestSQLServerSpa
 The same variable is honoured by the unit test's connection helper
 (`Src/UnitTest/SQLServerSpatial/SqlServerConnectionUtil.cpp`), which on Windows probed `SQLNCLI`
 instead.
+
+### unixODBC: shared on ubuntu, static in `generic`
+
+On ubuntu the provider links the distribution's `libodbc.so.2`. The `generic` image has no unixODBC
+package, so `build_fdo_generic.sh` compiles unixODBC with `--disable-shared --enable-static
+--sysconfdir=/etc` into `/usr/local`, and the provider links `libodbc.a` (and `libodbcinst.a`).
+
+That still works with a driver installed: the driver manager is what `dlopen()`s the driver's shared
+library, and a static driver manager can do that as well as a shared one. What a static-only unixODBC
+does *not* provide is `libodbcinst.so.2`, and **the Microsoft driver links that one dynamically**
+(`ldd libmsodbcsql-17.11.so.1.1` shows `libodbcinst.so.2 => /lib/x86_64-linux-gnu/libodbcinst.so.2` and
+nothing else from unixODBC). The `msodbcsql17` package depends on the distribution's `unixODBC`
+package, which supplies it, so installing the driver satisfies the requirement — the process then has
+two copies of the odbcinst code, one linked into the provider and one loaded by the driver, and both
+read `/etc/odbcinst.ini`. That is harmless, but it is worth knowing when a lookup behaves unexpectedly:
+`ODBCSYSINI` moves the file for both.
+
+`--sysconfdir=/etc` is what makes the static copy read `/etc` as well: without it, autoconf's default
+(`<prefix>/etc`, i.e. `/usr/local/etc`) is compiled in as `SYSTEM_FILE_PATH`, and the provider silently
+looks for `/usr/local/etc/odbcinst.ini` while the driver packages write `/etc/odbcinst.ini`. The
+install hook only `touch`es the ini files, so pointing at `/etc` does not overwrite registrations that
+are already there.
+
+Because installing `unixODBC` also puts a `libodbc.so.2` on the system, `FindUnixODBC.cmake` would have
+started preferring the shared driver manager for `generic` and silently dropped the static link. The
+`generic` build therefore passes `--with-odbc-static`, which makes the module look for `libodbc.a`
+explicitly; it is the same mechanism as the existing `--with-mysql-static` / `--with-libpq-static`.
 
 ### Connection string and init file
 
@@ -282,6 +323,14 @@ pick up. Only `LC_CTYPE` is defaulted, so `LC_NUMERIC`/`LC_COLLATE` stay in the 
 suites expect. An application embedding this provider on Linux needs the same `LC_CTYPE`; setting
 `LC_ALL` in the environment is not enough on its own, because the library or application must call
 `setlocale()`.
+
+One consequence worth knowing, because it is not a provider problem: a `LC_CTYPE` that differs from
+the other categories makes `setlocale(LC_ALL, "")` return the **composite** name
+(`LC_CTYPE=C.UTF-8;LC_NUMERIC=C;LC_TIME=C;…`, 166 characters in this image) rather than a single
+locale name, so any code that copies that string into a fixed buffer has to size the buffer for it.
+The SHP suite's `InsertTests::insert_with_locale` copied it into a 50-byte stack buffer and ASan
+aborted the whole run with a `stack-buffer-overflow`; it now allocates the buffer from the string's
+own length. Nothing else in the tree reads that return value.
 
 It is not only literals. A quoted identifier goes to the server as a bare (non-`N'`) string too, so
 `CREATE TABLE` was affected in the same way and wrote `prÃ¶vince` where the property is `Prövince` —
@@ -592,26 +641,39 @@ spelling is corrected with it.
 
 The file the tests must read is **not** the one the provider ships: `Src/UnitTest/ExtendedCoordSys.txt`
 (337 lines) defines the fixture's own systems — `CA-I` with `PROJCS["California test",...]`, which is
-what the expected-output files contain — while the installed `com/ExtendedCoordSys.txt` (2 784 lines) is
-the real-world catalogue and has no `CA-I` at all. The Windows project resolves this by copying the
-provider next to the test binary (`UnitTestSQLServerSpatial.vcproj` copies
-`SQLServerSpatialProvider.dll` and its `com` directory into `$(OutDir)`, and the post-build step copies
-the *test's* `ExtendedCoordSys.txt` into `$(OutDir)\com`), so `getComDir()` — which scans the loaded
-modules for the provider library's directory — resolves to the test's own copy. A CMake build installs
-the provider instead, so its `getComDir()` resolves to the installed catalogue.
+what the expected-output files contain — while the shipped `com/ExtendedCoordSys.txt` (2 784 lines) is
+the real-world catalogue, which lists `26741 CA-I` with no WKT because that SRID is not in SQL Server's
+own geodetic catalogue. Without the fixture the suite reports five failures, the decisive one being
 
-The port therefore gives the provider the same ability the Windows layout provides implicitly:
+```
+(SchemaMgr/Sm/Lp/SpatialContext.cpp: 657) Error creating spatial context Mentor by WKT,
+coordinate system catalog does not contain entry for WKT 'PROJCS["Quebec test",...]'
+```
 
-- `getComDir()` honours **`FDO_SQLSERVER_COM_DIR`** when it is set, and otherwise behaves exactly as
-  before. The variable is read in the non-Windows branch only, so the MSVC build is untouched; the
-  Windows harness already gets the test's `com` directory by staging the provider, and does not need it.
-- The SQL Server unit-test `CMakeLists.txt` stages `<build>/Providers/GenericRdbms/Src/UnitTest/com/`
-  holding the test's `ExtendedCoordSys.txt` and the MetaSchema scripts, mirroring the project file.
-- `run_fdo_tests.sh` exports `FDO_SQLSERVER_COM_DIR=$PWD/com` for that suite, and
-  [Validation](#validation) documents setting it when running the suite by hand.
+with `testMeta`, `testNoMeta`, `testGenGeom`, `testSpatialContextsGeog` and `testSynonyms` following
+from it.
 
-The default is unchanged, so a deployed provider still reads the catalogue next to it — the variable
-only matters to a harness that wants the provider to read a different one.
+Only SQL Server has this requirement; the MySQL and PostGIS providers also read `com`, but everything
+they read there (the MetaSchema `.sql` scripts) is identical in the source tree, the build tree and the
+install, so whichever copy of the provider the loader picks, the content is the same. The catalogue is
+the one file whose content is *test-specific*, and the fix is to put it where the convention already
+looks rather than to give the provider a way to be pointed elsewhere:
+
+- `getComDir()` resolves `com` from the directory of the provider library that is executing — the
+  `GetModuleFileNameW(hModule)` arrangement the Windows `DllMain` uses, expressed on Linux by scanning
+  the link map for the provider's own name. It reads no environment variable, exactly like the MySQL,
+  PostGIS and ODBC providers.
+- The SQL Server unit-test `CMakeLists.txt` stages the test's `ExtendedCoordSys.txt` into the `com`
+  directory **beside the provider in the build tree**, over the copy of the shipped catalogue the
+  provider's own `CMakeLists.txt` puts there. This is the Linux counterpart of the Windows post-build
+  step, which copies the test's catalogue into `$(OutDir)\com` next to the copy of the provider DLL the
+  suite loads. The installed catalogue is never touched: `install` takes it from the source tree.
+- Because the suite must therefore run against the **build-tree** provider, `run_fdo_tests.sh` clears
+  `LD_LIBRARY_PATH` for that one run. An inherited `LD_LIBRARY_PATH` pointing at `/usr/local/fdo-4.2.0`
+  would load the installed provider instead (its `DT_NEEDED` copy is mapped first, and the link-map scan
+  takes the first match), which finds the real catalogue and brings the five failures back. The binary's
+  `RUNPATH` already resolves every dependency, so nothing else needs the variable; see
+  [Validation](#validation).
 
 **16. Expected-output files with Windows line endings compared unequal on Linux — `UnitTestUtil.cpp`**
 
@@ -682,6 +744,109 @@ The same declaration is in the **shared** `Src/ODBCDriver/fetch.c` the ODBC prov
 provider has the defect too — see
 [Relationship to the sibling ODBC driver](#relationship-to-the-sibling-odbc-driver).
 
+**19. A failed connect lost the driver manager's diagnostic — `connect.c`**
+
+Without the ODBC driver installed, every fixture in the suite failed from its first test, and the only
+thing any of them reported was
+
+```
+RDBMS: No current open database.
+```
+
+which says nothing about a driver. The cause is in the provider's connect path: when
+`SQLDriverConnect` returns `SQL_ERROR`, `odbcdr_connect` calls `DumpError2(context, SQL_HANDLE_DBC,
+hDbc)` to capture `SQLGetDiagRec`'s message, and on Linux that function was an **empty stub**:
+
+```c
+#ifndef _WIN32
+static void DumpError2 (...)  { }
+static void DumpError2W(...)  { }
+#else
+    ...the real implementations, using SQLGetDiagRec/SQLGetDiagRecW...
+#endif
+```
+
+So nothing was recorded, and `odbcdr_get_msg` fell through to its "no message" case
+(`FDORDBMS_506`). The sibling driver the ODBC provider compiles (`Src/ODBCDriver/connect.c`) has no
+such guard — its implementations run on Linux — so this was a regression introduced by the copy this
+port started from, not a platform limitation.
+
+The narrow implementation now mirrors the Windows one, storing the driver manager's text in
+`odbcdr_last_err_msg`. The same two cases now read:
+
+| Situation | Message |
+| --- | --- |
+| no driver registered at all | `RDBMS: [unixODBC][Driver Manager]Can't open lib 'ODBC Driver 17 for SQL Server' : file not found` |
+| a name that has no entry in `odbcinst.ini` | `RDBMS: [unixODBC][Driver Manager]Can't open lib 'ODBC Driver 99 for SQL Server' : file not found` |
+
+Both name the driver the provider looked for, which is what a user needs to know. `DumpError2W` stays a
+stub on Linux, with a comment: the Linux driver runs in *narrow* mode (`rdbi_init.c` turns
+`odbcdr_UseUnicode` off because the driver speaks UTF-16 while `wchar_t` is UTF-32), so it is
+unreachable, and the Windows body cannot be reused verbatim because `SQLWCHAR` is a 16-bit code unit
+there but `unsigned short` here — a real implementation would have to convert to `wchar_t`.
+
+**20. Every range check constraint leaked a reference to its min and max value — `SchemaMgr/Ph/Table.cpp`**
+
+`FdoSmPhSqsTable::GetCkeyClause` builds the `CHECK` clause that `CreateCkeysFromFdo` sends back to the
+server, and it tested the constraint's two values with the counted getters themselves:
+
+```cpp
+if ( c->GetMinValue() )
+{
+    ...
+    FdoPtr<FdoDataValue>  val = c->GetMinValue();
+```
+
+`FdoPropertyValueConstraintRange::GetMinValue()` returns `FDO_SAFE_ADDREF(m_minValue)`, so the guard's
+reference is lost the moment the condition is evaluated; the value is then fetched a second time into an
+`FdoPtr`. Each range constraint therefore retired one reference short, and the leftover reference kept
+the value alive forever — a *direct* record, because the constraint that owned the other reference was
+freed normally. `GetMaxValue()` had the same defect, and the same two lines also leaked the values the
+*test* supplied (`AddRangeProperty`'s `FdoDataValue::Create`) and the ones the constraint parser built
+(`ParseConstraint`), since those become the constraint's min/max whenever no type conversion is needed.
+
+This is the SQL-Server-only physical layer, which is why the sibling providers never showed it: the
+PostGIS equivalent (`Providers/GenericRdbms/Src/PostGis/SchemaMgr/Ph/Table.cpp`) already wraps the
+getter in an `FdoPtr`. Both values are now fetched once, into an `FdoPtr`, and tested through it.
+
+Measured on `FdoConstraintsTest` alone — the suite that exercises every constraint type: **62 direct
+records before, 0 after**, and no new records of either kind.
+
+**21. The last fetch of a query stranded the geometries of the previous, larger batch — `ODBCDriver/geom.c`**
+
+The geometry arrays are presized to the fetch's row count and then shrunk to the rows a batch actually
+returned (`odbcdr_fetch2` calls `odbcdr_geom_setNumRows(context, c, (int)rows_in_last_fetch)`), and two
+separate loops are written against that shrunk count: the conversion loop (`j < numRows_I`) and the
+release loop in `col_list_free_S` (`j < column->geom_list.size`). Both are correct only while the last
+batch is at least as large as the one before it. `FdoConnectTest::query` reads a 192-row table in
+100-row batches, so the final batch is 92 rows: slots 92..99 kept the `FdoGeometry` objects the first
+batch had put there, nothing released them, and the free loop never looked at them — 8 leaked
+`FdoFgfLineString` objects (640 B) per query.
+
+`col_list_setNumRows_S` now takes a `release_geoms` flag (TRUE for `defined_geometries`, FALSE for
+`bound_geometries`, which never hold FDO geometries) and, when it is about to drop slots, releases each
+`l_address[j]` above the new size and NULLs it. `l_address` is sized for the largest fetch and is never
+reallocated, so those slots are always in bounds. `FdoConnectTest` went from **1 direct record (640 B in
+8 objects) to 0**.
+
+**22. Three teardown leaks in the shared and test code**
+
+None of these are in the SQL Server provider's own logic; two are in code every GenericRdbms provider
+compiles, so they were found here and fixed for all of them:
+
+- `Rdbi/tran_sp.c` allocated a copy of the save-point name on entry and freed it only when
+  `status != RDBI_SUCCESS` at `the_exit`, so *every successful* `SAVEPOINT`/`ROLLBACK TO`/`RELEASE`
+  leaked it (4 records, 21 B, from `FdoTransactionTest`'s save-point tests). It is now freed
+  unconditionally; the two `rdbi_msg_set_S` calls that use it copy the text.
+- `UnitTest/Common/ReaderTest.cpp` — `TestExceptionalCase` asserts on the message of the
+  `FdoCommandException` that each failing `Get*()` throws and never releases the exception itself (5
+  records, 200 B). Each of the eleven catch blocks now holds the caught exception in an `FdoPtr`
+  (`expHolder`), which also releases it when a `CPPUNIT_ASSERT` in the block throws.
+- `UnitTest/SQLServerSpatial/SqlServerFdoSelectTest.cpp` — `TestSpatialGeogValidSpatialOperators`
+  opened a `StaticConnection` and neither closed the `FdoIConnection` nor `delete`d it, unlike its
+  sibling `TestSpatialGeog` immediately above it (1 record, 48 B). It now does both on the normal path
+  and in the `catch (...)` that already swallowed its failures.
+
 ## Test results
 
 **The whole suite passes**: `Run: 288   Failure total: 0`, reported as `OK (288)`. It got there in
@@ -694,7 +859,7 @@ in, `8` after the first round of fixes, and `0` now:
 | fix 12 U+FFFD literals | `SqlServerFdoUpdateTest::testDefect810181` |
 | fix 13 `RDBI_LONG` stride | `SqlServerFdoUpdateTest::UpdateMultiIdFeatureClass` |
 | fix 14 bender expectations | `SqlServerFdoApplySchemaTest::TestSchema` |
-| fix 15 extended csys file | `FdoSelectTest` (all 24), `testAdjustExtents`, `testDottedSpatialContext`, `testGenGeom`, `testSpatialContextsGeog` |
+| fix 15 extended csys file | `FdoSelectTest` (all 24), `testAdjustExtents`, `testDottedSpatialContext`; and with the fixture actually staged beside the provider, `testMeta`, `testNoMeta`, `testGenGeom`, `testSpatialContextsGeog` |
 | fix 16 CRLF comparison | `testSynonyms` |
 | fix 17 sort collation | `testMeta`, `testNoMeta` |
 | the `sql_variant` test decoding its own payload | `TestInParamsStoreProcVariant` |
@@ -712,6 +877,17 @@ master-file failures were content and ordering differences rather than encoding 
 remaining failures were not caused by any of this port's earlier changes: fixes 13 and 18 were both
 A/B tested by reverting them.
 
+The suite is `OK (288)` in **both** configurations, run through `run_fdo_tests.sh` with an inherited
+`LD_LIBRARY_PATH` pointing at the install (which the runner clears for this suite, see fix 15): Debug
+(`artifacts/Debug/test-logs/SqlServerSpatial_unit_test_log.txt`) reports 0 direct leak records, and
+Release (`artifacts/Release/rel_sqs_final.log`) is green with no change in behaviour. The provider has
+no environment input for the catalogue — it read the one next to itself before and does so now — and the
+suite only needed the staging step, not a variable.
+
+The suites that compile the same RDBI and unit-test-harness code were re-run in both configurations and
+are unchanged at their baseline figures: `UnitTestMySql` `OK (249)` and `UnitTestPostGis` `OK (140)`,
+as is `UnitTest` (SHP) `OK (138)`.
+
 Fixtures measured individually, Debug and Release unless noted: `FdoApplySchemaTest` OK (5),
 `FdoUpdateTest` OK (12), `DataTypeTests` OK (30), `SelectTests` OK (5), `FdoSpatialContextTest` OK (6),
 `SchemaMgrTests` OK (10), `FdoSelectTest` OK (24), `GeometryTests` OK (4). The sibling suites that share
@@ -721,12 +897,15 @@ both configurations.
 ## Relationship to the sibling ODBC driver
 
 `Providers/GenericRdbms/Src/SQLServerSpatial` is largely a copy of `Providers/GenericRdbms/Src/ODBC`,
-so the same defects exist there and were **not** fixed by this work:
+so the same defects exist there. This work did not fix them; the `SQLPOINTER` one has since been
+fixed in a follow-up, and the remainder are still outstanding:
 
-- `ODBCDriver/geom.c` declares `boundParmID` as `SQLSMALLINT` (2 bytes!) at lines 547 and 1120 and
-  passes it to `SQLParamData` as a `SQLPOINTER*`. On Linux that writes an 8-byte pointer into a
-  2-byte local — a stack smash with the same signature as fix 3 above. It is exercised only by the
-  `Odbc*` suites, which are not run here.
+- `ODBCDriver/geom.c` declared `boundParmID` as `SQLSMALLINT` (2 bytes!) in `geom_convert_S` and
+  `geom_convertToSqlServer_S` while passing `(SQLPOINTER*)&boundParmID` to `SQLParamData`, so on
+  LP64 an 8-byte pointer was written into a 2-byte local — a stack smash with the same signature as
+  fix 3 above. **Now fixed** in the shared `Src/ODBCDriver` copy, exactly as in this provider: both
+  declarations are `SQLPOINTER`. Nothing here exercises it (the `Odbc*` suites need ODBC drivers),
+  so the change is compile-validated only, in both build configurations.
 - The `%s`-in-a-wide-format hazard (fix 5) is a trap for any file in either provider.
 - The `RDBI_LONG` stride mismatch (fix 13) is present verbatim in the *shared* `Src/ODBCDriver` (the
   ODBC provider compiles that directory, not a private copy): its `desc_slct.c` gives the same 5–10
@@ -747,46 +926,53 @@ disturbed their masters.
 
 ## Validation
 
-Run from the build area with the message catalogue in place:
+Run from the build area with the message catalogue in place. **Do not** set `LD_LIBRARY_PATH` to the
+install for this suite:
 
 ```sh
 cd /tmp/work/build_area/fdo/Providers/GenericRdbms/Src/UnitTest
 export NLSPATH=/tmp/work/build_area/fdo/nls/linux/en_US/%N
 export LC_CTYPE=C.UTF-8    # required; see fix 8. run_fdo_tests.sh defaults it
-export FDO_SQLSERVER_COM_DIR=$PWD/com   # required; see fix 15. run_fdo_tests.sh defaults it
-./UnitTestSQLServerSpatial initfiletest=<init file>            # whole suite
+unset LD_LIBRARY_PATH      # required; see fix 15. The RUNPATH resolves every dependency
+./UnitTestSQLServerSpatial initfiletest=<init file>                 # whole suite
 ./UnitTestSQLServerSpatial initfiletest=<init file> FdoSelectTest   # one fixture
 ```
 
-`FDO_SQLSERVER_COM_DIR` is what makes the provider read the *test's* coordinate system catalogue rather
-than the one installed beside the provider (fix 15); `$PWD/com` is the directory the build stages for
-exactly that. Without it, the spatial-context fixtures fail with *coordinate system … is not in current
-datastore*. `run_fdo_tests.sh --with-sqlserver-init` exports it for you.
+The provider finds its own `com` directory with no environment input (fix 15), and the build stages the
+test's catalogue beside the build-tree provider that `providers.xml` names. `LD_LIBRARY_PATH` is the one
+thing that can break that: pointing it at `/usr/local/fdo-4.2.0/lib64` loads the *installed* provider,
+whose `com` holds the real catalogue, and the five spatial-context fixtures then fail with *coordinate
+system … is not in current datastore*. `run_fdo_tests.sh --with-sqlserver-init` clears it for you.
 
-The staged directory is created by CMake when the build is **configured**, not when it is compiled, so a
-build tree that predates that rule, or that has only been built, will not have it — re-run
-`cmake .` (or any build step, which reconfigures when the CMake files changed) before running the suite.
+That clearing is specific to this suite, and it has to be: the ODBC, PostGIS and MySQL suites need the
+opposite, because they load their provider **by name** through the FDO registry. On Linux the registry
+is `providers.xml` beside `libFDO`, which a build tree does not have, so FDO falls back to the
+installed `/usr/local/fdo-4.2.0/lib64/providers.xml`, whose entries are bare names
+(`libMySQLProvider.so`) that `dlopen()` resolves through `LD_LIBRARY_PATH`. The runner therefore
+exports that path before the first RDBMS suite and overrides it to empty for this one; when running by
+hand, set it for those suites and unset it for this one.
+
+The staged catalogue is written by CMake when the build is **configured**, not when it is compiled, so a
+build tree that predates that rule, or that has only been built, will not have it — re-run `cmake .` (or
+any build step, which reconfigures when the CMake files changed) before running the suite. Check that
+`Providers/GenericRdbms/Src/SQLServerSpatial/com/ExtendedCoordSys.txt` is the **337-line** fixture and not
+the 2 784-line shipped catalogue: `cmake --build . --target install` does not disturb it, but a
+reconfigure that ran before the staging rule did would leave the shipped one there.
 `testSynonyms` depends on the same data, which is not obvious from its name: the export it compares
 contains the datastore's spatial contexts, so a missing catalogue shows up there too.
 
-Two more things the suite needs to be current, both of which fail *quietly* by reproducing the old
-behaviour rather than by erroring:
-
-- The **installed** provider, not just the built one. The suite resolves the provider through
-  `providers.xml` and loads it from `/usr/local/fdo-4.2.0/lib64`, so every provider change needs
-  `cmake --build . --target install` before it takes effect; building `UnitTestSQLServerSpatial` alone
-  leaves the old library in place, and the run then looks exactly as it did before the change.
-- The **staged `com` directory**, whose `ExtendedCoordSys.txt` is the test's own. Check it is the
-  337-line fixture file and not the 2 784-line installed catalogue — installing refreshes
-  `lib64/com/ExtendedCoordSys.txt` with the real one, which is correct, and a `FDO_SQLSERVER_COM_DIR`
-  that points somewhere else (or nowhere) then has no effect.
+The other thing the suite needs to be current is the **built** provider. The suite resolves it through
+`providers.xml`, which names the library in the build tree, so a provider edit takes effect after
+`cmake --build . --target UnitTestSQLServerSpatial` (or `install`, which builds it too); running the old
+binary reproduces the old behaviour rather than erroring.
 
 A Debug build is ASan/LSan-instrumented, so a green run still exits non-zero — judge it by
-`OK (<n>)` in the output, not by the exit code. Read the report with care in both directions: the
-leak report is empty for the fixtures measured (fix 9 removed the 131 records `FdoDatastoreTest` used
-to carry), but AddressSanitizer still finds a genuine defect on the stored-procedure path, which
-aborts the process — so a whole-suite run stops there and prints no fixture summary at all. See
-[Known issues](#known-issues).
+`OK (<n>)` in the output, not by the exit code. The whole-suite run reports **zero direct leak
+records**: it carried 75 of them before fixes 20–22 and none after, with 1,889,108 B in 21,255
+allocations (1,539 indirect records) remaining, which are the schema-document graphs every RDBMS suite
+carries. Compare record *signatures* as well as totals when you touch this area — the before/after
+comparison for these fixes removed 68 signatures and added none, and a fix that replaces one record
+with another of the same size has not fixed anything.
 
 Fixtures measured green in Debug (ASan) against SQL Server 2017 through msodbcsql17, all of which
 failed before the fixes above: `FdoDatastoreTest` OK (7), `FdoConstraintsTest` OK (16),

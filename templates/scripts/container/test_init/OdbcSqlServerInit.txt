@@ -1,0 +1,1 @@
+provider=Odbc;serviceSqlServer=host.docker.internal,1434;usernameSqlServer=sa;passwordSqlServer=Sql2016!;clean=true;

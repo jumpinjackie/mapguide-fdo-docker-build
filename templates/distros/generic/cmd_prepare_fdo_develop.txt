@@ -1,1 +1,4 @@
-yum install -y bison
+yum install -y bison gnupg2 \
+&& wget -q https://packages.microsoft.com/config/rhel/8/prod.repo -O /etc/yum.repos.d/mssql-release.repo \
+&& rpm --import https://packages.microsoft.com/keys/microsoft.asc \
+&& ACCEPT_EULA=Y yum install -y msodbcsql17

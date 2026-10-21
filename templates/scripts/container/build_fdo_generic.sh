@@ -60,7 +60,10 @@ if [ ! -f /usr/local/lib/libodbccr.a ]; then
         tar -zxf $SDKS_DIR/unixODBC-${UNIXODBC_VER}.tar.gz -C $UNIXODBC_BUILD_ROOT
     fi
     cd $UNIXODBC_BUILD_ROOT/unixODBC-${UNIXODBC_VER} || exit
-    ./configure --disable-shared --enable-static --enable-silent-rules --with-pic
+    # --sysconfdir=/etc matches the target distros. Without it the static driver manager
+    # bakes in /usr/local/etc and misses the odbcinst.ini the driver packages write.
+    # The install hook only touches the ini files, so this is safe.
+    ./configure --disable-shared --enable-static --enable-silent-rules --sysconfdir=/etc --with-pic
     make && make install
 fi
 

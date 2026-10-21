@@ -9,12 +9,17 @@ TEST_SHP=1
 TEST_WMS=0
 TEST_WFS=0
 TEST_ODBC=
+TEST_ODBC_SQLSERVER=0
+TEST_ODBC_ACCESS=0
 TEST_MYSQL=
 TEST_POSTGIS=
 TEST_SQLSERVER=
 TEST_SQLSERVER_PERF=0
 TEST_ORACLE=0
 TEST_LOG_PATH=$(pwd)
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+ODBC_SQLSERVER_INIT="$SCRIPT_DIR/test_init/OdbcSqlServerInit.txt"
+ODBC_ACCESS_LSAN_SUPP="$SCRIPT_DIR/lsan/odbc-mdbtools.supp"
 
 TEST_SUITE_NAME=
 TEST_SUITE_START=$SECONDS
@@ -115,6 +120,12 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             TEST_ODBC="$2"
             shift
             ;;
+        --with-odbc-sqlserver)
+            TEST_ODBC_SQLSERVER=1
+            ;;
+        --with-odbc-access)
+            TEST_ODBC_ACCESS=1
+            ;;
         --with-mysql-init)
             TEST_MYSQL="$2"
             shift
@@ -186,6 +197,9 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             echo "  --with-wfs [Run WFS Tests]"
             echo "  --with-oracle [Run Oracle Tests]"
             echo "  --with-odbc-init [Run ODBC Tests against provided init file]"
+            echo "  --with-odbc-sqlserver [Run the ODBC provider's SQL Server suite (OdbcSqlServerTests)]"
+            echo "  --with-odbc-access [Run the ODBC provider's Access suite (OdbcAccessTests) via mdb-tools]"
+            echo "                     (applies templates/scripts/container/lsan/odbc-mdbtools.supp)"
             echo "  --with-mysql-init [Run MySQL Tests against provided init file]"
             echo "  --with-postgis-init [Run PostGIS Tests against provided init file]"
             echo "  --with-sqlserver-init [Run SQL Server Spatial Tests against provided init file]"
@@ -215,6 +229,8 @@ done
 [ -n "$TEST_POSTGIS" ] && [ ! -f "$TEST_POSTGIS" ] && echo "WARNING: PostGIS init file not found: $TEST_POSTGIS (suite will be skipped)"
 [ -n "$TEST_MYSQL" ] && [ ! -f "$TEST_MYSQL" ] && echo "WARNING: MySQL init file not found: $TEST_MYSQL (suite will be skipped)"
 [ -n "$TEST_SQLSERVER" ] && [ ! -f "$TEST_SQLSERVER" ] && echo "WARNING: SQL Server Spatial init file not found: $TEST_SQLSERVER (suite will be skipped)"
+[ "$TEST_ODBC_SQLSERVER" == "1" ] && [ ! -f "$ODBC_SQLSERVER_INIT" ] && echo "WARNING: ODBC SQL Server init file not found: $ODBC_SQLSERVER_INIT (suite will fail)"
+[ "$TEST_ODBC_ACCESS" == "1" ] && [ ! -f "$ODBC_ACCESS_LSAN_SUPP" ] && echo "WARNING: mdb-tools leak suppressions not found: $ODBC_ACCESS_LSAN_SUPP (mdbtools' own leaks will be reported)"
 
 # Bail out early if nothing is selected, otherwise the run would silently do nothing
 SELECTED_SUITES=0
@@ -228,6 +244,8 @@ SELECTED_SUITES=0
 [ "$TEST_SHP" == "1" ] && SELECTED_SUITES=$((SELECTED_SUITES + 1))
 [ "$TEST_ORACLE" == "1" ] && SELECTED_SUITES=$((SELECTED_SUITES + 1))
 [ -f "$TEST_ODBC" ] && SELECTED_SUITES=$((SELECTED_SUITES + 1))
+[ "$TEST_ODBC_SQLSERVER" == "1" ] && SELECTED_SUITES=$((SELECTED_SUITES + 1))
+[ "$TEST_ODBC_ACCESS" == "1" ] && SELECTED_SUITES=$((SELECTED_SUITES + 1))
 [ -f "$TEST_POSTGIS" ] && SELECTED_SUITES=$((SELECTED_SUITES + 1))
 [ -f "$TEST_MYSQL" ] && SELECTED_SUITES=$((SELECTED_SUITES + 1))
 [ -f "$TEST_SQLSERVER" ] && SELECTED_SUITES=$((SELECTED_SUITES + 1))
@@ -346,12 +364,49 @@ then
     popd >& /dev/null
 fi
 
+# The GenericRdbms provider suites load their provider through the FDO registry, and on Linux that
+# registry is providers.xml beside libFDO -- which a build tree does not have, so FDO falls back to
+# the installed one. Its entries are bare library names ("libMySQLProvider.so"), which dlopen()
+# resolves through LD_LIBRARY_PATH, so every one of these suites needs the install location on the
+# path. This has to be exported before the first of them: with it set only for the GDAL/SHP suites
+# further down, MySQL failed all 221 of its fixtures with "Cannot open libMySQLProvider.so".
+export LD_LIBRARY_PATH="/usr/local/fdo-4.2.0/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
 if [ -f "$TEST_ODBC" ];
 then
     pushd Providers/GenericRdbms/Src/UnitTest >& /dev/null
     start_suite "ODBC"
     ./UnitTestOdbc initfiletest=$TEST_ODBC >& $TEST_LOG_PATH/Odbc_unit_test_log.txt
     check_for_errors $? "Odbc unit test returned an error, please check $TEST_LOG_PATH/Odbc_unit_test_log.txt for more information" "0" "$TEST_LOG_PATH/Odbc_unit_test_log.txt"
+    popd >& /dev/null
+fi
+
+if [ "$TEST_ODBC_SQLSERVER" == "1" ];
+then
+    pushd Providers/GenericRdbms/Src/UnitTest >& /dev/null
+    start_suite "ODBC SQL Server"
+    # The registry name restricts the run to the SQL Server fixtures; the other
+    # Odbc* suites need the Windows-only Access/Excel/dBase/Text drivers, and
+    # each would be run against this init file otherwise.
+    ./UnitTestOdbc initfiletest=$ODBC_SQLSERVER_INIT OdbcSqlServerTests >& $TEST_LOG_PATH/OdbcSqlServer_unit_test_log.txt
+    check_for_errors $? "Odbc SQL Server unit test returned an error, please check $TEST_LOG_PATH/OdbcSqlServer_unit_test_log.txt for more information" "0" "$TEST_LOG_PATH/OdbcSqlServer_unit_test_log.txt"
+    popd >& /dev/null
+fi
+
+if [ "$TEST_ODBC_ACCESS" == "1" ];
+then
+    pushd Providers/GenericRdbms/Src/UnitTest >& /dev/null
+    start_suite "ODBC Access"
+    # mdb-tools needs no DSN: the fixtures build a DRIVER={MDBTools};DBQ=...
+    # connection string from the executable's directory, where MSTest.mdb is staged.
+    #
+    # The driver leaks a glib object per evaluated WHERE expression (see the suppressions
+    # file). Matching that stack needs LSan's accurate unwinder, because glib ships no
+    # unwind tables; the suite runs in about a second, so the cost is irrelevant here.
+    ASAN_OPTIONS="${ASAN_OPTIONS:+${ASAN_OPTIONS}:}fast_unwind_on_malloc=0" \
+    LSAN_OPTIONS="${LSAN_OPTIONS:+${LSAN_OPTIONS}:}suppressions=$ODBC_ACCESS_LSAN_SUPP" \
+        ./UnitTestOdbc OdbcAccessTests >& $TEST_LOG_PATH/OdbcAccess_unit_test_log.txt
+    check_for_errors $? "Odbc Access unit test returned an error, please check $TEST_LOG_PATH/OdbcAccess_unit_test_log.txt for more information" "0" "$TEST_LOG_PATH/OdbcAccess_unit_test_log.txt"
     popd >& /dev/null
 fi
 
@@ -377,22 +432,21 @@ if [ -f "$TEST_SQLSERVER" ];
 then
     pushd Providers/GenericRdbms/Src/UnitTest >& /dev/null
     start_suite "SQL Server Spatial"
-    # The provider reads its coordinate system catalogue from a "com" directory next to the
-    # provider library, so an installed provider would use its own real-world catalogue rather
-    # than the coordinate systems the tests refer to (CA-I and friends). The build stages the
-    # test's own com directory beside this runner (see the SQL Server Spatial CMakeLists), and
-    # the provider honours FDO_SQLSERVER_COM_DIR, which is how the Windows build gets the same
-    # arrangement by staging the provider next to the test binary.
-    FDO_SQLSERVER_COM_DIR=$PWD/com
-    export FDO_SQLSERVER_COM_DIR
+    # The provider reads its coordinate system catalogue and MetaSchema scripts from the "com"
+    # sub-directory of its own library, exactly like the MySQL and PostGIS providers, so no
+    # environment is needed to locate them. This suite must run against the provider in the build
+    # tree, because that is the one the fixture catalogue is staged beside (see the SQL Server
+    # Spatial CMakeLists): the test WKTs the master files expect are not in the shipped one. An
+    # inherited LD_LIBRARY_PATH pointing at the install would load the installed provider instead,
+    # so clear it for this run; the binary's RUNPATH already resolves everything.
     if [ "$TEST_SQLSERVER_PERF" == "1" ]; then
         # FDO_SQS_PERF=1 opts the provider in to the round-trip reductions
         # (memoized SQLDescribeParam() and the cached database object catalog).
         # Any other value, including unset, keeps the original behaviour, so the
         # flag is off unless --with-sqlserver-perf asks for it.
-        FDO_SQS_PERF=1 ./UnitTestSQLServerSpatial initfiletest=$TEST_SQLSERVER >& $TEST_LOG_PATH/SqlServerSpatial_unit_test_log.txt
+        LD_LIBRARY_PATH= FDO_SQS_PERF=1 ./UnitTestSQLServerSpatial initfiletest=$TEST_SQLSERVER >& $TEST_LOG_PATH/SqlServerSpatial_unit_test_log.txt
     else
-        ./UnitTestSQLServerSpatial initfiletest=$TEST_SQLSERVER >& $TEST_LOG_PATH/SqlServerSpatial_unit_test_log.txt
+        LD_LIBRARY_PATH= ./UnitTestSQLServerSpatial initfiletest=$TEST_SQLSERVER >& $TEST_LOG_PATH/SqlServerSpatial_unit_test_log.txt
     fi
     check_for_errors $? "SqlServerSpatial unit test returned an error, please check $TEST_LOG_PATH/SqlServerSpatial_unit_test_log.txt for more information" "0" "$TEST_LOG_PATH/SqlServerSpatial_unit_test_log.txt"
     popd >& /dev/null
@@ -460,8 +514,8 @@ then
     popd >& /dev/null
 fi
 
-# These suites need FDO installed at the default location in order to run
-export LD_LIBRARY_PATH=/usr/local/fdo-4.2.0/lib64
+# GDAL and SHP also need FDO installed at the default location, which the export above has already
+# put on the path.
 
 if [ "$TEST_GDAL" == "1" ];
 then

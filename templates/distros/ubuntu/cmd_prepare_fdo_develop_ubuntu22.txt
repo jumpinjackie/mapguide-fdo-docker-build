@@ -1,0 +1,7 @@
+apt-get update && apt-get install -y \
+lsb-release ccache build-essential bison lintian dos2unix libssl-dev libcurl4-openssl-dev libexpat-dev libaio1 libmysqlclient-dev \
+unixodbc-dev odbc-mdbtools libpq-dev libcppunit-dev libxalan-c-dev libxerces-c-dev libgdal-dev wget lintian cmake ninja-build locales gnupg \
+&& wget -q https://packages.microsoft.com/keys/microsoft.asc -O- | gpg --dearmor > /etc/apt/trusted.gpg.d/microsoft.gpg \
+&& wget -q https://packages.microsoft.com/config/ubuntu/22.04/prod.list -O /etc/apt/sources.list.d/mssql-release.list \
+&& apt-get update \
+&& ACCEPT_EULA=Y apt-get install -y msodbcsql17
