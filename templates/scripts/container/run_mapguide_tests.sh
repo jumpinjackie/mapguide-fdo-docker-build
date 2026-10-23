@@ -56,7 +56,7 @@ echo "Starting unit tests"
 
 cd Server/src/Core || exit
 
-for comp in FeatureService Geometry KmlService LogManager MappingService TileService ResourceService MdfModel Misc Performance RenderingService ServerAdminService ServerManager ServiceManager SiteManager SiteService ProfilingService TransformMesh
+for comp in FeatureService Geometry KmlService LogManager MappingService TileService ResourceService MdfModel Misc Performance RenderingService ServerAdminService ServerManager ServiceManager SiteManager SiteService Stylization RasterStylization ProfilingService TransformMesh
 do
     TEST_SUITE_NAME="MapGuide Test: $comp"
     echo "Running suite: $TEST_SUITE_NAME"

@@ -21,7 +21,7 @@ Durable content (edited and committed to git):
 - Top-level `*.sh` build and utility scripts
 - `templates/**` — distro templates and container scripts that generate Dockerfiles
 - `test/**` — `httpyac` integration test suites (`*.http`)
-- `docs/**` — MapAgent OpenAPI spec (`openapi.yaml`, `swagger.html`), the memory-leak records (`fdo-core-memory-leaks.md`, `fdo-provider-memory-leaks.md`) and `INNER_LOOP_PAIN_POINTS.md`
+- `docs/**` — MapAgent OpenAPI spec (`openapi.yaml`, `swagger.html`), the memory-leak records (`fdo-core-memory-leaks.md`, `fdo-provider-memory-leaks.md`), the exit-teardown record (`fdo-exit-teardown.md`) and `INNER_LOOP_PAIN_POINTS.md`
 - `patches/atomic.h` — the header the MapGuide `snap.sh` scripts copy into the build tree
 - `dbs/**` — docker-compose fixtures for database-backed tests
 
@@ -229,6 +229,11 @@ There are two levels of tests:
    ```
 
 `docs/openapi.yaml` is the source of truth for the MapAgent HTTP API (derived from the C++ handler registry in `HttpRequest.cpp::InitializeStaticData()`). Any `.http` test you add or edit must stay aligned with it.
+
+An `mgserver test` run can also **pass and still exit non-zero, or hang, during process teardown** — the assertion
+summary is printed before shutdown runs. Judge a suite by its `All tests passed` / `assertions:` line and always
+run it under a timeout; do not treat the exit code alone as the result. See
+[docs/fdo-exit-teardown.md](./docs/fdo-exit-teardown.md).
 
 ## Debugging memory leaks (ASan/LSan)
 
@@ -524,6 +529,13 @@ nothing and no teardown runs while the process lives. That is ticket #965, and i
 - Forcing the unload (`-fno-gnu-unique`) was measured and is harmful: `libWMSProvider` segfaults on `dlclose()`
   (GDAL register-then-destroy followed by unloading libgdal; reproducible from a libgdal-only DSO), and the OGR
   suite gains a leak record and a second static init. Do not re-attempt it.
+
+This conclusion is about **vague-linkage data being pinned**, and it does not generalise to every exit-time
+destructor. A teardown that reads state owned by *another static in the same library* is a real
+static-destruction-order bug and is worth fixing — that is what happened when `~FdoConnectionManager` walked
+`m_moduleMap` from `DllMain`/`InitClass` teardown, hanging or segfaulting ~14% of test runs after the tests had
+already passed. See [docs/fdo-exit-teardown.md](./docs/fdo-exit-teardown.md) for the stack, the fix and the
+100-run A/B measurement.
 
 ## Code style guidelines (shell)
 

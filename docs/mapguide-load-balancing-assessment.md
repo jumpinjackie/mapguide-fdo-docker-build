@@ -2664,6 +2664,9 @@ Failover needs A1 plus A7.
 **A3 — Session sharing or replication.** Sessions are pinned by the session id and lost with their host
 (§4.3, §6.2). Making them survive needs either a shared session store or replication plus the ability to
 re-route a session — which in turn changes the affinity model the whole client side is built on.
+One part of that state does not need replicating at all: **selection sets** are already serialized as
+documents and are only kept server-side for historical reasons. Removing them from the session is
+explored in [mapguide-stateless-selection-handoff.md](./mapguide-stateless-selection-handoff.md).
 
 **A4 — Cluster-scoped configuration management.** §5.5 is unambiguous: nothing propagates except the
 server list and service flags. Pushing arbitrary settings to all members would delete a whole class of

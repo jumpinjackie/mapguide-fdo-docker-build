@@ -379,6 +379,45 @@ else:
     else:                                                        nested loops
 ```
 
+As a decision tree — this is the whole of the selection logic, and it runs once per join level:
+
+```mermaid
+flowchart TD
+    START["PrepareJoinQuery(): one join level,<br/>both sides already prepared"] --> L{"left side can ORDER BY<br/>the join attributes?"}
+    L -->|"no"| R1{"right side can ORDER BY<br/>the join attributes?"}
+    L -->|"yes"| R2{"right side can ORDER BY<br/>the join attributes?"}
+    R1 -->|"no"| NL["eGwsNestedLoops<br/>one right query per left row"]
+    R1 -->|"yes"| ONE{"exactly one<br/>join attribute?"}
+    ONE -->|"no"| NL
+    ONE -->|"yes"| BATCH["eGwsBatchSortedBlock<br/>one IN (...) query per batch of left rows"]
+    R2 -->|"yes"| SM["eGwsSortMerge<br/>one streaming merge"]
+    R2 -->|"no"| NLSB["eGwsNestedLoopSortedBlock<br/>one right query per distinct key"]
+```
+
+"Can order" is a per-side probe rather than a provider-wide property, and it is answered differently
+for a leaf and for a left side that is itself a join:
+
+```mermaid
+flowchart TD
+    subgraph LEAF["a leaf side (feature query)"]
+        direction TB
+        A{"connection reports<br/>SupportsSelectOrdering()?"} -->|"yes"| YES["side prepared with ORDER BY<br/>on the join attributes"]
+        A -->|"no"| B{"advertises FdoCommandType_ExtendedSelect<br/>and the join has one attribute?"}
+        B -->|"yes"| YES
+        B -->|"no"| NO["side prepared unordered"]
+    end
+    subgraph NESTED["a left side that is itself a join"]
+        direction TB
+        C{"that join was sort-merge or nested-loop-sorted-block,<br/>and ordered by exactly this join's left attributes?"} -->|"yes"| YES2["left side counts as ordered"]
+        C -->|"no"| NO2["left side counts as unordered"]
+    end
+```
+
+Only the leaf branch of `PrepareJoinQuery()` ever sets the right-side flag, so a right side that is
+itself a join is always treated as unordered; and because the extended-select fallback is accepted
+for a single attribute only, a multi-attribute join against a provider without
+`SupportsSelectOrdering()` on the left falls through to `eGwsNestedLoops`.
+
 `eGwsHash` exists in `EGwsJoinMethod` but is never chosen and has no iterator implementation.
 
 ### 5.5 Step 4 — `Execute()`: create the two readers
@@ -395,6 +434,23 @@ else:
      (`CGwsRightNestedLoopJoinQueryResults`);
    - nested-loop sorted block → same as nested loops, plus a one-key feature pool;
    - batch sorted block → the right query is executed per batch of keys with an `IN (...)` filter.
+
+The object graph a join level ends up with is therefore:
+
+```mermaid
+flowchart LR
+    subgraph J["join iterator (one of the four CGwsJoinQueryResults subclasses)"]
+        direction TB
+        API["ReadNext()<br/>GetDataValue() / GetDataValues()"]
+        ML["m_reader - the LEFT iterator"]
+        MR["m_right - the CGwsRight* iterator"]
+        API --- ML
+        API --- MR
+    end
+    ML --> FL["left FDO reader<br/>executed once, in InitializeReader()"]
+    MR --> FR["right FDO reader<br/>executed 0..N times - the chosen method decides"]
+    MR -.->|"GetJoinedFeatures(i) with i below pathLength-1<br/>delegates to the level below"| PREV["join iterator of the previous level"]
+```
 
 Nothing about the left row is copied: the join iterator keeps the left reader and pulls only the join
 column values from it (`GetDataValues(m_leftcols)` → a `GWSFeatureId`).
@@ -416,6 +472,21 @@ and `SetupRightSide()` is where the join semantics live:
 - **equal join** — loop: ask the right side for the matching rows; if it has at least one, stop;
   otherwise advance the left reader and try again. A primary row with no match is therefore
   invisible, which is what "inner" means here.
+
+```mermaid
+flowchart TD
+    A["consumer: joinIter->ReadNext()"] --> B["m_bLeftJoinValuesSet = false"]
+    B --> C["CGwsFeatureIterator::ReadNext()<br/>advance the LEFT reader"]
+    C --> D{"prepared query type"}
+    D -->|"eGwsQueryLeftOuterJoin"| E["return the left row as it is;<br/>the right side is positioned lazily<br/>by the next GetJoinedFeatures()"]
+    D -->|"eGwsQueryEqualJoin"| F["GetJoinedFeatures():<br/>read the key values once,<br/>SetRelatedValues(key)"]
+    F --> G{"right->ReadNext()<br/>yields a row?"}
+    G -->|"yes"| H["return true - the row is in the result"]
+    G -->|"no"| I["advance the LEFT reader"]
+    I --> J{"left reader has<br/>another row?"}
+    J -->|"yes"| F
+    J -->|"no"| K["return false - unmatched<br/>primary rows are dropped"]
+```
 
 The right side is reached through two methods on the join iterator:
 
@@ -513,6 +584,10 @@ path does), close it explicitly or you leak the connection.
 
 ## 6. The four join algorithms
 
+The left side is streamed in every case; **everything that distinguishes the four methods happens on
+the right side**. The method is chosen per join level by the probes in §5.4 and stored in
+`CGwsPreparedJoinQuery::m_joinmethod`.
+
 | Method | Left ordering | Right ordering | Memory | Right-side cost | Iterator pair |
 |--------|---------------|----------------|--------|-----------------|---------------|
 | `eGwsSortMerge` | required | required | one feature pool per key | one streaming scan | `CGwsSortMergeJoinQueryResults` + `CGwsRightSortedJoinQueryResults` |
@@ -520,23 +595,154 @@ path does), close it explicitly or you leak the connection.
 | `eGwsBatchSortedBlock` | not required | required | `sm_nBatchSize` (default 100) left rows, sorted in memory | one `IN (...)` query per batch | `CGwsBatchSortedBlockJoinQueryResults` + `CGwsRightBatchSortedBlockJoinQueryResults` |
 | `eGwsNestedLoops` | not required | not required | none | one query **per left row** | `CGwsNestedLoopsJoinQueryResults` + `CGwsRightNestedLoopJoinQueryResults` |
 
-Notes that matter operationally:
+All four share the per-row protocol of §5.6: the left iterator advances the left reader and computes
+the key, `GetJoinedFeatures()` hands that key to the right iterator's `SetRelatedValues()`, and the
+consumer then reads the right rows. The subsections below are what each one does with that key.
 
-- **Sort-merge** is the best case and the usual one for SQL-backed sources on both sides: both
-  providers `ORDER BY` the join column and the merge is a single pass. The right reader has an
-  internal cursor (`eBeforeFirstRow`, `eOnJoinRow`, `eAfterJoinRow`, `eAfterLastRow`) so a repeated
-  left key can be answered from the pool without rewinding.
-- **Nested-loop sorted block** exists because the right source is often a non-sortable file/table
-  provider while the left is a database. Sorting the left guarantees equal keys arrive consecutively,
-  so the right query runs once per *group* rather than once per row.
-- **Batch sorted block** is the mirror image: left unsortable, right sortable. It reads up to
-  `JoinQueryBatchSize` left rows into a pre-allocated cache, sorts that cache by the join key, and
-  issues one `IN (...)` list query for the batch. Its getters read from the cache rather than from a
-  live reader — which is also why it has its own copy of the property descriptors.
-- **Nested loops** is the fallback and the pathological case: one right-side `Execute` per left row.
+### 6.1 `eGwsSortMerge` — both sides ordered, one merge pass
+
+The best case, and the usual one for SQL-backed sources on both sides: both providers `ORDER BY` the
+join column, so the right reader is opened once and only ever moves forward.
+
+```mermaid
+flowchart TD
+    I1["InitializeReader(): execute the LEFT select,<br/>ordered by the join attributes"] --> I2["execute the RIGHT select,<br/>ordered by the join attributes"]
+    I2 --> K["per left row: key = GetDataValues(leftcols)"]
+    K --> S["m_right->SetRelatedValues(key)"]
+    S --> SAME{"same key as the<br/>previous left row?"}
+    SAME -->|"no"| SEEK["advance the sorted right reader<br/>while the right key is below the left key"]
+    SAME -->|"yes"| POOLREAD["no query and no rewind: answer from the pool<br/>(Close() drains equal rows still unread)"]
+    SEEK --> CMP{"right key equals left key?"}
+    CMP -->|"yes"| HIT["the row matches; keep reading equal rows<br/>and pool each one"]
+    CMP -->|"no"| MISS["no match: left outer yields the row with a<br/>null right side, equal join drops the row"]
+    HIT --> OUT["consumer reads right rows"]
+    POOLREAD --> OUT
+```
+
+The right reader carries an internal cursor so that a repeated left key is answered from the pool
+without rewinding (`m_pos` in `CGwsRightSortedJoinQueryResults`):
+
+```mermaid
+stateDiagram-v2
+    [*] --> eBeforeFirstRow
+    eBeforeFirstRow --> eBeforeFirstRow: right key below left key - skip
+    eBeforeFirstRow --> eOnJoinRow: right key equals left key - pool and yield
+    eOnJoinRow --> eOnJoinRow: more equal rows - pool and yield each
+    eOnJoinRow --> eAfterJoinRow: right key above left key
+    eBeforeFirstRow --> eAfterJoinRow: right key above left key
+    eAfterJoinRow --> eOnJoinRow: next left row, same key - read the pool
+    eAfterJoinRow --> eAfterJoinRow: next left row, different key - keep scanning
+    eAfterLastRow --> eOnJoinRow: next left row, same key - read the pool
+    eBeforeFirstRow --> eAfterLastRow: right reader exhausted
+    eOnJoinRow --> eAfterLastRow: right reader exhausted
+    eAfterJoinRow --> eAfterLastRow: right reader exhausted
+    eAfterLastRow --> [*]: next left row, different key - no match, ever
+```
+
+Two NULL cases sit outside the picture, because `Compare` reports them rather than an ordering: a
+NULL right key is skipped like a row below the left key, and a NULL left key yields no match without
+consuming a right row. And when the key repeats, `Close()` drains any equal rows the consumer did not
+read into the pool first.
+
+Pooling is also the trap in §9.10: once the key repeats, the right rows come from
+`CGwsFeaturesPool` rather than from the FDO reader, and the pool's LOB and raster getters
+`assert(false)`.
+
+### 6.2 `eGwsNestedLoopSortedBlock` — left ordered, right re-queried per distinct key
+
+This exists because the right source is often a non-sortable file/table provider while the left is a
+database. Sorting the left guarantees equal keys arrive consecutively, so the right query runs once
+per *group* of equal keys rather than once per row.
+
+```mermaid
+flowchart TD
+    I["InitializeReader(): execute the LEFT select ordered by<br/>the join attributes, so equal keys are consecutive"] --> K["per left row: key"]
+    K --> SAME{"same key as the<br/>previous left row?"}
+    SAME -->|"no"| Q["build col = v AND col2 = v2 ...<br/>SetFilter + Execute the right query"]
+    SAME -->|"yes"| REUSE["issue no query at all:<br/>re-read the rows already in the pool"]
+    Q --> STREAM["stream the right rows;<br/>each row is added to the pool as it is read"]
+    STREAM --> OUT["consumer reads right rows"]
+    REUSE --> OUT
+```
+
+The pool only ever holds the rows the consumer actually read, so a repeated key replays the same
+first row — which is exactly the `ForceOneToOne` contract, and why this iterator does not need
+sort-merge's draining `Close()`.
+
+### 6.3 `eGwsBatchSortedBlock` — right ordered, left read in sorted batches
+
+The mirror image: the left cannot be sorted by its provider, so the engine sorts it itself,
+`JoinQueryBatchSize` rows at a time, and turns each batch into one `IN (...)` query on the right.
+
+```mermaid
+flowchart TD
+    F["GetJoinValues(): first use, or the cache is exhausted"] --> C["read up to JoinQueryBatchSize (default 100)<br/>left rows into the primary cache, copying<br/>every projected property"]
+    C --> SORT["QuickSort the cache by the join key"]
+    SORT --> IN["one right query: key IN (v1, v2, ...)"]
+    IN --> WALK["per cached left row, in key order: advance<br/>the batch reader to that key and compare values"]
+    WALK --> MATCH{"key found?"}
+    MATCH -->|"yes"| ROWS["consumer reads the matching rows"]
+    MATCH -->|"no"| NULLROW["left outer synthesises a NULL right row<br/>(m_bNullEntry), equal join drops the row"]
+    ROWS --> MORE{"more cached rows?"}
+    NULLROW --> MORE
+    MORE -->|"yes"| WALK
+    MORE -->|"no"| F
+```
+
+Two consequences are worth knowing before debugging it:
+
+- Its getters read from the **cache**, not from a live left reader — which is also why this iterator
+  has its own copy of the primary property descriptors.
+- `InitializeReader()` executes the primary query a second time (`m_primaryFeatureIterator`) on top of
+  the execution the base class already made into `m_reader`; combined with MapGuide's two `Execute()`
+  calls, that is the four primary scans of §9.9.
+
+### 6.4 `eGwsNestedLoops` — neither side ordered
+
+The fallback, and the pathological case: the right query is re-executed for **every left row**.
+
+```mermaid
+flowchart TD
+    K["per left row: key"] --> Q["close the previous right reader, then build<br/>col = v AND col2 = v2 ... (LIKE where a<br/>numeric/string mix needs it) and SetFilter"]
+    Q --> E["Execute the right query"]
+    E --> R["stream the matching rows"]
+    R --> N["advance the left reader"]
+    N --> K
+```
+
+Nothing can be remembered between left rows because neither side guarantees key order, so the cost is
+one right-hand `Execute` per primary row — which is why §5.4 treats any ordering capability as worth
+having.
+
+### 6.5 One method per join level
+
+The choice is per level of the left-deep tree of §4.1, so a two-relate join can be sort-merge at one
+level and nested loops at the other.
+
+```mermaid
+flowchart TB
+    J2["level 2 - (A join B) join C<br/>method = ordering of (A join B) + ordering of C"]
+    J1["level 1 - A join B<br/>method = ordering of A + ordering of B"]
+    A["A feature query"]
+    B["B feature query"]
+    C["C feature query"]
+    J2 -->|"left"| J1
+    J2 -->|"right"| C
+    J1 -->|"left"| A
+    J1 -->|"right"| B
+    NOTE["a join iterator cannot be re-sorted, so level 2 may treat its left side<br/>as ordered only when level 1 was sort-merge or nested-loop-sorted-block<br/>on the same property list"]
+    NOTE -.- J1
+```
+
+### 6.6 Cross-cutting notes
+
 - The right side's key comparison uses `GWSFeatureId::Compare` →
   `GWSFdoUtilities::CompareDataValues`, which handles mixed numeric types and mixed numeric/string
   keys; see §9 for NULL handling.
+- Both sorted readers read the comparison result explicitly, because `CompareDataValues` reports NULL
+  rather than ordering: `1` (left key greater) skips the right row, `-1` (left key less) means this
+  left key has no more matches, and `2` / `-2` mean the right / left key is NULL, which is turned into
+  "not a match".
 
 ---
 
