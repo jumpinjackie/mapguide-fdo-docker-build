@@ -126,11 +126,20 @@ Then run commands in it:
 
 ```
 $DOCKER_CMD exec <id> bash -lc 'cd /tmp/work/build_area/fdo && cmake --build . --target ...'
+$DOCKER_CMD exec <id> bash -lc '/tmp/work/scripts/build_mapguide_incremental.sh'
 ```
 
 The container already has the mounts at their `/tmp/work/...` paths, the engine's user and SELinux
 settings applied, a warm ccache at `/tmp/ccache`, and often FDO already installed under
 `/usr/local/fdo-4.2.0` — so no `--userns=keep-id --user 0`, no `:z`, and no re-install.
+
+A container that has already run a build has FDO installed; a **new** one does not, and that is the one
+piece of container state a MapGuide build cannot do without — the build tree fails at once with
+`'/usr/local/fdo-4.2.0/lib64/libExpressionEngine.so', needed by ..., missing and no known rule to
+make it`. `/tmp/work/scripts/build_mapguide_incremental.sh` installs it (idempotently, stamped
+against the SDK tarball) before building, and `run_mapguide_tests.sh` does the same via its
+`--prepare`. Do not "fix" this by rebuilding the whole tree with `build_mapguide.sh`, and do not
+copy an installed FDO between containers.
 
 Two things to keep in mind:
 
@@ -218,7 +227,9 @@ or `./make_installer_all.sh` for all combinations.
 
 There are two levels of tests:
 
-1. **Unit/integration tests inside build containers** — `env_test_thin.sh` (thin) or `env_test.sh` (build image) dispatch `templates/scripts/container/run_fdo_tests.sh` / `run_mapguide_tests.sh`. `env_test_thin.sh` attempts to recreate the author's ad-hoc testing inner loop, but **may be flaky**. When debugging, prefer ad-hoc commands inside an interactive build container (`./build_thin.sh ... --interactive`) — and if one is already running, `exec` into it instead of starting another (see [Running commands inside build containers](#running-commands-inside-build-containers)).
+1. **Unit/integration tests inside build containers** — `env_test_thin.sh` (thin) or `env_test.sh` (build image) dispatch `templates/scripts/container/run_fdo_tests.sh` / `run_mapguide_tests.sh`. `env_test_thin.sh` attempts to recreate the author's ad-hoc testing inner loop, but the FDO path **may be flaky**. When debugging, prefer ad-hoc commands inside an interactive build container (`./build_thin.sh ... --interactive`) — and if one is already running, `exec` into it instead of starting another (see [Running commands inside build containers](#running-commands-inside-build-containers)).
+
+   For MapGuide, the inner loop is `/tmp/work/scripts/build_mapguide_incremental.sh` (FDO SDK + `atomic.h`, then `mgserver` and `MgUnitTesting` only) followed by `run_mapguide_tests.sh --component <name>`; the details, the `LD_LIBRARY_PATH` it sets and the pass/fail rules are in [README.md § 4.4](./README.md#44-the-mapguide-rapid-inner-loop).
 2. **HTTP API suites** — `test/*.http` are `httpyac` request files run against a live MapGuide server (started via `mapguide_image_install.sh`):
 
    ```

@@ -124,12 +124,13 @@ Run the same scripts that a non-interactive build runs:
 
 > Distro-specific overrides (`build_fdo_<distro_label>.sh`, `build_mapguide_<distro_label>.sh`) take precedence over the generic scripts above.
 
-Because sources, build output and ccache are all on mounted volumes, editing a file under `fdo/` or `mapguide/MgDev` on the host and re-running the script rebuilds only what changed. For an even tighter loop you can drive the underlying build directly:
+Because sources, build output and ccache are all on mounted volumes, editing a file under `fdo/` or `mapguide/MgDev` on the host and re-running the script rebuilds only what changed. For an even tighter loop, drive the build directly. For FDO:
 
 ```
 cd /tmp/work/build_area/fdo && cmake --build . --target install
-cd /tmp/work/build_area/mapguide && cmake --build . --target install
 ```
+
+MapGuide is not that simple: its build tree cannot build anything until the FDO SDK it was configured against is installed *in the container*, and the default `all` target drags in the web tier. Use [build_mapguide_incremental.sh](#44-the-mapguide-rapid-inner-loop) instead of a bare `cmake --build .`.
 
 ### 4.3 Run unit test suites
 
@@ -157,7 +158,7 @@ Or, inside the interactive build container:
 /tmp/work/scripts/run_mapguide_tests.sh --log-path /tmp/work/artifacts/test-logs --mapguide-build-dir /tmp/work/build_area/mapguide
 ```
 
-`run_fdo_tests.sh` always runs the Core/SDF/SQLite/OGR/GDAL/SHP suites and installs FDO first (`cmake --build . --target install`). It reports the elapsed time of the install step and of each suite, plus the total at the end of the run. The MapGuide runner drives `mgserver test <component>` for each core component with a 5 minute timeout per suite.
+`run_fdo_tests.sh` always runs the Core/SDF/SQLite/OGR/GDAL/SHP suites and installs FDO first (`cmake --build . --target install`). It reports the elapsed time of the install step and of each suite, plus the total at the end of the run. The MapGuide runner drives `mgserver test <component>` for each component `mgserver test list` reports, with a 5 minute timeout per suite; [4.4](#44-the-mapguide-rapid-inner-loop) covers selecting individual suites and how the runner decides pass from fail.
 
 `run_fdo_tests.sh` points `NLSPATH` at the generated message catalogues in the build tree when the caller has not already set it, and echoes the value it ends up using. This matters because `env_test.sh`/`env_test_thin.sh` export `NLSPATH` themselves when they start the one-shot container, whereas a hand-run inside an interactive container has nobody to do it — and without it FDO falls back to raw message symbols (for example `FDOSM_220`) instead of resolved English text, which fails every test that asserts on message text (including `FdoApplySchemaTest::TestSchema`).
 
@@ -253,7 +254,93 @@ export NLSPATH=/tmp/work/build_area/fdo/nls/linux/en_US/%N
 - SHP needs two extra things the runner does for you. Its locale test only works if the locales it switches between exist (`locale-gen en_US en_US.UTF-8 fr_FR ja_JP.EUC-JP`), and its tests create filesets under `Providers/SHP/TestData` and open them with `IDF_CREATE_NEW`, so leftovers from an earlier run fail the next one — delete that whole `TestData` tree in the build area and copy it back from the sources (`cp -a <fdo sources>/Providers/SHP/TestData Providers/SHP/`) rather than relying on `sh ../../TestData/clean`, which is the shipped script but only removes some of what a run leaves behind.
 - The optional positional argument is a CppUnit registry name (`FdoConstraintsTest`, `FdoApplySchemaTest`, `DescribeSchemaTest`, ...); omit it to run everything. Arguments of the form `key=value` are exported as environment variables for the run.
 
-### 4.4 Database-backed tests
+### 4.4 The MapGuide rapid inner loop
+
+`build_mapguide.sh` (and its `build_mapguide_ubuntu22.sh` / `build_mapguide_generic.sh` overrides) is an end-to-end build: it re-installs the FDO SDK, re-runs `cmake_bootstrap.sh` and `cmake_linuxapt.sh`, builds the web tier (httpd/PHP/Tomcat) and packages a `.deb` plus the release tarball. None of that helps while iterating on server, common or geometry code, so MapGuide has a script for the inner loop:
+
+```
+/tmp/work/scripts/build_mapguide_incremental.sh
+```
+
+It does three things and nothing else:
+
+1. **Installs the FDO SDK the build tree was configured against.** The install lives in the container, not on the host, so a fresh interactive container does not have it — and a MapGuide build tree cannot build a single target without it. `ninja` stops immediately with `'/usr/local/fdo-4.2.0/lib64/libExpressionEngine.so', needed by 'Common/Stylization/libMgStylization-4.0.0.so', missing and no known rule to make it`. The SDK tarball is stamped into the install directory, so a rebuilt tarball (a fresh FDO build) is re-installed and an unchanged one is skipped. `atomic.h` is copied to `/usr/include/asm` only when its contents changed, because re-stamping it would rebuild every translation unit that includes it.
+2. **Builds `mgserver` and `MgUnitTesting` incrementally** — the server executable and the unit-test library. Everything under `Common/` and `Server/` is a dependency of one of them, and `ninja` re-runs CMake by itself when a `CMakeLists.txt` changes, so adding or removing a source file needs no extra step.
+3. **Reports how long it took.** A no-op run builds nothing (`ninja: no work to do`) and takes a second; editing `Common/Geometry/Geometry.cpp` costs a recompile plus the dependent relinks (~5s).
+
+| Flag | Effect |
+|---|---|
+| `--target <name>` | Build a different target (repeatable). `--list-targets` prints the valid names. |
+| `--install` | Install the current build output afterwards (`cmake --install .`), which is what the installer/smoke-test path needs. |
+| `--prepare` | Only install the FDO SDK and `atomic.h`, then stop. |
+| `--skip-prepare` | Leave the FDO SDK alone and just build. |
+| `--reinstall-fdo` | Re-extract the FDO SDK even if it is up to date. |
+| `--fdo-sdk <tarball>` | Install a named SDK tarball instead of the one `build_thin.sh` picked. |
+| `--jobs <n>` | Limit build parallelism. |
+
+The script never configures from scratch: it needs the CMake build tree that a full build created, and reconfiguring is the full script's job because it owns `cmake_bootstrap.sh`/`cmake_linuxapt.sh` and the OEM tree (`oem/env_vars.sh`) the configuration depends on.
+
+The default targets do not cover the web tier. An edit under `Web/` needs `--target mod_mgmapagent-4.0.0` (or `mgdevhttpserver`, `MgWebApp-4.0.0`, ...), and to exercise it through Apache/PHP, `--install`.
+
+A session on a host that has already run a full build:
+
+```
+# once: build FDO, build MapGuide, then drop into the container
+./build_thin.sh --target fdo --distro ubuntu --tag 22 --cpu x64
+./build_thin.sh --target mapguide --distro ubuntu --tag 22 --cpu x64
+./build_thin.sh --target mapguide --distro ubuntu --tag 22 --cpu x64 --interactive
+
+# inside the container, after each edit
+/tmp/work/scripts/build_mapguide_incremental.sh
+/tmp/work/scripts/run_mapguide_tests.sh --log-path /tmp/work/artifacts/test-logs \
+    --mapguide-build-dir /tmp/work/build_area/mapguide --component RenderingService
+```
+
+Add `--debug` to `build_thin.sh` to iterate on the ASan/LSan-instrumented tree instead. Debug and Release are separate containers and separate build trees — never install or copy a library between them.
+
+#### Selecting MapGuide suites
+
+`run_mapguide_tests.sh` runs every component suite by default, in the order `mgserver test list` reports them (22 of them, including `CoordinateSystem` and `DrawingService`). `--component <name>` narrows that to the suites you are iterating on, and `--list-components` prints the names:
+
+```
+/tmp/work/scripts/run_mapguide_tests.sh --mapguide-build-dir /tmp/work/build_area/mapguide \
+    --component RenderingService --component Stylization
+```
+
+`--timeout` changes the per-suite timeout (default `5m`, `none` disables it), and the whole run exits non-zero if any suite failed, so it works as a gate.
+
+Two environment facts the runner handles for you, both of which look like something else when they are missing:
+
+- It sets `LD_LIBRARY_PATH` to the build tree's `Server/src/Core` and `Server/src/UnitTesting` plus the FDO `lib64`. `mgserver` `dlopen()`s `libMgUnitTesting.so` by bare name, and the providers recorded in `providers.xml` are bare names too — and `dlopen()` searches `DT_RPATH` and `LD_LIBRARY_PATH`, never `DT_RUNPATH`, so `mgserver`'s own RUNPATH does not help. Without the FDO entry every suite that opens a feature source fails in `MgFdoConnectionManager.Open()` with `CLNT_8_UNABLE_TO_LOAD_LIBRARY`.
+- If the container has no FDO SDK installed yet it installs it first (via the incremental build script's `--prepare`), so a one-shot `env_test_thin.sh` run works from a clean container.
+
+A suite is judged by the Catch2 assertion summary it printed, not by the process exit code, because the exit code is misleading in two ways:
+
+- Debug runs are ASan/LSan-instrumented. A suite whose tests all pass but which leaks exits 1 to report the leak — LeakSanitizer's only way of drawing attention to it — so the runner reports it as a pass and prints the totals underneath, exactly as `run_fdo_tests.sh` does for the FDO suites:
+
+```
+Running suite: Geometry
+  >> Test Suite (Geometry) passed! (elapsed 2s)
+  >>   LeakSanitizer reported leaks: 21632 byte(s) leaked in 263 allocation(s). - see /mapguide_Geometry_unit_test.log
+```
+
+- A passing run can also die or wedge in exit-time teardown after the summary has been printed. That is reported as a pass with a note pointing at [docs/fdo-exit-teardown.md](./docs/fdo-exit-teardown.md), not as a test failure.
+
+One suite fails for a reason that is in the test code rather than the build: `LogManager`'s `EnumerateLogs` and `RenameLog` cases assert `logs->Contains(<property>)`, and `MgPropertyCollection::Contains(const MgProperty*)` ends in `MgDisposableCollection::Contains`, which compares pointers, so a freshly constructed property never matches. They fail in every build configuration; do not read them as a regression from a change in the tree.
+
+#### Running one MapGuide suite by hand
+
+Same thing, without the wrapper:
+
+```
+cd /tmp/work/build_area/mapguide/Server/src/Core
+LD_LIBRARY_PATH=$PWD:$PWD/../UnitTesting:/usr/local/fdo-4.2.0/lib64 \
+    ./mgserver test RenderingService /tmp/UnitTestResults_RenderingService.xml
+```
+
+The second argument is where the JUnit XML result goes; omit it and nothing is written. The build tree's `serverconfig.ini`, `Resources/`, `Schema/`, `UnitTestFiles/` and the `libMgUnitTesting.so` symlink are all generated by CMake configure, which is why a suite runs from the build tree without installing MapGuide first.
+
+### 4.5 Database-backed tests
 
 Some FDO suites (PostGIS, MySQL, ODBC, Oracle) need a live database. Start the required services from the `dbs` compose fixtures, for example:
 

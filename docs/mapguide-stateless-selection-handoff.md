@@ -587,7 +587,8 @@ rather than adding exception codes.
 1. **Unit (Catch2, in-process).**
    `./mgserver test RenderingService UnitTestResults_RenderingService.xml` from
    `Server/src/Core` in the baseline container — `RenderingService` is in the suite list at
-   [`run_mapguide_tests.sh:59`](../templates/scripts/container/run_mapguide_tests.sh#L59). The new
+   [`run_mapguide_tests.sh`](../templates/scripts/container/run_mapguide_tests.sh), and can be run on its own with
+   `--component RenderingService`. The new
    round-trip case and the existing `RenderMapWithSelectionPNG*` cases must pass in **both** Release
    and Debug (Debug is ASan, so the `FromXml` leak fixes are visible there).
 2. **HTTP.** Extend [`test/map_interaction_api.http`](../test/map_interaction_api.http) and run
