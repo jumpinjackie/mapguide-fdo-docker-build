@@ -163,14 +163,14 @@ The recurring shapes in these suites are:
 | King Oracle | (opt-in suite, run against the `dbs` compose Oracle) | 408 B in 4 allocations (2 direct), then 6,284 B in 132 allocations (11 direct records) after r8398 added the batch-insert tests | 0 B |
 | PostGIS | `artifacts/Debug/test-logs/PostGis_unit_test_log.txt` | 1,930,054 B in 15,841 allocations (730 direct records) | 0 B direct; 105,212 B in 942 allocations (388 indirect records) |
 | MySQL | `artifacts/Debug/test-logs/MySql_unit_test_log.txt` | 10,068,363 B in 261,631 allocations (356 direct records) | 0 B direct; 46,236 B in 491 allocations (318 indirect records) |
-| SQL Server Spatial | `artifacts/Debug/test-logs/SqlServerSpatial_unit_test_log.txt` (needs the `dbs` compose `mssql_cs` on 1434 and `msodbcsql17`; `run_fdo_tests.sh --with-sqlserver-init`) | `OK (288)`, but 1,913,541 B in 21,486 allocations with **75 direct records** (1,626 indirect); the one `attempting double-free` and the `FdoDatastoreTest` 8,384 B of indirect records were the earlier pass's starting point | `OK (288)`, **0 direct records**; 1,889,108 B in 21,255 allocations (1,539 indirect) |
+| SQL Server Spatial | `artifacts/Debug/test-logs/SqlServerSpatial_unit_test_log.txt` (needs the `dbs` compose `mssql_cs` on 1434 and `msodbcsql18`; `run_fdo_tests.sh --with-sqlserver-init`; drop the `fdo_*` datastores first or the fixtures fail in `setUp`) | `OK (288)`, but 1,913,541 B in 21,486 allocations with **75 direct records** (1,626 indirect); the one `attempting double-free` and the `FdoDatastoreTest` 8,384 B of indirect records were the earlier pass's starting point | that pass: `OK (288)`, **0 direct records**; 1,889,108 B in 21,255 allocations (1,539 indirect). Now at 290: `OK (290)`, 3 direct records (292 B, all test-side) and 1,889,844 B in 21,259 allocations (1,543 indirect, the largest family being `FdoSmPhSqsOwner::LoadExtendedCoordinateSystems()` at 618 KB) |
 
-| ODBC (SQL Server fixtures) | `artifacts/Debug/test-logs/OdbcSqlServer_unit_test_log.txt` (needs the `dbs` compose `mssql_cs` on 1434 and `msodbcsql17`; `run_fdo_tests.sh --with-odbc-sqlserver`) | not run before this pass — the fixtures were Windows-only | `OK (87)`, **0 direct records**; 5,056 B in 4 allocations (all indirect, from the shared Expression Engine's `FdoExpressionEngineUtilDataReader::GetAggregateClassDef`, now also reached through `FdoAdvancedSelectTest::TestMaxBoolProperty`, which is what took the suite from 86 to 87 fixtures) |
-| ODBC (Access fixtures) | `artifacts/Debug/test-logs/OdbcAccess_unit_test_log.txt` (needs `odbc-mdbtools`; `run_fdo_tests.sh --with-odbc-access`) | not run before this pass — the fixtures were Windows-only | `OK (35)`; **0 records**. The 1 direct record (26,144 B) it first reported was in part a real FDO leak — the column probe sent mdbtools a constant `where 1 = 2` predicate, and mdbtools leaks a glib chunk per `WHERE` it evaluates (86 -> 10 leaked objects once the probe stopped doing that) — and in part the driver's own per-query leak, which `templates/scripts/container/lsan/odbc-mdbtools.supp` suppresses. See [docs/odbc-linux-support.md](./odbc-linux-support.md#mdbtools-leaks-a-chunk-per-filtered-query) |
+| ODBC (SQL Server fixtures) | `artifacts/Debug/test-logs/OdbcSqlServer_unit_test_log.txt` (needs the `dbs` compose `mssql_cs` on 1434 and `msodbcsql18`; `run_fdo_tests.sh --with-odbc-sqlserver`) | not run before this pass — the fixtures were Windows-only | `OK (87)`, **0 direct records**; 792 B in 9 allocations (all indirect; the total moved when the fixtures moved to ODBC Driver 18, whose own internals allocate differently) |
+| ODBC (Access fixtures) | `artifacts/Debug/test-logs/OdbcAccess_unit_test_log.txt` (needs `odbc-mdbtools`; `run_fdo_tests.sh --with-odbc-access`) | not run before this pass — the fixtures were Windows-only | `OK (35)`; **0 records**. The 1 direct record (26,144 B) it first reported was in part a real FDO leak — the column probe sent mdbtools a constant `where 1 = 2` predicate, and mdbtools leaks a glib chunk per `WHERE` it evaluates (168 leaked allocations -> 92 once the probe stopped doing that) — and in part the driver's own per-query leak, which `templates/scripts/container/lsan/odbc-mdbtools.supp` suppresses. See [docs/odbc-linux-support.md](./odbc-linux-support.md#mdbtools-leaks-a-chunk-per-filtered-query) |
 Suite results are green: GDAL `OK (66 tests)`, OGR `OK (58)`, SHP `OK (138)`, SDF `OK (120)`,
 SQLite `OK (95)`, King Oracle `OK (39)` (opt-in, needs the `dbs` compose Oracle), MySQL `OK (249)`
 (needs the `dbs` compose MySQL 5.6), PostGIS `OK (140)` (needs the `dbs` compose PostGIS), SQL Server
-Spatial `OK (288)`, ODBC SQL Server `OK (87)`, ODBC Access `OK (35)`, and
+Spatial `OK (290)`, ODBC SQL Server `OK (87)`, ODBC Access `OK (35)`, and
 FDO Core
 `OK (129)` still reports the 220,980 B of documented
 `FdoClassDefinition` reference cycles described in the FDO Core note. The WFS suite is opt-in
@@ -181,15 +181,26 @@ figures are a lower bound — the paths that ran are the ones the reachable serv
 
 SQL Server Spatial used to be in the same position for a different reason — its suite was not green
 (`Run: 288   Failure total: 8`, the geography cluster documented in
-`sqlserver-spatial-linux-support.md`), which made its whole-suite figure a lower bound. The suite is
-green now (`OK (288)`) and its **direct** records are gone: 75 before, 0 after. The 1,539 indirect
-records that remain are the same families the other RDBMS suites carry (schema-document graphs reachable
+`sqlserver-spatial-linux-support.md`), which made its whole-suite figure a lower bound. That pass made
+the suite green (`OK (288)`) and removed its direct records: 75 before, 0 after. The 1,539 indirect
+records it left are the same families the other RDBMS suites carry (schema-document graphs reachable
 from `FdoStringP::AllocateBuffer`/`operator new`, mostly through `SqlServerSchemaMgrTests::testSynonyms`
 and `UnitTestUtil::ExportDb`), and the signature-by-signature comparison of the before and after runs
 removed 68 record signatures and added none.
 
-SDF, SHP, WMS, WFS, MySQL, PostGIS, SQL Server Spatial, ODBC SQL Server and SQLite (with the r8375 test fixed) now report
-no direct leaks at all, and WMS and SQLite report none of either kind.
+The suite has since grown to 290 fixtures (`TestExplicitPropertyListGeometryTypes`, r8415;
+`TestSpatialGeogWinding`, the winding fix in `sqlserver-spatial-linux-support.md`), and a re-run on a
+clean `mssql_cs` (2026-10-26) reports `OK (290)` with **3 direct records, 292 B, all allocating in
+test code** — `TestSpatialGeog`'s `CreateLinearRing`, `TestExplicitPropertyListGeometryTypes`'
+`FdoIdentifier::Create`, and the `FdoSchemaException` from the negative `DropDatastore` path in
+`FdoSchemaTest::OverrideTablesWithOddAsciiChars` — plus 1,543 indirect records (1,889,844 B in 21,259
+allocations). The largest indirect family there is `FdoSmPhSqsOwner::LoadExtendedCoordinateSystems()`
+(618 KB in 14 records), which is new only because the extended coordinate system catalogue now loads
+at all.
+
+SDF, SHP, WMS, WFS, MySQL, PostGIS, ODBC SQL Server and SQLite (with the r8375 test fixed) now report
+no direct leaks at all, and WMS and SQLite report none of either kind; SQL Server Spatial reports only
+the three test-side records noted above.
 SDF, WFS, MySQL, SQL Server Spatial and FDO Core still report indirect leaks, and so does PostGIS (only
 the schema-error cycle now that the parser's direct records are gone); the SDF indirect total is what remains of the two
 `SdfConnection` graphs the suite leaves

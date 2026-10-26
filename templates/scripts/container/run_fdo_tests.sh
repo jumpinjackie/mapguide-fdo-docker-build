@@ -122,6 +122,13 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             ;;
         --with-odbc-sqlserver)
             TEST_ODBC_SQLSERVER=1
+            # Takes an optional init file; the shipped OdbcSqlServerInit.txt is the default so
+            # that the bare flag keeps working.
+            if [ $# -gt 1 ] && [ "${2#-}" == "$2" ];
+            then
+                ODBC_SQLSERVER_INIT="$2"
+                shift
+            fi
             ;;
         --with-odbc-access)
             TEST_ODBC_ACCESS=1
@@ -197,7 +204,8 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             echo "  --with-wfs [Run WFS Tests]"
             echo "  --with-oracle [Run Oracle Tests]"
             echo "  --with-odbc-init [Run ODBC Tests against provided init file]"
-            echo "  --with-odbc-sqlserver [Run the ODBC provider's SQL Server suite (OdbcSqlServerTests)]"
+            echo "  --with-odbc-sqlserver [init file] [Run the ODBC provider's SQL Server suite (OdbcSqlServerTests)]"
+            echo "                        (default init file: test_init/OdbcSqlServerInit.txt)"
             echo "  --with-odbc-access [Run the ODBC provider's Access suite (OdbcAccessTests) via mdb-tools]"
             echo "                     (applies templates/scripts/container/lsan/odbc-mdbtools.supp)"
             echo "  --with-mysql-init [Run MySQL Tests against provided init file]"

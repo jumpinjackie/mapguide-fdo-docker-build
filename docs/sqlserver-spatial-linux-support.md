@@ -17,7 +17,7 @@ were Windows-only in a number of places.
 
 ## What now builds
 
-Seven new `CMakeLists.txt`, modelled on the ODBC and PostGIS providers:
+Eight new `CMakeLists.txt`, modelled on the ODBC and PostGIS providers:
 
 | Path | Target | What it is |
 |------|--------|------------|
@@ -48,27 +48,35 @@ UDTs it relies on.
 The `develop_thin` images install it, so a build container made by `build_thin.sh` needs nothing else:
 `templates/distros/ubuntu/cmd_prepare_fdo_develop_ubuntu22.txt` and
 `templates/distros/generic/cmd_prepare_fdo_develop.txt` add the Microsoft package repository and
-`msodbcsql17`. **A container started before that change, or from an older image, does not have it** —
+`msodbcsql18`. **A container started before that change, or from an older image, does not have it** —
 and the failure is not self-evident: the whole suite fails from its first fixture with
 `RDBMS: No current open database.` (see [fix 19](#19-a-failed-connect-lost-the-driver-managers-diagnostic--connectc)).
-Check with `ls /opt/microsoft/msodbcsql17/lib64/` and install it there, or rebuild the image:
+Check with `ls /opt/microsoft/msodbcsql18/lib64/` and install it there, or rebuild the image:
 
 ```sh
 # Ubuntu 22.04
 wget -q https://packages.microsoft.com/keys/microsoft.asc -O- | gpg --dearmor > /etc/apt/trusted.gpg.d/microsoft.gpg
 wget -q https://packages.microsoft.com/config/ubuntu/22.04/prod.list -O /etc/apt/sources.list.d/mssql-release.list
 apt-get update
-ACCEPT_EULA=Y apt-get install -y msodbcsql17
+ACCEPT_EULA=Y apt-get install -y msodbcsql18
 
 # Rocky Linux 8 (the `generic` image's base): the RHEL 8 packages are compatible
 wget -q https://packages.microsoft.com/config/rhel/8/prod.repo -O /etc/yum.repos.d/mssql-release.repo
 rpm --import https://packages.microsoft.com/keys/microsoft.asc
-ACCEPT_EULA=Y yum install -y msodbcsql17
+ACCEPT_EULA=Y yum install -y msodbcsql18
 ```
 
-That registers `[ODBC Driver 17 for SQL Server]` in `/etc/odbcinst.ini`. The provider looks the
-driver up **by name**, and the default is hard-coded to that string; override it with
-`FDO_SQLSERVER_ODBC_DRIVER` (e.g. to use driver 18) — the name is the `[section]` in
+The installer acquires it too, so an installed deployment does not need the manual steps shown above. The
+Ubuntu installer adds Microsoft's package repository and installs `msodbcsql18` (falling back to
+`msodbcsql17`) when `--with-sqlserverspatial` or `--with-rdbms` selects the provider, and skips the
+acquisition entirely if either driver is already installed; the `generic` installer only prints the
+[download link](https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server),
+because it bundles its FDO tree rather than installing packages.
+
+That registers `[ODBC Driver 18 for SQL Server]` in `/etc/odbcinst.ini`. The provider looks the
+driver up **by name** and asks the driver manager which Microsoft drivers are registered, preferring
+the **newest** one, so with both installed it uses driver 18 and only falls back to 17 when 18 is not
+there. `FDO_SQLSERVER_ODBC_DRIVER` overrides that choice — the name is the `[section]` in
 `odbcinst.ini`, not a path:
 
 ```sh
@@ -76,8 +84,8 @@ FDO_SQLSERVER_ODBC_DRIVER="ODBC Driver 18 for SQL Server" ./UnitTestSQLServerSpa
 ```
 
 The same variable is honoured by the unit test's connection helper
-(`Src/UnitTest/SQLServerSpatial/SqlServerConnectionUtil.cpp`), which on Windows probed `SQLNCLI`
-instead.
+(`Src/UnitTest/SQLServerSpatial/SqlServerConnectionUtil.cpp`), which makes the same choice, and on
+Windows probed `SQLNCLI` instead.
 
 ### unixODBC: shared on ubuntu, static in `generic`
 
@@ -89,8 +97,8 @@ That still works with a driver installed: the driver manager is what `dlopen()`s
 library, and a static driver manager can do that as well as a shared one. What a static-only unixODBC
 does *not* provide is `libodbcinst.so.2`, and **the Microsoft driver links that one dynamically**
 (`ldd libmsodbcsql-17.11.so.1.1` shows `libodbcinst.so.2 => /lib/x86_64-linux-gnu/libodbcinst.so.2` and
-nothing else from unixODBC). The `msodbcsql17` package depends on the distribution's `unixODBC`
-package, which supplies it, so installing the driver satisfies the requirement — the process then has
+nothing else from unixODBC). The `msodbcsql18` (and `msodbcsql17`) package depends on the
+distribution's `unixODBC` package, which supplies it, so installing the driver satisfies the requirement — the process then has
 two copies of the odbcinst code, one linked into the provider and one loaded by the driver, and both
 read `/etc/odbcinst.ini`. That is harmless, but it is worth knowing when a lookup behaves unexpectedly:
 `ODBCSYSINI` moves the file for both.
@@ -143,7 +151,7 @@ and the driver runs in unicode mode, each change is a no-op.
 | File | Change |
 |------|--------|
 | `SQLServerSpatial.cpp` | The non-Windows branch now computes the provider's own library name (`libSQLServerSpatialProvider` under CMake, `libFdoSQLServerSpatial` otherwise) and the `com` directory with `dlopen`/`dlinfo` + a prefix match, instead of `LoadLibrary`/`GetModuleFileName`. |
-| `Fdo/FdoRdbmsSqlServerConnection.cpp` | `GenConnectionStringParm` built the connection string around a `SQLNCLI` probe under `#ifdef _WIN32`; the Linux branch now takes the driver name from `FDO_SQLSERVER_ODBC_DRIVER` (default `ODBC Driver 17 for SQL Server`). |
+| `Fdo/FdoRdbmsSqlServerConnection.cpp` | `GenConnectionStringParm` built the connection string around a `SQLNCLI` probe under `#ifdef _WIN32`; the Linux branch now takes the driver name from `FDO_SQLSERVER_ODBC_DRIVER`, or else the newest Microsoft ODBC Driver for SQL Server registered with the driver manager (18 over 17). |
 | `SchemaMgr/Ph/Owner.cpp` | `_wfopen` → `fopen( (const char*)fileName, "rt")` off Windows. |
 | `SchemaMgr/Ph/Rd/SpatialContextReader.cpp` | `_isnan` → `FdoCommonOSUtil::_isnan` (4 uses). |
 | `ODBCDriver/savepoint.c` | `wsprintfW`/`wsprintfA` → `odbcdr_swprintf`/`snprintf` (4 sites). |
@@ -398,8 +406,10 @@ on the `FdoDatastoreTest` fixture with leak detection left in its default state,
 
 MySQL and PostGIS each have their own instance here (`UnitTestMySql`, `UnitTestPostGis`) and are green
 in both configurations with nothing reported, so there is nothing to fix in them; and unlike this one
-their maps are load-bearing, so they cannot be deleted either. ODBC is listed as unverified rather
-than clean: its suites need Access, Excel and dBASE drivers that this container does not have. That
+their maps are load-bearing, so they cannot be deleted either. The ODBC comparison was never completed
+— that was written before the ODBC provider had a Linux suite, and it has two now
+(`OdbcSqlServerTests` `OK (87)` and `OdbcAccessTests` `OK (35)`, see
+[odbc-linux-support.md](odbc-linux-support.md)), so `OdbcStringMap` can be checked the same way. That
 three live maps are unaffected is the strongest argument for not editing them — the change here is
 justified by removing dead code from one provider, not by a defect the others are believed to share.
 
@@ -568,8 +578,8 @@ by the wider type rather than broken by it (`get_gen_id` had only 4 of its 8 byt
 Windows `sizeof(long) == 4`, so the condition is false and this compiles to the same `SQL_C_LONG`.
 
 `FdoUpdateTest` is `OK (12)` now, where it was `Run: 12   Failure total: 1`; `SqlServerGeometryTests`
-stays `OK (4)`, `DataTypeTests` `OK (30)` and `SelectTests` `OK (5)`. The same `RDBI_LONG` band is still
-wrong in the shared driver the **ODBC** provider compiles — see
+stays `OK (4)`, `DataTypeTests` `OK (30)` and `SelectTests` `OK (5)`. The same `RDBI_LONG` band was
+wrong in the shared driver the **ODBC** provider compiles and is fixed there too — see
 [Relationship to the sibling ODBC driver](#relationship-to-the-sibling-odbc-driver).
 
 **14. The SQL Server profile's expected schema still encoded a case-insensitive instance — `LogicalPhysicalBender.xslt`**
@@ -776,7 +786,7 @@ The narrow implementation now mirrors the Windows one, storing the driver manage
 
 | Situation | Message |
 | --- | --- |
-| no driver registered at all | `RDBMS: [unixODBC][Driver Manager]Can't open lib 'ODBC Driver 17 for SQL Server' : file not found` |
+| no driver registered at all | `RDBMS: [unixODBC][Driver Manager]Can't open lib 'ODBC Driver 18 for SQL Server' : file not found` |
 | a name that has no entry in `odbcinst.ini` | `RDBMS: [unixODBC][Driver Manager]Can't open lib 'ODBC Driver 99 for SQL Server' : file not found` |
 
 Both name the driver the provider looked for, which is what a user needs to know. `DumpError2W` stays a
@@ -847,11 +857,72 @@ compiles, so they were found here and fixed for all of them:
   sibling `TestSpatialGeog` immediately above it (1 record, 48 B). It now does both on the normal path
   and in the `catch (...)` that already swallowed its failures.
 
+**23. A clockwise geography filter selected the complement of its area — the filter and bind paths**
+
+SQL Server's `geography` type does not treat a polygon's rings as a container with an inside: it reads
+the ring **direction** as which side of the ring is the interior, so a loop wound the other way round
+describes everything *except* the area it encloses. The provider passed the caller's literal through
+unchanged, so a box selection against a geographic feature class selected the whole table:
+
+```
+POLYGON((-87.71986 43.75843, -87.71978 43.75843, -87.71978 43.75839, -87.71986 43.75839, ...))
+                                               ^ clockwise: 510 065 621 710 968 m², EnvelopeAngle 180°
+```
+
+Every stage below the caller was already correct — `BuildPolygon` writes rings in arrival order with
+ring 0 as the exterior ring — so the winding the client sent is the winding SQL Server saw. What was
+missing is the consumer for a capability the provider already advertises: `FdoSmPhSqsDbObject::
+GetPolygonVertexOrderStrictness` returns true for a `geography` column, and `FdoSpatialUtility::
+FixPolygonVertexOrder` exists to apply a rule, but there was no product call site for either (only the
+unit tests called it), while the renderer's own reorientation in `RSMgFeatureReader` is driven by the
+stylizer, not by FDO.
+
+`FdoRdbmsSchemaUtil::FixGeometryVertexOrder` now reads the class's advertised rule and strictness for
+the property and reorients a literal through `FdoSpatialUtility::FixPolygonVertexOrder` when — and
+only when — the rule is declared strict, so planar `geometry` columns, SHP (which advertises `CW`) and
+SDF/ODBC (which advertise `None`) are untouched, and a deliberately large geography polygon is still
+expressible through a provider that does not declare strictness. It is applied on both sides:
+`FdoRdbmsSqlServerFilterProcessor` and `FdoRdbmsSqlServerSqlBuilder` reorient the filter literal, and
+the four bind sites that write geometry (`FdoRdbmsSimpleInsertCommand`, `FdoRdbmsSimpleUpdateCommand`,
+and the insert/update PVC handlers) reorient stored values, where a clockwise ring was otherwise
+accepted and silently stored as the complement. The reoriented values are owned by
+`FdoRdbmsGeometryValueOwner` for as long as the parameters that point at them are bound.
+
+`TestSpatialGeogWinding` is the fixture for it: the same box wound both ways against a `geography`
+column, which must select the same two features. It fails without the change
+(`cwNames->GetCount() == ccwNames->GetCount()`) and passes with it. The suite had no coverage for this
+because `TestSpatialGeog` associates its geometry property named `Geog` with the **projected** spatial
+context `projSC`, so that fixture never created a geography column at all.
+
+In MapGuide this surfaces as `DB_LOG_BUFFER_FULL` on the persisted selection, because selecting the whole
+table makes the selection blob larger than the session repository's log buffer — the error and its
+troubleshooting are covered in [mapguide-db-log-buffer-full.md](./mapguide-db-log-buffer-full.md).
+
+Validated in both configurations against the baseline distro, full suite, `initfiletest` against the
+`mssql_cs` fixture:
+
+| Run | Assertions | LeakSanitizer |
+| --- | --- | --- |
+| Release, before | `Run: 289  Failure total: 38` | — |
+| Release, after | `Run: 290  Failure total: 38` | — |
+| Debug, before | `Run: 289  Failure total: 38` | 10 direct / 1 459 indirect, 1 772 808 B |
+| Debug, after | `Run: 290  Failure total: 38` | 11 direct / 1 096 indirect, 1 431 200 B |
+
+The 38 names are identical in every run (`SqlServerFdoAdvancedSelectTest`'s `setUp` failing on a missing
+`dbo.ind…` object is the first of them), so they are unrelated to this change: they are the stale
+datastore this fixture had accumulated, and dropping the `fdo_*` databases turns the same tree green
+(`OK (290)`, see [Test results](#test-results)). The direct-record count moves 10 → 11 purely as
+run-to-run drift among the same record
+families — `FdoCapabilityTest::Datastore` and `SqlServerFdoUpdateTest::testDefect810181` each swap one
+record for the other between runs — and no record in either run has a frame in `FixGeometryVertexOrder`,
+`FdoRdbmsGeometryValueOwner` or a geometry bind site. The reoriented literals are owned, so the indirect
+graph shrinks by 341 KB rather than growing.
+
 ## Test results
 
-**The whole suite passes**: `Run: 288   Failure total: 0`, reported as `OK (288)`. It got there in
-stages — `Failure total: 14` when the case-insensitive-instance and out-parameter defects were still
-in, `8` after the first round of fixes, and `0` now:
+**The port finished with the whole suite passing**: `Run: 288   Failure total: 0`, reported as
+`OK (288)`. It got there in stages — `Failure total: 14` when the case-insensitive-instance and
+out-parameter defects were still in, `8` after the first round of fixes, and `0` then:
 
 | Fixed by | Tests it cleared |
 | --- | --- |
@@ -859,7 +930,7 @@ in, `8` after the first round of fixes, and `0` now:
 | fix 12 U+FFFD literals | `SqlServerFdoUpdateTest::testDefect810181` |
 | fix 13 `RDBI_LONG` stride | `SqlServerFdoUpdateTest::UpdateMultiIdFeatureClass` |
 | fix 14 bender expectations | `SqlServerFdoApplySchemaTest::TestSchema` |
-| fix 15 extended csys file | `FdoSelectTest` (all 24), `testAdjustExtents`, `testDottedSpatialContext`; and with the fixture actually staged beside the provider, `testMeta`, `testNoMeta`, `testGenGeom`, `testSpatialContextsGeog` |
+| fix 15 extended csys file | `FdoSelectTest` (all 24, its count at the time — r8415 added a 25th), `testAdjustExtents`, `testDottedSpatialContext`; and with the fixture actually staged beside the provider, `testMeta`, `testNoMeta`, `testGenGeom`, `testSpatialContextsGeog` |
 | fix 16 CRLF comparison | `testSynonyms` |
 | fix 17 sort collation | `testMeta`, `testNoMeta` |
 | the `sql_variant` test decoding its own payload | `TestInParamsStoreProcVariant` |
@@ -868,8 +939,8 @@ The eight failures that were open before this round were **not** one missing fea
 they looked like: six were fix 15 (the provider silently loading an empty coordinate system catalogue),
 one was fix 16 and one was fix 17. Nothing in the suite needed geography-typed support added — the
 `testSpatialGeog` in that list is `FdoSelectTest`'s spatial-context helper, not a geography round trip.
-The provider still has no geography support (see [Known issues](#known-issues)), but nothing in the
-suite exercises it.
+The provider still has no general geography support (see [Known issues](#known-issues)), and nothing
+exercised one at that point; fix 23's `TestSpatialGeogWinding` is the first test that does.
 
 Two hypotheses are ruled out rather than fixed. The expected-output and NLS data files under
 `UnitTest/` are **not** corrupted — a byte-level scan of all 444 files found no U+FFFD, so the
@@ -877,12 +948,26 @@ master-file failures were content and ordering differences rather than encoding 
 remaining failures were not caused by any of this port's earlier changes: fixes 13 and 18 were both
 A/B tested by reverting them.
 
-The suite is `OK (288)` in **both** configurations, run through `run_fdo_tests.sh` with an inherited
-`LD_LIBRARY_PATH` pointing at the install (which the runner clears for this suite, see fix 15): Debug
-(`artifacts/Debug/test-logs/SqlServerSpatial_unit_test_log.txt`) reports 0 direct leak records, and
-Release (`artifacts/Release/rel_sqs_final.log`) is green with no change in behaviour. The provider has
-no environment input for the catalogue — it read the one next to itself before and does so now — and the
-suite only needed the staging step, not a variable.
+The suite was `OK (288)` in **both** configurations at that point, run through `run_fdo_tests.sh`
+with an inherited `LD_LIBRARY_PATH` pointing at the install (which the runner clears for this suite,
+see fix 15): the Debug run then reported 0 direct leak records (that log,
+`artifacts/Debug/test-logs/SqlServerSpatial_unit_test_log.txt`, has since been overwritten by the
+290-fixture run below), and Release (`artifacts/Release/rel_sqs_final.log`) is green with no change in
+behaviour. The provider has no environment input for the catalogue — it read the one next to itself
+before and does so now — and the suite only needed the staging step, not a variable.
+
+**The suite is green at 290.** Re-run on 2026-10-26 against a recreated `mssql_cs` after dropping the
+`fdo_*` datastores: `OK (290)`, `Failure total: 0`, 22m 39s
+(`artifacts/Debug/test-logs/SqlServerSpatial_unit_test_log.txt`). That also settles what the 38
+failures in the fix-23 runs were: `setUp` failures against the datastore, identical either side of
+fix 23, and gone once the datastores are — including `spatial_or_attribute_query`, the one failure the
+fixture kept when the winding test was run alone. The two additions since the 288-fixture run are
+`SqlServerFdoSelectTest::TestExplicitPropertyListGeometryTypes` (r8415, 288 -> 289) and
+`TestSpatialGeogWinding` (fix 23, 289 -> 290); the latter's own before/after is
+`Run: 26   Failure total: 2` -> `Failure total: 1` in
+`artifacts/Release/rel_sqs_winding_selectsuite_*.log`. The Release configuration has not been re-run
+at 290 — its last green run is the 288 one above, and the 289/290 Release runs were taken on the stale
+datastore — so `OK (290)` is recorded for Debug only.
 
 The suites that compile the same RDBI and unit-test-harness code were re-run in both configurations and
 are unchanged at their baseline figures: `UnitTestMySql` `OK (249)` and `UnitTestPostGis` `OK (140)`,
@@ -890,33 +975,34 @@ as is `UnitTest` (SHP) `OK (138)`.
 
 Fixtures measured individually, Debug and Release unless noted: `FdoApplySchemaTest` OK (5),
 `FdoUpdateTest` OK (12), `DataTypeTests` OK (30), `SelectTests` OK (5), `FdoSpatialContextTest` OK (6),
-`SchemaMgrTests` OK (10), `FdoSelectTest` OK (24), `GeometryTests` OK (4). The sibling suites that share
+`SchemaMgrTests` OK (10), `FdoSelectTest` OK (26) and `GeometryTests` OK (4); `FdoSelectTest` grew from
+24 to 26 with `TestExplicitPropertyListGeometryTypes` (r8415) and `TestSpatialGeogWinding` (fix 23).
+The sibling suites that share
 the unit-test harness are unchanged: `UnitTestMySql` `OK (249)` and `UnitTestPostGis` `OK (140)`, in
 both configurations.
 
 ## Relationship to the sibling ODBC driver
 
 `Providers/GenericRdbms/Src/SQLServerSpatial` is largely a copy of `Providers/GenericRdbms/Src/ODBC`,
-so the same defects exist there. This work did not fix them; the `SQLPOINTER` one has since been
-fixed in a follow-up, and the remainder are still outstanding:
+so the same defects existed in both. The ODBC port (r8417) then fixed the shared driver the same way,
+so only the `%s` hazard is still outstanding:
 
 - `ODBCDriver/geom.c` declared `boundParmID` as `SQLSMALLINT` (2 bytes!) in `geom_convert_S` and
   `geom_convertToSqlServer_S` while passing `(SQLPOINTER*)&boundParmID` to `SQLParamData`, so on
   LP64 an 8-byte pointer was written into a 2-byte local — a stack smash with the same signature as
-  fix 3 above. **Now fixed** in the shared `Src/ODBCDriver` copy, exactly as in this provider: both
-  declarations are `SQLPOINTER`. Nothing here exercises it (the `Odbc*` suites need ODBC drivers),
-  so the change is compile-validated only, in both build configurations.
-- The `%s`-in-a-wide-format hazard (fix 5) is a trap for any file in either provider.
-- The `RDBI_LONG` stride mismatch (fix 13) is present verbatim in the *shared* `Src/ODBCDriver` (the
-  ODBC provider compiles that directory, not a private copy): its `desc_slct.c` gives the same 5–10
-  digit `decimal`/`numeric` band `RDBI_LONG` with a `sizeof(long)` buffer, its `get_o_t_s.c` binds
-  `SQL_C_LONG`, and its `define.c` has no promotion to a wider C type. It is left alone for the same
-  reason as `boundParmID`: nothing here exercises it — the `Odbc*` suites need drivers this container
-  does not have, and `UnitTestSQLServerSpatial` compiles the provider's own driver copy.
-- `ODBCDriver/fetch.c` declares `rows_in_last_fetch` as an `int` and registers it with
-  `SQL_ATTR_ROWS_FETCHED_PTR` (fix 18), so that provider has the Release-only stack overwrite too and
-  will fault in `odbcdr_fetch2` the first time one of its suites runs without `-O0`. Same reasoning:
-  not reachable from here, and it is the same one-line type change when someone can test it.
+  fix 3 above. **Fixed** in the shared `Src/ODBCDriver` copy, exactly as in this provider: both
+  declarations are `SQLPOINTER`.
+- The `%s`-in-a-wide-format hazard (fix 5) is a trap for any file in either provider, and is the one
+  item on this list that is still live in both copies.
+- The `RDBI_LONG` stride mismatch (fix 13) was present verbatim in the *shared* `Src/ODBCDriver` (the
+  ODBC provider compiles that directory, not a private copy): its `desc_slct.c` sizes the 5–10 digit
+  `decimal`/`numeric` band `RDBI_LONG` by `sizeof(long)` while its `get_o_t_s.c` binds `SQL_C_LONG`,
+  so its `define.c` needed the same promotion to `SQL_C_SBIGINT`. **Fixed** in r8417, together with
+  its `desc_slct.c` sizing `RDBI_INT` by `sizeof(int)`. Unlike this provider's copy it is exercised:
+  `OdbcSqlServerTests` is green in both configurations ([odbc-linux-support.md](odbc-linux-support.md)).
+- `ODBCDriver/fetch.c` declared `rows_in_last_fetch` as an `int` and registered it with
+  `SQL_ATTR_ROWS_FETCHED_PTR` (fix 18), so that provider had the Release-only stack overwrite too.
+  **Fixed** in r8417 — it is a `SQLULEN` there now, and the ODBC suite runs in Release.
 
 Two of the fixes are *not* provider-specific even though only this suite noticed them: `CompareFiles`
 (fix 16) and the comparison sort key (fix 17) live in the GenericRdbms unit-test harness that MySQL and
@@ -967,12 +1053,31 @@ The other thing the suite needs to be current is the **built** provider. The sui
 binary reproduces the old behaviour rather than erroring.
 
 A Debug build is ASan/LSan-instrumented, so a green run still exits non-zero — judge it by
-`OK (<n>)` in the output, not by the exit code. The whole-suite run reports **zero direct leak
-records**: it carried 75 of them before fixes 20–22 and none after, with 1,889,108 B in 21,255
-allocations (1,539 indirect records) remaining, which are the schema-document graphs every RDBMS suite
-carries. Compare record *signatures* as well as totals when you touch this area — the before/after
-comparison for these fixes removed 68 signatures and added none, and a fix that replaces one record
-with another of the same size has not fixed anything.
+`OK (<n>)` in the output, not by the exit code. The current run (`OK (290)`, 2026-10-26) reports
+**3 direct leak records**, 292 B in total, all of them allocating in test code rather than in the
+provider:
+
+| Record | Site | Bytes |
+| --- | --- | --- |
+| `FdoArrayHelper::AllocMore` | `FdoFgfGeometryFactory::CreateLinearRing` in `SqlServerFdoSelectTest::TestSpatialGeog` (`SqlServerFdoSelectTest.cpp:284`) | 188 |
+| `FdoIdentifier::Create` | `SqlServerFdoSelectTest::TestExplicitPropertyListGeometryTypes` (`:995`) | 64 |
+| `FdoSchemaException::Create` | the negative `DropDatastore` path in `FdoSchemaTest::OverrideTablesWithOddAsciiChars` | 40 |
+
+The 288-fixture run this section used to quote reported none, so treat the direct count as moved
+rather than as a provider defect: no record has a provider frame, and each is a counted reference a
+test drops.
+
+Beyond those, the run leaves 1,543 indirect records (1,889,844 B in 21,259 allocations). The largest
+family is now the extended coordinate system catalogue — `FdoSmPhSqsOwner::LoadExtendedCoordinateSystems()`
+alone accounts for 618 KB in 14 records, and it is new only because fix 15 makes the file load at all
+(when the name did not resolve, nothing was read and nothing could leak). After it come the
+schema-document graphs every RDBMS suite carries: `FdoStringP::AllocateBuffer` (538 KB in 475
+records), `FdoDictionaryElement::Create` (168 KB in 102) and the coordinate-system map nodes (141 KB
+in 10). The 288-fixture run reported 1,889,108 B in 1,539 indirect records; it predates the Microsoft
+ODBC Driver move (r8420/r8423), so read the families, not the totals. Compare record *signatures* as
+well as totals when you touch this area — the before/after comparison for fixes 20–22 removed 68
+signatures and added none, and a fix that replaces one record with another of the same size has not
+fixed anything.
 
 Fixtures measured green in Debug (ASan) against SQL Server 2017 through msodbcsql17, all of which
 failed before the fixes above: `FdoDatastoreTest` OK (7), `FdoConstraintsTest` OK (16),
@@ -985,10 +1090,11 @@ no LSan records at all, and `FdoApplySchemaTest` `Run: 5   Failure total: 1` —
 is gone and the remaining failure is the master-file comparison described under
 [Known issues](#known-issues).
 
-The suite is green now. Earlier in the port it was not, and the split below is what the measurements
-looked like while `FdoApplySchemaTest` was still failing — it is kept because it records why the
-case-sensitive fixture is required. Every fixture listed passes on **both** instances today; the
-collation's remaining effect is on `FdoApplySchemaTest`'s *failure mode*, which no longer arises:
+The suite was green at that point. Earlier in the port it was not, and the split below is what the
+measurements looked like while `FdoApplySchemaTest` was still failing — it is kept because it records
+why the case-sensitive fixture is required. Every fixture listed passes on **both** instances in those
+runs; the collation's remaining effect is on `FdoApplySchemaTest`'s *failure mode*, which no longer
+arises:
 
 | Fixture | case-insensitive fixture | case-sensitive instance |
 |---|---|---|
@@ -1013,13 +1119,14 @@ under test had in fact behaved correctly. Deleting the stray space removed that 
 
 The same fixtures were then run against a **Release** tree, because fix 10 changed shared bind code and
 a Debug pass does not validate Release. `UnitTestMySql` is `OK (249)` there, matching Debug, and the
-whole SQL Server suite runs to completion and passes as well — it did not before fix 18, which is the
-Release-only stack overwrite the compiler's optimiser exposed. Both configurations are green now.
+whole SQL Server suite ran to completion and passed at that point — it did not before fix 18, which is
+the Release-only stack overwrite the compiler's optimiser exposed. See
+[Test results](#test-results) for what the later, larger suite records.
 
 The changes are part of the official build, not just a hand-built tree: a full Debug `build_thin.sh`
 pass on ubuntu22 (`./build_thin.sh --target fdo --distro ubuntu --tag 22 --cpu x64 --debug`)
 configures, builds, installs and packages with the provider included, and the resulting
-`artifacts/Debug/fdosdk-4.2.0.8364-ubuntu22-amd64.tar.gz` contains
+`artifacts/Debug/fdosdk-4.2.0.<rev>-ubuntu22-amd64.tar.gz` contains
 
 ```
 lib64/libSQLServerSpatialProvider-4.2.0.so
@@ -1152,6 +1259,12 @@ way to confirm the memoisation is actually engaging, because it is invisible fro
   recreate the fixture. This is the same operational note as the collation change above: state
   written by an older build has to go.
 
+  The same remedy is what clears a whole run: a stale datastore also fails every fixture that
+  connects, each reported as a `setUp()` failure rather than as a test result — typically beginning
+  with `SqlServerFdoAdvancedSelectTest` and `Invalid object name 'dbo.…'` — which is what the 38
+  failures in the fix-23 A/B runs were. Drop every `fdo_*` database (and the
+  `fdolimitedprivilegeuser` login) and re-run; `OK (290)` is what that gives on the current tree.
+
 - **`SqlServerFdoApplySchemaTest::TestSchema` failed a master-file comparison on a case-sensitive
   instance — fixed by [fix 14](#14-the-sql-server-profiles-expected-schema-still-encoded-a-case-insensitive-instance--logicalphysicalbenderxslt).** Once the
   collation was corrected the schema operations under test succeeded and what was left was the
@@ -1181,8 +1294,10 @@ way to confirm the memoisation is actually engaging, because it is invisible fro
   `fdo_<account>_limiteduser` database, which makes the *other* account's run fail the same
   assertion. Point the suite at a dedicated instance, or clean up before a run — drop the `fdo_*`
   datastores and `DROP USER fdolimitedprivilegeuser` inside each `*_limiteduser` database.
-- **`DataTypeTests`' geometry roundtrip** passes now (fix 3), but no geography/`geography`-typed
-  roundtrip has been exercised.
+- **`DataTypeTests`' geometry roundtrip** passes now (fix 3), but geography is only lightly covered:
+  `TestSpatialGeogWinding` (fix 23) creates a `geography` column, inserts points into it and selects
+  through it with a polygon filter in both windings, and that is the whole of the geography coverage —
+  no `geography` roundtrip of the other geometry types has been exercised.
 - **The Release build of the suite segfaulted in `DataTypeTests`' first test — fixed by
   [fix 18](#18-sqlfetch-wrote-a-row-count-over-the-providers-own-stack--fetchc-the-release-only-crash).**
   A Debug pass does not validate Release, so a Release tree was built and the affected suites run
@@ -1211,7 +1326,5 @@ way to confirm the memoisation is actually engaging, because it is invisible fro
   reverting it and reproducing the same crash. `DataTypeTests` is `OK (30)` in Release now, and the
   whole suite runs there.
 
-  The same defect is still present in the **shared** `Src/ODBCDriver/fetch.c`, which the ODBC provider
-  compiles: that provider will crash the same way the first time one of its suites runs against a
-  Release build. It is left alone for the same reason as the other shared-driver items — nothing in
-  this container can exercise it.
+  The same defect was present in the **shared** `Src/ODBCDriver/fetch.c`, which the ODBC provider
+  compiles; it was fixed there in r8417 as part of the ODBC port, which runs that suite in Release.

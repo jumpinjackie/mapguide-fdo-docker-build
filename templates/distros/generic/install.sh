@@ -21,6 +21,8 @@ MGVER_MAJOR_MINOR_REV=${MGVER_MAJOR_MINOR}.${MGVER_POINT}
 MG_INST=/usr/local/mapguideopensource-${MGVER_MAJOR_MINOR_REV}
 FDO_INST=/usr/local/fdo-${FDOVER_MAJOR_MINOR_REV}
 
+MSSQL_ODBC_DOWNLOAD_URL="https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server"
+
 DRY_RUN=0
 HEADLESS=0
 NO_SERVICE_INSTALL=0
@@ -107,7 +109,19 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             fdo_provider_choice="$fdo_provider_choice ogr"
             ;;
         -with-rdbms|--with-rdbms)
-            fdo_provider_choice="$fdo_provider_choice rdbms"
+            fdo_provider_choice="$fdo_provider_choice odbc mysql postgresql sqlserverspatial"
+            ;;
+        -with-odbc|--with-odbc)
+            fdo_provider_choice="$fdo_provider_choice odbc"
+            ;;
+        -with-mysql|--with-mysql)
+            fdo_provider_choice="$fdo_provider_choice mysql"
+            ;;
+        -with-postgresql|--with-postgresql)
+            fdo_provider_choice="$fdo_provider_choice postgresql"
+            ;;
+        -with-sqlserverspatial|--with-sqlserverspatial)
+            fdo_provider_choice="$fdo_provider_choice sqlserverspatial"
             ;;
         -with-kingoracle|--with-kingoracle)
             fdo_provider_choice="$fdo_provider_choice kingoracle"
@@ -164,7 +178,11 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             echo "  --with-sqlite [Include SQLite Provider]"
             echo "  --with-gdal [Include GDAL Provider]"
             echo "  --with-ogr [Include OGR Provider]"
-            echo "  --with-rdbms [Include RDBMS Providers]"
+            echo "  --with-rdbms [Include all RDBMS Providers]"
+            echo "  --with-odbc [Include RDBMS Provider for ODBC]"
+            echo "  --with-mysql [Include RDBMS Provider for MySQL]"
+            echo "  --with-postgresql [Include RDBMS Provider for PostgreSQL/PostGIS]"
+            echo "  --with-sqlserverspatial [Include RDBMS Provider for SQL Server Spatial]"
             echo "  --with-kingoracle [Include King Oracle Provider]"
             echo "  --with-wfs [Include WFS Provider]"
             echo "  --with-wms [Include WMS Provider]"
@@ -354,7 +372,10 @@ dialog_fdo_provider()
             gdal    	"OSGeo FDO Provider for GDAL" ON \
             ogr    		"OSGeo FDO Provider for OGR" ON \
             kingoracle  "OSGeo FDO Provider for Oracle" off \
-            rdbms	    "RDBMS FDO Providers (ODBC, MySQL, PostgreSQL)" off \
+            odbc	    "OSGeo FDO Provider for ODBC" off \
+            mysql	    "OSGeo FDO Provider for MySQL" off \
+            postgresql  "OSGeo FDO Provider for PostgreSQL/PostGIS" off \
+            sqlserverspatial "OSGeo FDO Provider for SQL Server Spatial" off \
             wfs    		"OSGeo FDO Provider for WFS" ON \
             wms   		"OSGeo FDO Provider for WMS" ON  2> $tempfile
 
@@ -502,11 +523,14 @@ install_fdo()
     arcsde_registered=0
     gdal_registered=0
     kingoracle_registered=0
-    rdbms_registered=0
+    mysql_registered=0
+    odbc_registered=0
     ogr_registered=0
+    postgresql_registered=0
     sdf_registered=0
     shp_registered=0
     sqlite_registered=0
+    sqlserverspatial_registered=0
     wfs_registered=0
     wms_registered=0
 
@@ -583,8 +607,8 @@ install_fdo()
             # libaio is a dependency of OCI and not the provider itself
             try_install_libaio
             ;;
-          rdbms)
-            if [ $rdbms_registered -eq 1 ];
+          odbc)
+            if [ $odbc_registered -eq 1 ];
             then
                 continue
             fi
@@ -598,16 +622,13 @@ install_fdo()
             echo "    <FeatureDataObjectsVersion>${FDOVER_MAJOR_MINOR_REV}.0</FeatureDataObjectsVersion>" >> ${providersxml}
             echo "    <LibraryPath>libODBCProvider.so</LibraryPath>" >> ${providersxml}
             echo "  </FeatureProvider>" >> ${providersxml}
-            echo "Registering PostgreSQL Provider"
-            echo "  <FeatureProvider>" >> ${providersxml}
-            echo "    <Name>OSGeo.PostgreSQL.${FDOVER_MAJOR_MINOR}</Name>" >> ${providersxml}
-            echo "    <DisplayName>OSGeo FDO Provider for PostgreSQL</DisplayName>" >> ${providersxml}
-            echo "    <Description>Read/write access to PostgreSQL/PostGIS-based data store. Supports spatial data types and spatial query operations</Description>" >> ${providersxml}
-            echo "    <IsManaged>False</IsManaged>" >> ${providersxml}
-            echo "    <Version>${FDOVER_MAJOR_MINOR_REV}.0</Version>" >> ${providersxml}
-            echo "    <FeatureDataObjectsVersion>${FDOVER_MAJOR_MINOR_REV}.0</FeatureDataObjectsVersion>" >> ${providersxml}
-            echo "    <LibraryPath>libPostgreSQLProvider.so</LibraryPath>" >> ${providersxml}
-            echo "  </FeatureProvider>" >> ${providersxml}
+            odbc_registered=1
+            ;;
+          mysql)
+            if [ $mysql_registered -eq 1 ];
+            then
+                continue
+            fi
             echo "Registering MySQL Provider"
             echo "  <FeatureProvider>" >> ${providersxml}
             echo "    <Name>OSGeo.MySQL.${FDOVER_MAJOR_MINOR}</Name>" >> ${providersxml}
@@ -618,7 +639,49 @@ install_fdo()
             echo "    <FeatureDataObjectsVersion>${FDOVER_MAJOR_MINOR_REV}.0</FeatureDataObjectsVersion>" >> ${providersxml}
             echo "    <LibraryPath>libMySQLProvider.so</LibraryPath>" >> ${providersxml}
             echo "  </FeatureProvider>" >> ${providersxml}
-            rdbms_registered=1
+            mysql_registered=1
+            ;;
+          postgresql)
+            if [ $postgresql_registered -eq 1 ];
+            then
+                continue
+            fi
+            echo "Registering PostgreSQL Provider"
+            echo "  <FeatureProvider>" >> ${providersxml}
+            echo "    <Name>OSGeo.PostgreSQL.${FDOVER_MAJOR_MINOR}</Name>" >> ${providersxml}
+            echo "    <DisplayName>OSGeo FDO Provider for PostgreSQL/PostGIS</DisplayName>" >> ${providersxml}
+            echo "    <Description>Read/write access to PostgreSQL/PostGIS-based data store. Supports spatial data types and spatial query operations</Description>" >> ${providersxml}
+            echo "    <IsManaged>False</IsManaged>" >> ${providersxml}
+            echo "    <Version>${FDOVER_MAJOR_MINOR_REV}.0</Version>" >> ${providersxml}
+            echo "    <FeatureDataObjectsVersion>${FDOVER_MAJOR_MINOR_REV}.0</FeatureDataObjectsVersion>" >> ${providersxml}
+            echo "    <LibraryPath>libPostgreSQLProvider.so</LibraryPath>" >> ${providersxml}
+            echo "  </FeatureProvider>" >> ${providersxml}
+            postgresql_registered=1
+            ;;
+          sqlserverspatial)
+            if [ $sqlserverspatial_registered -eq 1 ];
+            then
+                continue
+            fi
+            echo "Registering SQL Server Spatial Provider"
+            echo "  <FeatureProvider>" >> ${providersxml}
+            echo "    <Name>OSGeo.SQLServerSpatial.${FDOVER_MAJOR_MINOR}</Name>" >> ${providersxml}
+            echo "    <DisplayName>OSGeo FDO Provider for SQL Server Spatial</DisplayName>" >> ${providersxml}
+            echo "    <Description>Read/Write access to feature data in a MS SQL Server spatially enabled data store. Supports geospatial and non-geospatial data and schema.</Description>" >> ${providersxml}
+            echo "    <IsManaged>False</IsManaged>" >> ${providersxml}
+            echo "    <Version>${FDOVER_MAJOR_MINOR_REV}.0</Version>" >> ${providersxml}
+            echo "    <FeatureDataObjectsVersion>${FDOVER_MAJOR_MINOR_REV}.0</FeatureDataObjectsVersion>" >> ${providersxml}
+            echo "    <LibraryPath>libSQLServerSpatialProvider.so</LibraryPath>" >> ${providersxml}
+            echo "  </FeatureProvider>" >> ${providersxml}
+            sqlserverspatial_registered=1
+            echo ""
+            echo "NOTE: The SQL Server Spatial Provider needs the Microsoft ODBC Driver for SQL Server,"
+            echo "      which this installer does not bundle. Install it before connecting to a SQL"
+            echo "      Server data store. Download it from:"
+            echo "        ${MSSQL_ODBC_DOWNLOAD_URL}"
+            echo "      The provider uses the newest driver it finds (18 over 17); set the"
+            echo "      FDO_SQLSERVER_ODBC_DRIVER environment variable to use a different driver."
+            echo ""
             ;;
           ogr)
             if [ $ogr_registered -eq 1 ];

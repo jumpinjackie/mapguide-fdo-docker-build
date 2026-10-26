@@ -29,7 +29,7 @@ See [Scope and method](#scope-and-method) for how to reproduce and extend the li
 |---|---|---|---|---|
 | `FDO_TRACE_FILE` | Generic RDBMS RDBI (`Providers/GenericRdbms/Src/Util/trace.cpp`) | file path; leading `+` = append; `%p` = provider module base name (Linux) | unset (tracing off) | Writes the RDBI SQL statements, row counts and timing to a log file (some driver error paths pass their message through the same hook) |
 | `FDO_SQS_PERF` | SQL Server Spatial provider (schema manager and ODBC driver) | exactly `1` | unset / any other value | Opt-in to the experimental round-trip reductions (memoised `SQLDescribeParam`, cached database-object catalog) |
-| `FDO_SQLSERVER_ODBC_DRIVER` | SQL Server Spatial provider, Linux only; also its unit-test helper and the ODBC test helper | ODBC driver name (the `[section]` in `odbcinst.ini`) | `ODBC Driver 17 for SQL Server` | Selects the ODBC driver used to build the SQL Server connection string |
+| `FDO_SQLSERVER_ODBC_DRIVER` | SQL Server Spatial provider, Linux only; also its unit-test helper and the ODBC test helper | ODBC driver name (the `[section]` in `odbcinst.ini`) | newest registered Microsoft driver (18 over 17) | Selects the ODBC driver used to build the SQL Server connection string |
 | `FDOHOME` | `FdoRegistryUtility` (provider registry lookup) and the NLS catalog loader, Linux only | path | `/usr/local/fdo-4.2.0` (registry), `/usr/local/fdo-3.6.0/nls/` (NLS) | Relocates `providers.xml` and message catalogs — see the caveat below |
 | `SDF_MAXCACHESIZE` | SDF provider, through `Utilities/SQLiteInterface` | positive integer (feature count) | `10000` | Size of the SDF write cache |
 | `TMPDIR` | `FdoCommonFile::GetTempFile` (used by SHP), and the SQLite provider's embedded SQLite (3.7.0.1) | directory | `P_tmpdir` (`/tmp`) | Location of temporary files |
@@ -123,19 +123,24 @@ provider.
 
 ### 1.4 `FDO_SQLSERVER_ODBC_DRIVER` — SQL Server ODBC driver name
 
-**Read at:** `Providers/GenericRdbms/Src/SQLServerSpatial/Fdo/FdoRdbmsSqlServerConnection.cpp:585`
+**Read at:** `Providers/GenericRdbms/Src/SQLServerSpatial/Fdo/FdoRdbmsSqlServerConnection.cpp:809`
 (Linux branch), and by the test helpers in
-`Providers/GenericRdbms/Src/UnitTest/SQLServerSpatial/SqlServerConnectionUtil.cpp:333` and
+`Providers/GenericRdbms/Src/UnitTest/SQLServerSpatial/SqlServerConnectionUtil.cpp:526` and
 `Providers/GenericRdbms/Src/UnitTest/Odbc/OdbcConnectionUtil.cpp:143`.
 
 The SQL Server Spatial provider builds its own
-`DRIVER={...};MARS_Connection=yes;SERVER=...` connection string. On Windows it probes
-`SQLNCLI10`–`SQLNCLI14` and uses whichever DLL is present. On non-Windows there is nothing to
-probe, so the driver name comes from this variable, defaulting to
+`DRIVER={...};MARS_Connection=yes;SERVER=...` connection string. On Windows it enumerates the
+registered drivers with the ODBC driver manager and uses the newest Microsoft SQL Server driver,
+falling back to `SQL Server Native Client` and then the legacy `SQL Server` driver. On non-Windows
+it enumerates the same way, and because only the Microsoft driver exists there, this variable and
+that enumeration are all there is: unset, the provider uses the newest Microsoft ODBC Driver for
+SQL Server registered with the driver manager, so
 
 ```text
-ODBC Driver 17 for SQL Server
+ODBC Driver 18 for SQL Server
 ```
+
+when driver 18 is installed, and `ODBC Driver 17 for SQL Server` only when it is not.
 
 The value is the `[section]` name in `odbcinst.ini`, **not** a path:
 
@@ -143,9 +148,13 @@ The value is the `[section]` name in `odbcinst.ini`, **not** a path:
 FDO_SQLSERVER_ODBC_DRIVER="ODBC Driver 18 for SQL Server" ./UnitTestSQLServerSpatial ...
 ```
 
-An empty value falls back to the default. This variable is read when the connection string is
-generated (connection open), so set it before opening the connection. On Windows the provider does
-not read it; the test helper does, on both platforms.
+An empty value falls back to the enumeration. The enumeration is resolved once per process, so a
+driver installed after the first connection is picked up after a restart. This variable is read
+when the connection string is generated (connection open), so set it before opening the connection.
+On Windows the provider does not read it; the test helper does, on both platforms.
+
+The ODBC provider's own test helper (`OdbcConnectionUtil.cpp`) does not enumerate: unset, it asks
+for `ODBC Driver 18 for SQL Server` on Linux (and `SQL Server` on Windows).
 
 See [`sqlserver-spatial-linux-support.md`](sqlserver-spatial-linux-support.md) for the full Linux
 setup.
@@ -404,9 +413,9 @@ driver. The driver manager and the driver read their own configuration from file
 | `ODBCSYSINI` | Directory holding the system `odbcinst.ini` (default `/etc` or the build's `--sysconfdir`) |
 | `ODBCINSTINI` | Name of the system driver-registration file (default `odbcinst.ini`) |
 
-For the SQL Server providers this is why installing the Microsoft driver registers
-`[ODBC Driver 17 for SQL Server]` in `/etc/odbcinst.ini`, and why `FDO_SQLSERVER_ODBC_DRIVER`
-is a *name*, not a path. In `generic` builds the provider links a static unixODBC compiled with
+For the SQL Server providers this is why installing the Microsoft driver registers a section such as
+`[ODBC Driver 18 for SQL Server]` in `/etc/odbcinst.ini`, why the provider enumerates those sections
+to pick a driver, and why `FDO_SQLSERVER_ODBC_DRIVER` is a *name*, not a path. In `generic` builds the provider links a static unixODBC compiled with
 `--sysconfdir=/etc`, so `ODBCSYSINI` moves the file for both that copy and the dynamically loaded
 driver.
 

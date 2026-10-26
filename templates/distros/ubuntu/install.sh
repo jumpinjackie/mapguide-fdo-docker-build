@@ -21,6 +21,8 @@ MGVER_MAJOR_MINOR_REV=${MGVER_MAJOR_MINOR}.${MGVER_POINT}
 MG_INST=/usr/local/mapguideopensource-${MGVER_MAJOR_MINOR_REV}
 FDO_INST=/usr/local/fdo-${FDOVER_MAJOR_MINOR_REV}
 
+MSSQL_ODBC_DOWNLOAD_URL="https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server"
+
 DRY_RUN=0
 HEADLESS=0
 NO_SERVICE_INSTALL=0
@@ -107,7 +109,19 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             fdo_provider_choice="$fdo_provider_choice ogr"
             ;;
         -with-rdbms|--with-rdbms)
-            fdo_provider_choice="$fdo_provider_choice rdbms"
+            fdo_provider_choice="$fdo_provider_choice odbc mysql postgresql sqlserverspatial"
+            ;;
+        -with-odbc|--with-odbc)
+            fdo_provider_choice="$fdo_provider_choice odbc"
+            ;;
+        -with-mysql|--with-mysql)
+            fdo_provider_choice="$fdo_provider_choice mysql"
+            ;;
+        -with-postgresql|--with-postgresql)
+            fdo_provider_choice="$fdo_provider_choice postgresql"
+            ;;
+        -with-sqlserverspatial|--with-sqlserverspatial)
+            fdo_provider_choice="$fdo_provider_choice sqlserverspatial"
             ;;
         -with-kingoracle|--with-kingoracle)
             fdo_provider_choice="$fdo_provider_choice kingoracle"
@@ -164,7 +178,11 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             echo "  --with-sqlite [Include SQLite Provider]"
             echo "  --with-gdal [Include GDAL Provider]"
             echo "  --with-ogr [Include OGR Provider]"
-            echo "  --with-rdbms [Include RDBMS Providers]"
+            echo "  --with-rdbms [Include all RDBMS Providers]"
+            echo "  --with-odbc [Include RDBMS Provider for ODBC]"
+            echo "  --with-mysql [Include RDBMS Provider for MySQL]"
+            echo "  --with-postgresql [Include RDBMS Provider for PostgreSQL/PostGIS]"
+            echo "  --with-sqlserverspatial [Include RDBMS Provider for SQL Server Spatial]"
             echo "  --with-kingoracle [Include King Oracle Provider]"
             echo "  --with-wfs [Include WFS Provider]"
             echo "  --with-wms [Include WMS Provider]"
@@ -310,7 +328,10 @@ dialog_fdo_provider()
             gdal    	"OSGeo FDO Provider for GDAL" ON \
             ogr    		"OSGeo FDO Provider for OGR" ON \
             kingoracle  "OSGeo FDO Provider for Oracle" off \
-            rdbms	    "RDBMS FDO Providers (ODBC, MySQL, PostgreSQL)" off \
+            odbc	    "OSGeo FDO Provider for ODBC" off \
+            mysql	    "OSGeo FDO Provider for MySQL" off \
+            postgresql  "OSGeo FDO Provider for PostgreSQL/PostGIS" off \
+            sqlserverspatial "OSGeo FDO Provider for SQL Server Spatial" off \
             wfs    		"OSGeo FDO Provider for WFS" ON \
             wms   		"OSGeo FDO Provider for WMS" ON  2> $tempfile
 
@@ -425,6 +446,75 @@ dialog_extras()
     rm $tempfile
 }
 
+warn_mssql_odbc_driver()
+{
+    echo "==== WARNING ===="
+    echo "The Microsoft ODBC Driver for SQL Server could not be installed. The SQL Server"
+    echo "Spatial Provider needs it before it can connect to a SQL Server data store."
+    echo "Download and install it from:"
+    echo "  ${MSSQL_ODBC_DOWNLOAD_URL}"
+    echo "Install driver 18 if you can; the provider uses the newest driver it finds,"
+    echo "and FDO_SQLSERVER_ODBC_DRIVER overrides the name with any entry in /etc/odbcinst.ini."
+}
+
+try_install_mssql_odbc_driver()
+{
+    # The SQL Server Spatial Provider uses the newest registered Microsoft ODBC
+    # Driver for SQL Server, so driver 18 is acquired. Driver 17 is still used
+    # when it is the one that is installed.
+    mssql_driver_pkg=
+    if dpkg -s msodbcsql18 > /dev/null 2>&1;
+    then
+        mssql_driver_pkg=msodbcsql18
+    elif dpkg -s msodbcsql17 > /dev/null 2>&1;
+    then
+        mssql_driver_pkg=msodbcsql17
+    fi
+    if [ -n "$mssql_driver_pkg" ];
+    then
+        echo "[install]: Microsoft ODBC Driver for SQL Server (${mssql_driver_pkg}) is already installed, skipping acquisition"
+        if [ "$mssql_driver_pkg" != "msodbcsql18" ];
+        then
+            echo "[install]: Only driver 17 is installed; the provider prefers driver 18 and uses 17 until it is installed"
+        fi
+        return 0
+    fi
+
+    # Repository setup and driver install are Microsoft's documented Ubuntu steps:
+    # https://learn.microsoft.com/sql/connect/odbc/linux-mac/installing-the-microsoft-odbc-driver-for-sql-server
+    ubuntu_ver=$(sed -n 's/^VERSION_ID=//p' /etc/os-release 2>/dev/null | tr -d '"')
+    if [ -z "$ubuntu_ver" ];
+    then
+        ubuntu_ver=22.04
+    fi
+    mssql_prod_deb=/tmp/packages-microsoft-prod.deb
+    echo "[install]: Acquiring the Microsoft ODBC Driver for SQL Server for Ubuntu ${ubuntu_ver}"
+    if apt-get update &&
+       apt-get install -y curl &&
+       curl -sSL -o "$mssql_prod_deb" "https://packages.microsoft.com/config/ubuntu/${ubuntu_ver}/packages-microsoft-prod.deb" &&
+       dpkg -i "$mssql_prod_deb" &&
+       apt-get update
+    then
+        rm -f "$mssql_prod_deb"
+        # Driver 18 is what the provider prefers; 17 is the fallback for a
+        # repository that no longer carries 18. Accepting the EULA is
+        # Microsoft's documented automation for this.
+        if ACCEPT_EULA=Y apt-get install -y msodbcsql18;
+        then
+            echo "[install]: Microsoft ODBC Driver 18 for SQL Server installed"
+        elif ACCEPT_EULA=Y apt-get install -y msodbcsql17;
+        then
+            echo "[install]: Microsoft ODBC Driver 17 for SQL Server installed"
+            echo "[install]: Driver 18 is preferred by the provider but was not available from the Microsoft repository"
+        else
+            warn_mssql_odbc_driver
+        fi
+    else
+        rm -f "$mssql_prod_deb"
+        warn_mssql_odbc_driver
+    fi
+}
+
 install_prerequisites()
 {
     # Only need to check for JRE. All other deps are already embedded in their respective deb package files
@@ -441,23 +531,38 @@ install_fdo()
     arcsde_registered=0
     gdal_registered=0
     kingoracle_registered=0
-    rdbms_registered=0
+    mysql_registered=0
+    odbc_registered=0
     ogr_registered=0
+    postgresql_registered=0
     sdf_registered=0
     shp_registered=0
     sqlite_registered=0
+    sqlserverspatial_registered=0
     wfs_registered=0
     wms_registered=0
 
-    # Include core package regardless of choice.
-    fdo_provider_choice="core $fdo_provider_choice"
+    # Include core package regardless of choice. fdo-rdbms only carries what the
+    # GenericRdbms providers share, so it comes in with them. Both go first, as
+    # every provider package depends on them.
+    case " $fdo_provider_choice " in
+        *" odbc "*|*" mysql "*|*" postgresql "*|*" sqlserverspatial "*)
+            fdo_provider_choice="core rdbms $fdo_provider_choice"
+            ;;
+        *)
+            fdo_provider_choice="core $fdo_provider_choice"
+            ;;
+    esac
+    # HACK-ish: The installer script doesn't know about the build number that is baked into these
+    # deb packages so we can't locate the exact package to apt-get install, but we can find it using 
+    # an identifier that should already be unique enough. They are installed in a single apt-get call
+    # so that apt resolves the dependencies they declare on each other.
+    fdo_package_files=
     for file in $fdo_provider_choice
     do
-        # HACK-ish: The installer script doesn't know about the build number that is baked into these
-        # deb packages so we can't locate the exact package to apt-get install, but we can find it using 
-        # an identifier that should already be unique enough
-        find . -type f | grep "fdo-${file}" | xargs apt-get install -y
+        fdo_package_files="$fdo_package_files $(find . -type f | grep "fdo-${file}")"
     done
+    apt-get install -y $fdo_package_files
 
     # Nuke the old providers.xml, we're rebuiding it
     providersxml=${FDO_INST}/lib64/providers.xml
@@ -519,8 +624,8 @@ install_fdo()
             # libaio is a dependency of OCI and not the provider itself
             apt-get install -y libaio1
             ;;
-          rdbms)
-            if [ $rdbms_registered -eq 1 ];
+          odbc)
+            if [ $odbc_registered -eq 1 ];
             then
                 continue
             fi
@@ -534,16 +639,13 @@ install_fdo()
             echo "    <FeatureDataObjectsVersion>${FDOVER_MAJOR_MINOR_REV}.0</FeatureDataObjectsVersion>" >> ${providersxml}
             echo "    <LibraryPath>libODBCProvider.so</LibraryPath>" >> ${providersxml}
             echo "  </FeatureProvider>" >> ${providersxml}
-            echo "Registering PostgreSQL Provider"
-            echo "  <FeatureProvider>" >> ${providersxml}
-            echo "    <Name>OSGeo.PostgreSQL.${FDOVER_MAJOR_MINOR}</Name>" >> ${providersxml}
-            echo "    <DisplayName>OSGeo FDO Provider for PostgreSQL</DisplayName>" >> ${providersxml}
-            echo "    <Description>Read/write access to PostgreSQL/PostGIS-based data store. Supports spatial data types and spatial query operations</Description>" >> ${providersxml}
-            echo "    <IsManaged>False</IsManaged>" >> ${providersxml}
-            echo "    <Version>${FDOVER_MAJOR_MINOR_REV}.0</Version>" >> ${providersxml}
-            echo "    <FeatureDataObjectsVersion>${FDOVER_MAJOR_MINOR_REV}.0</FeatureDataObjectsVersion>" >> ${providersxml}
-            echo "    <LibraryPath>libPostgreSQLProvider.so</LibraryPath>" >> ${providersxml}
-            echo "  </FeatureProvider>" >> ${providersxml}
+            odbc_registered=1
+            ;;
+          mysql)
+            if [ $mysql_registered -eq 1 ];
+            then
+                continue
+            fi
             echo "Registering MySQL Provider"
             echo "  <FeatureProvider>" >> ${providersxml}
             echo "    <Name>OSGeo.MySQL.${FDOVER_MAJOR_MINOR}</Name>" >> ${providersxml}
@@ -554,7 +656,42 @@ install_fdo()
             echo "    <FeatureDataObjectsVersion>${FDOVER_MAJOR_MINOR_REV}.0</FeatureDataObjectsVersion>" >> ${providersxml}
             echo "    <LibraryPath>libMySQLProvider.so</LibraryPath>" >> ${providersxml}
             echo "  </FeatureProvider>" >> ${providersxml}
-            rdbms_registered=1
+            mysql_registered=1
+            ;;
+          postgresql)
+            if [ $postgresql_registered -eq 1 ];
+            then
+                continue
+            fi
+            echo "Registering PostgreSQL Provider"
+            echo "  <FeatureProvider>" >> ${providersxml}
+            echo "    <Name>OSGeo.PostgreSQL.${FDOVER_MAJOR_MINOR}</Name>" >> ${providersxml}
+            echo "    <DisplayName>OSGeo FDO Provider for PostgreSQL/PostGIS</DisplayName>" >> ${providersxml}
+            echo "    <Description>Read/write access to PostgreSQL/PostGIS-based data store. Supports spatial data types and spatial query operations</Description>" >> ${providersxml}
+            echo "    <IsManaged>False</IsManaged>" >> ${providersxml}
+            echo "    <Version>${FDOVER_MAJOR_MINOR_REV}.0</Version>" >> ${providersxml}
+            echo "    <FeatureDataObjectsVersion>${FDOVER_MAJOR_MINOR_REV}.0</FeatureDataObjectsVersion>" >> ${providersxml}
+            echo "    <LibraryPath>libPostgreSQLProvider.so</LibraryPath>" >> ${providersxml}
+            echo "  </FeatureProvider>" >> ${providersxml}
+            postgresql_registered=1
+            ;;
+          sqlserverspatial)
+            if [ $sqlserverspatial_registered -eq 1 ];
+            then
+                continue
+            fi
+            echo "Registering SQL Server Spatial Provider"
+            echo "  <FeatureProvider>" >> ${providersxml}
+            echo "    <Name>OSGeo.SQLServerSpatial.${FDOVER_MAJOR_MINOR}</Name>" >> ${providersxml}
+            echo "    <DisplayName>OSGeo FDO Provider for SQL Server Spatial</DisplayName>" >> ${providersxml}
+            echo "    <Description>Read/Write access to feature data in a MS SQL Server spatially enabled data store. Supports geospatial and non-geospatial data and schema.</Description>" >> ${providersxml}
+            echo "    <IsManaged>False</IsManaged>" >> ${providersxml}
+            echo "    <Version>${FDOVER_MAJOR_MINOR_REV}.0</Version>" >> ${providersxml}
+            echo "    <FeatureDataObjectsVersion>${FDOVER_MAJOR_MINOR_REV}.0</FeatureDataObjectsVersion>" >> ${providersxml}
+            echo "    <LibraryPath>libSQLServerSpatialProvider.so</LibraryPath>" >> ${providersxml}
+            echo "  </FeatureProvider>" >> ${providersxml}
+            sqlserverspatial_registered=1
+            try_install_mssql_odbc_driver
             ;;
           ogr)
             if [ $ogr_registered -eq 1 ];

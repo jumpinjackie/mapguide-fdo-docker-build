@@ -184,7 +184,7 @@ Pass any of the following to `run_fdo_tests.sh` to enable the optional suites:
 | `--with-postgis-init <file>` | PostGIS (`UnitTestPostGis initfiletest=<file>`) |
 | `--with-mysql-init <file>` | MySQL (`UnitTestMySql initfiletest=<file>`) |
 | `--with-odbc-init <file>` | ODBC (`UnitTestOdbc initfiletest=<file>`) |
-| `--with-odbc-sqlserver` | ODBC SQL Server fixtures (`UnitTestOdbc initfiletest=<shipped OdbcSqlServerInit.txt> OdbcSqlServerTests`) |
+| `--with-odbc-sqlserver [init file]` | ODBC SQL Server fixtures (`UnitTestOdbc initfiletest=<file> OdbcSqlServerTests`); the init file defaults to the shipped `OdbcSqlServerInit.txt` |
 | `--with-odbc-access` | ODBC Access fixtures against mdbtools (`UnitTestOdbc OdbcAccessTests`, with the driver's own leaks suppressed by `templates/scripts/container/lsan/odbc-mdbtools.supp`) |
 | `--with-oracle` | King Oracle (`UnitTest`) |
 | `--with-wms` | WMS |
@@ -224,17 +224,24 @@ The same applies to the default suites; to run only the SHP suite (useful while 
     --no-default-suites --with-shp
 ```
 
-To run *every* suite the runner supports in one go — the six defaults plus WMS, WFS and King Oracle, and the database suites through the shipped init files:
+To run *every* suite the runner supports in one go — the six defaults, WMS, WFS and King Oracle, the
+three database suites through the shipped init files, and the ODBC provider's SQL Server and Access
+fixtures:
 
 ```
 /tmp/work/scripts/run_fdo_tests.sh --log-path /tmp/work/artifacts/test-logs --fdo-build-dir /tmp/work/build_area/fdo \
     --with-wms --with-wfs --with-oracle \
     --with-mysql-init /tmp/work/scripts/test_init/MySqlInit.txt \
     --with-postgis-init /tmp/work/scripts/test_init/PostGisInit.txt \
-    --with-sqlserver-init /tmp/work/scripts/test_init/SqlServerSpatialInit.txt
+    --with-sqlserver-init /tmp/work/scripts/test_init/SqlServerSpatialInit.txt \
+    --with-odbc-sqlserver /tmp/work/scripts/test_init/OdbcSqlServerInit.txt \
+    --with-odbc-access
 ```
 
-The PostGIS, MySQL, SQL Server and King Oracle suites need the `dbs` compose stack running first, as does the ODBC SQL Server suite (`--with-odbc-sqlserver`, which uses the shipped `OdbcSqlServerInit.txt` pointing at `mssql_cs`). The ODBC Access suite runs on Linux against the mdbtools driver (`--with-odbc-access`; the Ubuntu develop image installs `odbc-mdbtools`, and no DSN is needed). The Excel/dBase/Text ODBC fixtures still need drivers that only exist on Windows, so `--with-odbc-init <file>` is for a configuration you have prepared yourself. WMS and WFS need outbound network access to the public OGC services they test against. `--with-sqlserver-perf` runs the SQL Server suite with `FDO_SQS_PERF=1`, which opts into the provider's memoised `SQLDescribeParam()` and cached database-object catalog; over four SQL Server fixtures that cut `SQLDescribeParam` calls by ~73% and wall-clock time from 82 s to 34 s, with every fixture still `OK` and no change in the LSan record count. See [docs/sqlserver-spatial-linux-support.md](./docs/sqlserver-spatial-linux-support.md#the-fdo_sqs_perf1-opt-in-measured).
+The one suite that command leaves out is `--with-odbc-init`, which needs an ODBC datastore's own init
+file — none ships, so it only runs against a configuration you have prepared.
+
+The PostGIS, MySQL, SQL Server and King Oracle suites need the `dbs` compose stack running first, as does the ODBC SQL Server suite (`--with-odbc-sqlserver`, whose init file defaults to the shipped `OdbcSqlServerInit.txt` pointing at `mssql_cs`; give it a path, as above, to run against a different server). The ODBC Access suite runs on Linux against the mdbtools driver (`--with-odbc-access`; the Ubuntu develop image installs `odbc-mdbtools`, and no DSN is needed). The Excel/dBase/Text ODBC fixtures still need drivers that only exist on Windows, so `--with-odbc-init <file>` is for a configuration you have prepared yourself. WMS and WFS need outbound network access to the public OGC services they test against. `--with-sqlserver-perf` runs the SQL Server suite with `FDO_SQS_PERF=1`, which opts into the provider's memoised `SQLDescribeParam()` and cached database-object catalog; over four SQL Server fixtures that cut `SQLDescribeParam` calls by ~73% and wall-clock time from 82 s to 34 s, with every fixture still `OK` and no change in the LSan record count. See [docs/sqlserver-spatial-linux-support.md](./docs/sqlserver-spatial-linux-support.md#the-fdo_sqs_perf1-opt-in-measured).
 
 These are derived from the reference copies in the FDO source tree at `fdo/Providers/GenericRdbms/Src/UnitTest/`; only edit the SVN copies if you need a different configuration. The `service=` entry is the database host (`[dbname@]host:port`).
 
@@ -358,15 +365,15 @@ The database containers run on their own compose network, separate from the buil
  * `MySqlInit.txt` → `service=host.docker.internal:3306`
  * `SqlServerSpatialInit.txt` → `service=host.docker.internal,1434`, the `mssql_cs` fixture (a comma before the port, as SQL Server's `SERVER=` keyword expects)
 
-The SQL Server suite also needs the *Microsoft ODBC Driver 17 for SQL Server*, which no template installs — the FDO build only ever installs the unixODBC **driver manager**. Install it in the container before running the suite:
+The SQL Server suite also needs the *Microsoft ODBC Driver for SQL Server* — the FDO build only ever installs the unixODBC **driver manager**. The `develop_thin` images install driver 18 (`msodbcsql18`), so a container made by `build_thin.sh` needs nothing else; install it yourself in a container that predates that:
 
 ```
 wget -q https://packages.microsoft.com/keys/microsoft.asc -O- | gpg --dearmor > /etc/apt/trusted.gpg.d/microsoft.gpg && \
 wget -q https://packages.microsoft.com/config/ubuntu/22.04/prod.list -O /etc/apt/sources.list.d/mssql-release.list && \
-apt-get update && ACCEPT_EULA=Y apt-get install -y msodbcsql17
+apt-get update && ACCEPT_EULA=Y apt-get install -y msodbcsql18
 ```
 
-`FDO_SQLSERVER_ODBC_DRIVER` overrides the driver name the provider looks up (default `ODBC Driver 17 for SQL Server`). What the provider needed to become portable, and the defects that had to be fixed for it — an `RDBI_INT` column sized as `sizeof(long)`, `nvarchar(max)` values read as raw UTF-16, an `SQLParamData` token that clobbered the adjacent byte count, and a wide-format `%s` — are in [docs/sqlserver-spatial-linux-support.md](./docs/sqlserver-spatial-linux-support.md). The complete inventory of environment variables FDO and its providers read — `FDO_TRACE_FILE`, `FDO_SQS_PERF`, `FDO_SQLSERVER_ODBC_DRIVER`, `SDF_MAXCACHESIZE`, `FDOHOME`, and the variables inherited from GDAL/OGR, libcurl, libpq, libmysqlclient and unixODBC — is in [docs/fdo-environment-variables.md](./docs/fdo-environment-variables.md).
+`FDO_SQLSERVER_ODBC_DRIVER` overrides the driver name the provider looks up; without it the provider uses the newest Microsoft ODBC Driver for SQL Server that is registered, so driver 18 when it is installed and driver 17 otherwise. What the provider needed to become portable, and the defects that had to be fixed for it — an `RDBI_INT` column sized as `sizeof(long)`, `nvarchar(max)` values read as raw UTF-16, an `SQLParamData` token that clobbered the adjacent byte count, and a wide-format `%s` — are in [docs/sqlserver-spatial-linux-support.md](./docs/sqlserver-spatial-linux-support.md). The complete inventory of environment variables FDO and its providers read — `FDO_TRACE_FILE`, `FDO_SQS_PERF`, `FDO_SQLSERVER_ODBC_DRIVER`, `SDF_MAXCACHESIZE`, `FDOHOME`, and the variables inherited from GDAL/OGR, libcurl, libpq, libmysqlclient and unixODBC — is in [docs/fdo-environment-variables.md](./docs/fdo-environment-variables.md).
 
 > The SQL Server instance needs a **case-sensitive** collation, for the reason described for `mysql_56` above: FDO class and schema names are case-sensitive, and a datastore created without an explicit collation inherits the server's. With the image's default (`SQL_Latin1_General_CP1_CI_AS`) the unique index on `f_classdefinition(classname, schemaname)` rejects two classes whose names differ only in case, and `FdoApplySchemaTest` fails with `Cannot insert duplicate key row in object 'dbo.f_classdefinition' with unique index 'f_classdef_schnm_idx'. The duplicate key value is (aCxdATA, Acad)`. Changing the *model* database's collation makes every datastore the suites create inherit it. The `mssql_cs` fixture pins it when the server is **created** (`MSSQL_COLLATION=Latin1_General_CS_AS`), which is the only point at which SQL Server honours it, and the shipped init file already points at that fixture; on an existing instance:
 
