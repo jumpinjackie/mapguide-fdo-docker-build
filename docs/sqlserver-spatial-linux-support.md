@@ -872,16 +872,18 @@ POLYGON((-87.71986 43.75843, -87.71978 43.75843, -87.71978 43.75839, -87.71986 4
 Every stage below the caller was already correct — `BuildPolygon` writes rings in arrival order with
 ring 0 as the exterior ring — so the winding the client sent is the winding SQL Server saw. What was
 missing is the consumer for a capability the provider already advertises: `FdoSmPhSqsDbObject::
-GetPolygonVertexOrderStrictness` returns true for a `geography` column, and `FdoSpatialUtility::
-FixPolygonVertexOrder` exists to apply a rule, but there was no product call site for either (only the
-unit tests called it), while the renderer's own reorientation in `RSMgFeatureReader` is driven by the
-stylizer, not by FDO.
+GetPolygonVertexOrderStrictness` returns true for a `geography` column and `FdoSmLpClassBase::
+Capabilities` carries that up to the class definition, and `FdoSpatialUtility::FixPolygonVertexOrder`
+exists to apply a rule — but only its own unit test called it, and the renderer's own reorientation in
+`RSMgFeatureReader` is driven by the stylizer, not by FDO.
 
 `FdoRdbmsSchemaUtil::FixGeometryVertexOrder` now reads the class's advertised rule and strictness for
 the property and reorients a literal through `FdoSpatialUtility::FixPolygonVertexOrder` when — and
-only when — the rule is declared strict, so planar `geometry` columns, SHP (which advertises `CW`) and
-SDF/ODBC (which advertise `None`) are untouched, and a deliberately large geography polygon is still
-expressible through a provider that does not declare strictness. It is applied on both sides:
+only when — the rule is declared strict. Among the GenericRdbms providers only a SQL Server
+`geography` column declares strictness, so planar `geometry` columns and the MySQL, PostGIS and ODBC
+literals are untouched (SHP declares `CW` and SDF `None`, but they are separate providers that do not
+use this code path), and a deliberately large geography polygon is still expressible through a provider
+that does not declare strictness. It is applied on both sides:
 `FdoRdbmsSqlServerFilterProcessor` and `FdoRdbmsSqlServerSqlBuilder` reorient the filter literal, and
 the four bind sites that write geometry (`FdoRdbmsSimpleInsertCommand`, `FdoRdbmsSimpleUpdateCommand`,
 and the insert/update PVC handlers) reorient stored values, where a clockwise ring was otherwise
@@ -1054,30 +1056,45 @@ binary reproduces the old behaviour rather than erroring.
 
 A Debug build is ASan/LSan-instrumented, so a green run still exits non-zero — judge it by
 `OK (<n>)` in the output, not by the exit code. The current run (`OK (290)`, 2026-10-26) reports
-**3 direct leak records**, 292 B in total, all of them allocating in test code rather than in the
-provider:
+**0 direct leak records**. The 290-fixture growth had left three, 292 B in total, none of them a
+provider defect; all three are now fixed:
 
-| Record | Site | Bytes |
-| --- | --- | --- |
-| `FdoArrayHelper::AllocMore` | `FdoFgfGeometryFactory::CreateLinearRing` in `SqlServerFdoSelectTest::TestSpatialGeog` (`SqlServerFdoSelectTest.cpp:284`) | 188 |
-| `FdoIdentifier::Create` | `SqlServerFdoSelectTest::TestExplicitPropertyListGeometryTypes` (`:995`) | 64 |
-| `FdoSchemaException::Create` | the negative `DropDatastore` path in `FdoSchemaTest::OverrideTablesWithOddAsciiChars` | 40 |
+| Record | Site | Bytes | Fix |
+| --- | --- | --- | --- |
+| `FdoArrayHelper::AllocMore` | `FdoFgfGeometryFactory::CreateLinearRing` in `SqlServerFdoSelectTest::TestSpatialGeog` (`SqlServerFdoSelectTest.cpp:284`) | 188 | Not the test: the ring's array was orphaned by `FdoRdbmsSchemaUtil::FixGeometryVertexOrder`, which passed `FdoFgfGeometryFactory::GetFgf()`'s counted reference straight to `FdoGeometryValue::Create()`. Held in an `FdoPtr` now — see [docs/fdo-provider-memory-leaks.md](./fdo-provider-memory-leaks.md) |
+| `FdoIdentifier::Create` | `SqlServerFdoSelectTest::TestExplicitPropertyListGeometryTypes` (`:995`) | 64 | `Add()` does not consume the caller's reference; the identifier is built into an `FdoPtr` |
+| `FdoSchemaException::Create` | the negative `DropDatastore` path in `FdoSchemaTest` | 40 | `DropDatastore()`'s unnamed `catch(...)` now releases the `FdoException*` it swallows |
 
-The 288-fixture run this section used to quote reported none, so treat the direct count as moved
-rather than as a provider defect: no record has a provider frame, and each is a counted reference a
-test drops.
-
-Beyond those, the run leaves 1,543 indirect records (1,889,844 B in 21,259 allocations). The largest
-family is now the extended coordinate system catalogue — `FdoSmPhSqsOwner::LoadExtendedCoordinateSystems()`
-alone accounts for 618 KB in 14 records, and it is new only because fix 15 makes the file load at all
-(when the name did not resolve, nothing was read and nothing could leak). After it come the
-schema-document graphs every RDBMS suite carries: `FdoStringP::AllocateBuffer` (538 KB in 475
-records), `FdoDictionaryElement::Create` (168 KB in 102) and the coordinate-system map nodes (141 KB
-in 10). The 288-fixture run reported 1,889,108 B in 1,539 indirect records; it predates the Microsoft
+Beyond those, the run went on to leave 1,312 indirect records (1,746,736 B in 19,888 allocations), all of
+which two later `SchemaMgr` ownership fixes cleared; that
+drop came from the class-cycle collector and the PostGIS/SDF table-dependency fixes in
+[patches/fdo_leak_fixes.patch](../patches/fdo_leak_fixes.patch), not from a provider change. The largest
+family there was the extended coordinate system catalogue —
+`FdoSmPhSqsOwner::LoadExtendedCoordinateSystems()` alone accounted for 618 KB in 14 records, and it was
+new only because fix 15 makes the file load at all (when the name did not resolve, nothing was read and
+nothing could leak). After it came the schema-document graphs every RDBMS suite carries:
+`FdoStringP::AllocateBuffer` (538 KB in 475 records), `FdoDictionaryElement::Create` (168 KB in 102) and
+the coordinate-system map nodes (141 KB in 10). All of those were the members of the eight owners the
+synonym-loader cycle pinned, so the fix below removed them together. The 288-fixture run reported 1,889,108 B in 1,539 indirect records; it predates the Microsoft
 ODBC Driver move (r8420/r8423), so read the families, not the totals. Compare record *signatures* as
 well as totals when you touch this area — the before/after comparison for fixes 20–22 removed 68
 signatures and added none, and a fix that replaces one record with another of the same size has not
 fixed anything.
+
+Those families were two cycles plus the shared `SchemaMgr` ownership fixes, and all are fixed. The first was a **two-node cycle around eight leaked
+`FdoSmPhOwner` objects**: running the `SchemaMgrTests` registry alone reproduced the whole residue
+(`OK (10)`, 1,842,864 B in 20,774 allocations) in about ninety seconds, the logical layer and the
+managers balanced inside it, and the eight survivors turned out to be held by `FdoSmPhSynonymBaseLoader`'s
+counted back-pointer to its owner. The second was the `FdoApplySchemaTest` cycle described in
+[docs/fdo-provider-memory-leaks.md](./fdo-provider-memory-leaks.md): an autogenerated object-property
+class, in no collection, holding a copy of the property that spawned it, which held the original
+property's mapping, which held the wrapper class.
+
+Measured after them, and then re-confirmed in a full harness run that also passed every other FDO
+suite: **`OK (290)` with no records of either kind** — the suite no longer leaks at all.
+The record families quoted above (the coordinate-system catalogue, `FdoStringP::AllocateBuffer`,
+`FdoDictionaryElement::Create`, the coordinate-system map nodes) were the members of those two cycles,
+so they went with them.
 
 Fixtures measured green in Debug (ASan) against SQL Server 2017 through msodbcsql17, all of which
 failed before the fixes above: `FdoDatastoreTest` OK (7), `FdoConstraintsTest` OK (16),
@@ -1284,6 +1301,16 @@ way to confirm the memoisation is actually engaging, because it is invisible fro
   four rules that had to change (and the second, previously masked mismatch behind them). `TestSchema`
   passes now, and the masters are unmodified.
 
+- **A full run needs a datastore-free instance and a UTF-8 `LC_CTYPE`.** Two environment mistakes
+  turn a healthy tree into a red or crashing run, and both look like provider regressions:
+  a leftover `fdo_root_*` database makes `UnitTestUtil::GetConnection` take the `!bCreated` branch,
+  where its pre-run `TestCommonMiscUtil::DeleteObjects(connection, L"L\x00e4nd", L"Parcel", NULL)`
+  asks the schema manager for a class the datastore does not contain — `GetClass()` returns NULL and
+  `FdoRdbmsFilterProcessor::FilterToSql` dereferences it (`FdoRdbmsFilterProcessor.cpp:2045`), so the
+  suite dies with a SEGV in `setUp()`. And the 34 fixtures that use the `Länd` test data need
+  `LC_CTYPE=C.UTF-8`, which `run_fdo_tests.sh` defaults and a bare `podman exec bash -lc` does not:
+  in the POSIX locale they fail `setUp()` with "Schema L… has errors; cannot apply it". Drop the
+  `fdo_*` databases and export `LC_CTYPE=C.UTF-8` before measuring.
 - **The datastore-enumerating tests assume a private server.** The suite names its datastores
   `fdo_<account>` (`fdo_root` in these containers, `fdo_user` on the Windows build machine) and a
   few fixtures assert on *exactly* the set of databases they created:

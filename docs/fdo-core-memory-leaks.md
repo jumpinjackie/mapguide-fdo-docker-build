@@ -83,11 +83,49 @@ Evidence gathered:
 
 Breaking this needs a semantic change to FDO rather than a reference count fix: either make the
 class→class references weak (with on-demand resolution) or have schema/collection teardown walk its
-classes and clear their internal class→class references. The second is cheaper but changes what a
-class definition does when it outlives its schema. Both are out of scope for a leak-plugging pass, so
-the finding is recorded here instead. Upstream candidates are `FdoClassDefinition` (`m_baseClass`),
-`FdoObjectPropertyDefinition` (`m_class`) and `FdoAssociationPropertyDefinition`
+classes and clear their internal class→class references. Both are out of scope for a leak-plugging
+pass, so the finding is recorded here instead. Upstream candidates are `FdoClassDefinition`
+(`m_baseClass`), `FdoObjectPropertyDefinition` (`m_class`) and `FdoAssociationPropertyDefinition`
 (`m_associatedClass`).
+
+### Correction: they are collectable, and the measurement says so
+
+The conclusion above was drawn from the naive teardown break, and the naive break is what changes the
+contract — not the cycle itself. Two experiments settle it (both on a Debug tree, FDO Core suite):
+
+| Experiment | Suite | Direct | Indirect | Bytes |
+|---|---|---|---|---|
+| Baseline (no change) | `OK (130)` | 0 | 50 | 220,980 in 2,418 allocations |
+| Detach every class→class link in `~FdoClassCollection` | `Run: 130 Failure total: 1` | 1 | 24 | 1,844 in 25 allocations |
+| Mark externally-reachable classes, detach only the rest | `OK (130)` | 0 | 0 | **0** |
+
+- The naive detach fails exactly one fixture, `SchemaTest::testFeatureSchema`, on
+  `FDO_CPPUNIT_ASSERT(pclass->GetRefCount() == 3);  // once for self, twice for pobjprop (m_class and
+  m_classCHANGED)`. That assertion *is* the contract the naive break violates: the test holds a class
+  and an object property outside the schema and expects the property's links to survive. The 1,844 B
+  it leaves is not a separate leak — the assert aborts the test before its own cleanup runs.
+- The collector that satisfies both marks as *roots* the classes whose refcount is not explained by
+  the collection's own reference plus the links from inside the collection, follows their links, and
+  detaches only the unmarked (garbage) ones. ~100 lines, and it takes the suite to 0 B with the
+  original `OK (130)`. The landing form adds a non-virtual member and `friend` declarations rather
+  than the prototype's temporary public hooks — no virtual and no data member, so it is ABI-neutral.
+- **Change tracking doubles every link, which the record above missed.** `_StartChanges()` snapshots
+  the current link into a *counted* `*CHANGED` member (`m_baseClassCHANGED`, `m_classCHANGED`,
+  `m_associatedClassCHANGED`), so a modified element holds two references to the class it points at.
+  Any fix has to detach both, and any refcount expectation written against a modified element counts
+  both.
+
+A working prototype is kept as [patches/fdo_leak_fixes.patch](../patches/fdo_leak_fixes.patch)
+(paths relative to the FDO source root, so `cd fdo && svn patch ../patches/fdo_leak_fixes.patch`; it also
+carries the aggregate-class factory fix described in the provider record, and does not include the
+unrelated fixes above) rather than landed: it is
+a behaviour change that lands in shipped headers
+(`Inc/Fdo/Schema/ClassCollection.h` plus accessor additions on `ClassDefinition.h`,
+`ObjectPropertyDefinition.h` and `AssociationPropertyDefinition.h`), it runs on every schema
+teardown in every provider suite, and the current cycle is `freeze` — the policy gate in
+[AGENTS.md](../AGENTS.md) makes that an escalation, and `FdoFeatureSchema` teardown
+is exercised by MapGuide's schema cache as well as by every FDO consumer, so it wants a deliberate
+change with a release note rather than a leak-plug.
 
 ## Status
 
@@ -95,10 +133,11 @@ the finding is recorded here instead. Upstream candidates are `FdoClassDefinitio
 |---|---|---|---|
 | `artifacts/Debug/test-logs/Fdo_unit_test_log.txt` (before this pass) | 784 B (4 records) | 8,449,838 B (896 records) | 8,450,622 B in 80,343 allocations |
 | After the fixes (re-measured with the fixes in the tree) | 0 B (0 records) | 220,980 B (50 records) | 220,980 B in 2,418 allocations |
+| With the unlanded cycle collector (see the correction below) | 0 B (0 records) | 0 B (0 records) | 0 B |
 
 (An earlier run of the same suite, before the first batch of fixes, reported 33,392 B direct; the log
 in `artifacts/` was re-taken part-way through the effort and shows the 784 B figure above.)
 
-Suite results are unchanged by the fixes and remain green: FDO Core `OK (123)`, PostGIS `OK (137)`
+Suite results are unchanged by the fixes and remain green: FDO Core `OK (130)`, PostGIS `OK (137)`
 against PostgreSQL 16, MySQL `OK (246)` against MySQL 5.6. Leak totals reported by the provider suites
 (`UnitTestPostGis`, `UnitTestMySql`) are pre-existing and were not part of this pass.

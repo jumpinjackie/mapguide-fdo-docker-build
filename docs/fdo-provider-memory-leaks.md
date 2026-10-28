@@ -145,27 +145,145 @@ The recurring shapes in these suites are:
 | King Oracle | The batch-insert tests added with r8398 handed the row `FdoParameterValueCollection::Create()` returned straight to `FdoBatchParameterValueCollection::Add()` | `Providers/KingOracle/src/KgOraUnitTest/InsertUpdateDeleteTests.cpp` | `Add()` takes a reference of its own and does not consume the caller's, so the reference the test's row factory made (it returned the row with `Detach()`) was never released — 11 direct records of 32 B, one per row of the four `InsertBatch*` tests (3 + 3 + 2 + 3). Each one is the root of its row: the parameter values, their `FdoDataValue`s, the `FdoGeometryValue` and the FGF byte array behind it and the strings are reachable only from it, which is all 121 of the report's other records. The factory now builds the row into an `FdoPtr` and adds it, so the caller's reference is released before it returns. **6,284 B in 132 allocations (11 direct, 121 indirect)** → **0 B**. |
 | SQL Server Spatial | `FdoSmPhSqsTable::GetCkeyClause` tested a range constraint's min and max values with the counted getters themselves | `Providers/GenericRdbms/Src/SQLServerSpatial/SchemaMgr/Ph/Table.cpp` | `FdoPropertyValueConstraintRange::GetMinValue()`/`GetMaxValue()` return `FDO_SAFE_ADDREF(...)`, so writing `if ( c->GetMinValue() )` as the guard drops that reference on the floor and then fetches the value a second time into an `FdoPtr`. Every range check constraint therefore retired one reference too few, and the value survived as a *direct* record (the constraint that owned the other reference was freed normally). It accounts for all 62 direct records `FdoConstraintsTest` used to report, across three different allocating paths, because the constraint's min/max is the test's `FdoDataValue::Create` result when no conversion is needed, the parser's `ParseConstraint` value when the parsed type already matches, and `FixDataValueType`'s converted value when it does not. Both values are now fetched once into an `FdoPtr` and tested through it; the PostGIS equivalent already did. `FdoConstraintsTest` 62 direct records -> 0. |
 | SQL Server Spatial | The geometry arrays were shrunk to the last batch's row count, stranding the geometries the previous, larger batch had left in the slots being dropped | `Providers/GenericRdbms/Src/SQLServerSpatial/ODBCDriver/geom.c` | `odbcdr_fetch2` calls `odbcdr_geom_setNumRows( ..., rows_in_last_fetch )` after every fetch, which shrinks `geom_list.size` to that batch's row count. `col_list_free_S` releases exactly `j < column->geom_list.size` and the conversion loop releases exactly `j < numRows_I`, so both are correct only while the final batch is the largest. `FdoConnectTest::query` reads a 192-row table 100 rows at a time, so the last batch is 92 rows and slots 92..99 kept the earlier batch's `FdoGeometry` objects with nothing left to release them: 8 `FdoFgfLineString` objects, 640 B, per query. `col_list_setNumRows_S` now takes a `release_geoms` flag (TRUE for `defined_geometries`, FALSE for `bound_geometries`, which never hold FDO geometries) and releases and NULLs every `l_address[j]` above the new size before the array is shrunk; `l_address` is sized for the largest fetch and never reallocated, so those slots are always in bounds. `FdoConnectTest` 1 direct record (640 B in 8 objects) -> 0. |
+| SQL Server Spatial | `FdoRdbmsSchemaUtil::FixGeometryVertexOrder` handed the counted reference `FdoFgfGeometryFactory::GetFgf()` returns straight to `FdoGeometryValue::Create()` | `Providers/GenericRdbms/Src/Fdo/Schema/FdoRdbmsSchemaUtil.cpp` | `GetFgf()` returns an AddRef'ed array (for an FGF geometry it is `FDO_SAFE_ADDREF(m_byteArray)`, otherwise a fresh array), and `FdoGeometryValue::SetGeometry()` AddRefs again, so every filter polygon the winding fix reorients retired one reference too few. The array could therefore never return to the geometry factory's byte-array pool; because the pooled ring that owned it is reused, the next `Reset()` grew a different buffer and left the 188-byte one unreachable — the suite's only provider-side **direct** record. The getter's result now lives in an `FdoPtr<FdoByteArray>` local. |
+| SQL Server Spatial | `TestExplicitPropertyListGeometryTypes` handed `FdoIdentifier::Create()` straight to `FdoIdentifierCollection::Add()` | `Providers/GenericRdbms/Src/UnitTest/SQLServerSpatial/SqlServerFdoSelectTest.cpp` | `Add()` takes a reference of its own and does not consume the caller's, so the reference `Create()` returned was lost: 64 B **direct**, plus the 44 B hanging off it (the identifier's name buffer and the reader's mapping string, 20 + 20 + 4 B, all indirect). The identifier is built into an `FdoPtr` and added from there; the test-side family is now 0 records. |
+| SDF | `SdfSelect::ProcessComputedIdentifiers` created its temporary feature reader with a raw `new` and could then throw before releasing it | `Providers/SDF/Src/Provider/SdfSelect.cpp` | The reader is a probe: it is created to work out the data type of each computed identifier, then released. `FdoExpressionEngine::GetExpressionType()` throws when the type cannot be determined (the fixture that does this asserts the rejection), and that path left the reader - and the class, connection and feature-list references it had taken - stranded, which is the whole SDF residue: 2 readers, 2 connections (of 237 created, 235 disposed), a schema graph and ~55 KB. It is held in an `FdoPtr` now; the two explicit releases became null assignments, which still delete the feature list before it is restored. 237/237 connections, **0 records**. |
+| Shared (ExpressionEngine) | `FdoExpressionEngineUtilDataReader::GetAggregateClassDef` created the aggregate class with a raw `Create()` and could then throw before returning it | `Utilities/ExpressionEngine/Src/Util/FdoExpressionEngineUtilDataReader.cpp` | `FdoCommonMiscUtil::GetExpressionType()` throws for an aggregate whose arguments do not match the function signature (exactly what a negative fixture feeds it), and the `else` branch throws for an unsupported property type; either way the `FdoFeatureClass::Create()` reference was lost, taking its property collections, its string buffers and its `FdoCommonPropertyIndex` graph with it — 792 B per bad-aggregate command, and the only records the ODBC SQL Server suite reported. The clone is now an `FdoPtr` and the function `Detach()`es it on the way out. |
+| SQL Server Spatial | `FdoSchemaTest::DropDatastore`'s unnamed `catch(...)` swallowed the `FdoSchemaException` the destroy-datastore command raises when the datastore is already absent | `Providers/GenericRdbms/Src/UnitTest/Common/FdoSchemaTest.cpp` | This is the *normal* path: `CreateFreshDb()` drops the datastore before creating it, and `FdoSmPhMgr::GetOwner` throws "owner not found" the first time. The catch is deliberately silent, but it has to release what it catches — 40 B **direct** (one exception object per `FdoSchemaTest` fixture that starts from a fresh datastore). The handler is now `catch (FdoException* ex) { FDO_SAFE_RELEASE(ex); }` followed by `catch(...) { }`. |
 | Shared (Rdbi + the GenericRdbms test harness) | A save-point name freed only on the error path, a reader test that never released the exceptions it asserted on, and a select test that never disconnected its `StaticConnection` | `Providers/GenericRdbms/Src/Rdbi/tran_sp.c`, `Providers/GenericRdbms/Src/UnitTest/Common/ReaderTest.cpp`, `Providers/GenericRdbms/Src/UnitTest/SQLServerSpatial/SqlServerFdoSelectTest.cpp` | `rdbi_tran_sp` allocated `name` on entry and freed it only under `if (status != RDBI_SUCCESS)` at `the_exit`, so every successful `SAVEPOINT`/`ROLLBACK TO`/`RELEASE` leaked the copy (4 records, 21 B, from `FdoTransactionTest`'s save-point tests); it is now freed unconditionally, which is safe because the two `rdbi_msg_set_S` calls that use it copy the text. `ReaderTest::TestExceptionalCase` asserts on the message of the `FdoCommandException` each failing `Get*()` throws and never released the exception, in all eleven of its catch blocks (5 records, 200 B); each now holds the caught exception in an `FdoPtr`, which also releases it if a `CPPUNIT_ASSERT` in the block throws. `SqlServerFdoSelectTest::TestSpatialGeogValidSpatialOperators` opened a `StaticConnection` and neither closed the `FdoIConnection` nor deleted it, unlike its sibling `TestSpatialGeog` directly above it (1 record, 48 B); it now does both on the normal path and in its `catch ( ... )`. |
 | SQL Server Spatial | `FdoSmPhSqsMgr::mSqsReservedDbObjectNames`, a dead class-static `std::map`, was destroyed twice at process exit and held a subtree in the report | `Providers/GenericRdbms/Src/SQLServerSpatial/SchemaMgr/Ph/Mgr.h`, `.../Ph/Mgr.cpp` | It was dead code — `SqsStringMap()`'s whole body is the comment `// No reserved words for SqlServer` and nothing ever calls `IsReserved()` — but a class-static is a global symbol with external linkage, and this one was defined in *two* images at once (the provider DSO and the unit-test executable, which compiles `Mgr.cpp` as well as linking the provider). Its destructor therefore ran once from `__cxa_finalize` and again from `__run_exit_handlers`, which is a double free, and because nothing kept it reachable its nodes counted as leaks between the two. Removing the map, its nested class, its definition and its constructor is behaviour-neutral and clears both: `FdoDatastoreTest` went from **8,384 B in 131 indirect records** to **0 records of either kind**, and `attempting double-free` (visible only with `ASAN_OPTIONS=detect_leaks=0`, since LeakSanitizer `_exit`s before the static destructors run) went from 1 to 0. The sibling providers' reserved-word maps are load-bearing rather than dead, so they are deliberately left alone. |
 
+| SQL Server Spatial (shared `SchemaMgr`) | `FdoSmPhSynonymBaseLoader` shadowed the base class's weak owner back-pointer with a counted `FdoSmPhOwnerP mOwner` | `Utilities/SchemaMgr/Inc/Sm/Ph/SynonymBaseLoader.h`, `.../Src/Sm/Ph/SynonymBaseLoader.cpp` | The owner owns the loader through a raw member it only releases in `~FdoSmPhOwner`, so a counted loader-to-owner reference is an unbreakable two-node cycle: the owner's last *other* reference goes, the loader keeps the owner at 1, the owner's destructor (the only thing that would release the loader) never runs. Nothing is reported as direct because each node keeps the other reachable. Each `LoadSynonyms` call therefore stranded a whole owner - its coordinate-system catalogue, spatial contexts, lock types and cached db objects, 1.84 MB of the SQL Server Spatial suite - and any other suite that loads synonyms carries the same shape (only the SQL Server Spatial suite was measured). The member is gone; `CreateReader()` takes the counted reference from the base's `GetOwner()` into a local `FdoSmPhOwnerP` instead, which is the pattern the base class already documents ("Weak reference since an FdoSmPhOwner can own this object"). SQL Server Spatial 1,746,736 B -> 25,088 B, `SchemaMgrTests` 1,842,864 B -> **0 records**. |
+| SQL Server Spatial (shared `SchemaMgr`) | `FdoSmLpPropertyDefinition::mSrcProperty` and `mPrevProperty` held the property a copy was taken from by counted reference | `Utilities/SchemaMgr/Inc/Sm/Lp/PropertyDefinition.h`, `.../Src/Sm/Lp/PropertyDefinition.cpp` | A copy keeps two back-references to its original - the source property and the previous version - and both were `FdoPtr`, so they owned it. For the autogenerated object-property class that `FdoSmLpPropertyMappingConcrete::Setup` keeps in `mpTargetClass`, that closed a four-node cycle nothing could break: wrapper class -> its copy of the object property -> the original property -> the property mapping -> the wrapper class. The wrapper is deliberately in no collection, so no teardown-time sweep could reach it. Both members are now non-owning pointers, which is what a back-reference should be (the class that defines the original owns it), with `Get*Property()` taking its own reference via `FDO_SAFE_ADDREF` for callers that need one. MySQL 24,756 B -> **0**, SQL Server Spatial 25,088 B -> **0**, PostGIS 92,228 B -> 67,336 B (its remaining records are the physical-table lead below, not this cycle). |
+| PostGIS (`PostGis/SchemaMgr/Ph/Table`) | `FdoSmPhPostGisTable::mSubDeletedTables` held each dependent table by counted reference, while that dependent's base object held the base table counted | `Providers/GenericRdbms/Src/PostGis/SchemaMgr/Ph/Table.h`, `.../Ph/Table.cpp` | `SetElementState(Deleted)` records the table in each base table's `mSubDeletedTables` so the dependents are dropped first. That is a *cache of dependents kept on the owning side*, so a counted reference there closes `base table -> (list) dependent -> (mBaseObjects) base object -> (mDbObject) base table`. Clearing the list in `CommitChildren()` handled the normal drop, but PostGIS drops a whole schema with one statement, so `CommitChildren()` never runs on the destroy-schema path and the pair survives: 7 lists, 8 dependent tables, 8 base objects and 6 base tables, with their columns, constraints and `FdoSmError` collections — the last 67,336 B of the suite. The list is now a `std::vector<FdoSmPhDbObject*>` of weak references (the owner's db object cache owns every table, and the list is only read during commit), with a duplicate guard because `SetElementState` can visit a dependent twice. PostGIS 67,336 B -> **0 records**, and with it every FDO suite now reports none. |
 | ODBC | The reserved-word map, a class-static `std::map`, was destroyed twice at process exit | `Providers/GenericRdbms/Src/ODBC/SchemaMgr/Ph/Mgr.h`, `.../Ph/Mgr.cpp` | Same shape as the SQL Server Spatial one, but this map is live — `FdoSmPhOdbcMgr::IsDbObjectNameReserved()` consults it — so it could not simply be removed. It is now a function-local static inside that method: initialised once, with one destructor registration, so the second `__cxa_finalize`/`__run_exit_handlers` pass has nothing left to destroy. Found when the SQL Server fixtures first ran on Linux; it is invisible under a normal Debug run because LeakSanitizer exits before the static destructors. |
+## What the class-cycle collector removes, and what it leaves
+
+The `FdoClassDefinition` cycle collector prototyped in
+[patches/fdo_leak_fixes.patch](../patches/fdo_leak_fixes.patch) (see the measured result in
+[docs/fdo-core-memory-leaks.md](./fdo-core-memory-leaks.md)) runs at `FdoClassCollection` teardown, so it
+only helps a suite where a schema's class collection is actually destroyed. A suite that leaks a whole
+*connection* keeps its schema manager, its class collections and every class in them alive, so the
+collector cannot reach them. Measuring all the suites in one sweep separates the two populations:
+
+| Suite | Before | After | What closed it, and what is left |
+|---|---|---|---|
+| FDO Core | 220,980 B (50 indirect) | **0 B** | class-cycle collector |
+| ODBC SQL Server | 792 B (9 indirect) | **0 B** | the aggregate factory |
+| SDF | 55,925 B (348 indirect) | **0 B** | the temp-reader fix |
+| SQLite, OGR, GDAL, SHP, King Oracle | 0 B | 0 B | — |
+| MySQL | 46,236 B (318 indirect) | **0 B** | collector, then the property back-reference fix (the `FdoApplySchemaTest` cycle it closed was the last of it) |
+| SQL Server Spatial | 1,889,040 B (1,539 indirect) | **0 B** | collector, the table-dependency fix, the synonym-loader cycle (1.72 MB) and then the property back-reference fix — see below |
+| PostGIS | 105,212 B (388 indirect) | **0 B** | table-dependency fix, then the property back-reference fix, then the weak sub-deleted list — see below |
+
+The MySQL, SQL Server Spatial and PostGIS residues were anchored in a schema manager rather than in a
+class collection, so the collector could not reach them. Attributing each record to the CppUnit method in
+its stack (AGENTS.md § "Reading the report") localised all three without re-running anything, and counting
+live objects and containers one layer at a time took it from there. **All three are now closed, and every
+FDO suite reports zero records of either kind** (FDO Core `OK (130)`, SDF `OK (121)`, SQLite `OK (96)`,
+OGR `OK (58)`, GDAL `OK (68)`, SHP `OK (138)`, ODBC SQL Server `OK (87)`, ODBC Access `OK (35)`, PostGIS
+`OK (140)`, MySQL `OK (249)`, SQL Server Spatial `OK (290)`; King Oracle `OK (42)` was measured earlier
+and is unaffected by these changes). The paths that got there:
+
+- **The circular-object-property cycle (fixed).** Every PostGIS record and 97 of the 98 MySQL records
+  attributed to `FdoApplySchemaTest` (`TestSchema`, `TestNoMeta`, `ApplyNoMetaSuccess`,
+  `CreateErrorSchema`, `ModErrors`); no other registry in either suite reported anything, and
+  `PostGis … FdoApplySchemaTest` reproduced the whole 92,228 B in about a minute. Counting creation
+  against destruction layer by layer left exactly one survivor at each of three adjacent levels:
+
+  | Layer | Created | Destroyed | Alive |
+  |---|---|---|---|
+  | `FdoSmLpClassBase` | 3,269 | 3,268 | **1** (`Circular Op.op1`, `rc == 1`) |
+  | `FdoSmLpPropertyMappingDefinition` | 1,407 | 1,406 | **1** |
+  | `FdoSmLpObjectPropertyDefinition` | 1,787 | 1,785 | **2** |
+
+  The surviving class's creation stack named the fixture and the path: `ApplySchema` ->
+  `FdoSmLpSchemaCollection::Errors2Exception` -> `FdoSmLpClassBase::Errors2Exception` ->
+  `FdoSmLpObjectPropertyDefinition::Errors2Exception` -> `Finalize` -> `SetConcreteMapping` ->
+  `NewPropertyMappingConcrete` -> `FdoSmLpGrdPropertyMappingConcrete` -> `NewClass` ->
+  `FdoSmLpObjectPropertyClass` — the *autogenerated* object-property wrapper class, created while
+  reporting an error. Following the survivors' counted members gave the cycle, with each node's measured
+  reference count (a masked address registry, so the tracing was not itself a root):
+
+  | Node | Object | rc | Counted edge it held |
+  |---|---|---|---|
+  | W | the autogenerated `FdoSmLpObjectPropertyClass` (`Circular Op.op1`) | 1 | its property collection -> P |
+  | P | the wrapper's own copy of the object property `op1` | 1 | `mSrcProperty` **and** `mPrevProperty` -> Q (2 refs) |
+  | Q | the real class's object property `op1` | 2 | `mpMappingDefinition` -> M |
+  | M | the `FdoSmLpGrdPropertyMappingConcrete` whose `mpTargetClass` is W | 1 | `mpTargetClass` -> W |
+
+  W -> P -> Q -> M -> W is rootless and unreachable from any collection: W is deliberately never added
+  to the schema's class collection, M's only counted owner was Q, Q's only counted owner was P, and P's
+  only counted owner was W's property collection — so the `FdoClassCollection` collector (or any
+  `FdoSmLpClassCollection` equivalent) had no entry point. The ownership that closed it was the copy's
+  two back-references, which is exactly what this codebase's rule says must not be counted, so they are
+  now non-owning (see the fix table above). Measured afterwards: `FdoSmLpClassBase` 3,269/3,269,
+  `FdoSmLpPropertyMappingDefinition` 1,407/1,407, `FdoSmLpObjectPropertyDefinition` 1,787/1,787 — no
+  survivors at any level, MySQL and SQL Server Spatial at **0 records**, and PostGIS down to the separate
+  defect below.
+- **PostGIS's last 67,336 B was a second physical-table cycle, on the destroy-schema path (fixed).**
+  With the Lp layer clean, 14 `FdoSmPhDbObject`s and 8 `FdoSmPhBaseObject`s still survived — the
+  concrete-table inheritance pairs of the Acad/Electric/Land schemas (`public.acdb3dpolyline` ->
+  `public.acdbentity`, `Acad.Polyline` -> `Acad.Entity`, …). Each table sat at `rc == 1` with every
+  traced `AddRef`/`Release` balanced (319 each for `public.acdb3dpolyline`) and there were no direct
+  records, so the "one reference remains, held by an uninstrumented class" reading was the right one —
+  but the holder was not in the reader chain the creation stacks suggested
+  (`LoadClasses` -> `CreateClassReader` -> `MtClassReader` -> `CachePhysical` -> `CacheDbObject` ->
+  `NewTable`). Counting the containers did it in one step: **7 `FdoSmPhDbObjectCollection`s also
+  survived**, each with one or two of the dependent tables in it, and their creation stacks named
+  `FdoSmPhPostGisTable::GetSubDeletedTables()` from `SetElementState(Deleted)` under
+  `FdoRdbmsDestroySchemaCommand::Execute`. So the cycle was
+  `base table -> mSubDeletedTables -> dependent -> mBaseObjects -> base object -> mDbObject -> base
+  table`, and the dependents' `rc == 1` was simply the list's reference. It survived because
+  `CommitChildren()` — where the list is cleared — never runs when PostGIS drops a whole schema in one
+  statement. Making the list weak (see the fix table) removed the last 67,336 B.
+
+- **SQL Server Spatial: one two-node cycle, found and fixed.** The whole residue reproduces from one
+  registry — `./UnitTestSQLServerSpatial initfiletest=.../SqlServerSpatialInit.txt SchemaMgrTests`
+  reports `OK (10)` and 1,842,864 B in 20,774 allocations in about a minute and a half, against ten
+  minutes for the full suite, so this is the fast loop for the family. Inside it, `FdoSmLpClassBase`
+  and `FdoSmLpPropertyDefinition` balance (364/364 and 1,942/1,942) and so does `FdoSmPhMgr` (85/85),
+  which rules the logical layer and the managers out; what survived was **eight `FdoSmPhOwner`
+  objects** — four `fdo_root_schema_mgr`, four `fdo_root_schema_mgr_f` — each at reference count 1,
+  created from `SqlServerSchemaMgrTests::testSynonyms`. Their members were the report's families (the
+  coordinate-system catalogue, the spatial contexts, the lock types, the cached db objects). The
+  counted back-pointer in `FdoSmPhSynonymBaseLoader` is that cycle and it is fixed (see the table
+  above): the same registry is now **0 records of either kind**, and the property back-reference fix
+  then cleared the `FdoApplySchemaTest` residue, so the suite reports nothing at all. Two things this search taught are recorded in
+  [AGENTS.md](../AGENTS.md): a tracing registry of object addresses is itself a root (mask the
+  addresses, or the leak you are measuring disappears), and an owning raw member plus a counted
+  back-pointer is a cycle that no collection-level collector can reach.
+A measurement to keep in mind:
+
+- **SDF's residue was one orphaned connection, and the connection was a symptom.** Instrumenting
+  `SdfConnection::Create`/`Dispose` found 2 survivors out of 237, and both were held by a
+  `SdfSimpleFeatureReader` that `SdfSelect::ProcessComputedIdentifiers` stranded on its exception path
+  (see the table above). The fixture that triggers it is a *negative* one, which is why the suite is
+  green while the graph leaks.
+- **OGR's "0 records" depends on how the provider is loaded.** With `LD_LIBRARY_PATH` pointing at
+  `/usr/local/fdo-4.2.0/lib64` the suite reports one 56-byte direct record: `StaticInit::StaticInit` in
+  `OgrProvider.cpp` allocating `ProjConverter`, whose destructor only runs at process exit — after
+  LeakSanitizer's check (the deferred-static-destructor case in [AGENTS.md](../AGENTS.md) § "#965"). The
+  runner does not export that path for OGR, so the recorded run has no records; do not read the 56 B as
+  a regression if you measure the suite by hand with the install path set.
+
 ## Status
 
 | Suite | Log | Before | After |
 |---|---|---|---|
 | GDAL | `artifacts/Debug/test-logs/GDAL_unit_test_log.txt` | 28,380 B in 68 allocations | 0 B |
 | SHP | `artifacts/Debug/test-logs/Shp_unit_test_log.txt` | 617,880 B in 9,783 allocations | 0 B |
-| SDF | `artifacts/Debug/test-logs/Sdf_unit_test_log.txt` | 170,243 B in 2,760 allocations | 0 B direct; 55,925 B in 538 allocations (348 indirect records) |
+| SDF | `artifacts/Debug/test-logs/Sdf_unit_test_log.txt` | 170,243 B in 2,760 allocations | **0 B** |
 | SQLite | `artifacts/Debug/test-logs/SQLite_unit_test_log.txt` | 0 B in this pass; 5,712 B in 75 allocations (2 direct records) after r8375 added the "Default" spatial-context test | 0 B |
 | WFS | `artifacts/Debug/test-logs/Wfs_unit_test_log.txt` | 82,112 B in 938 allocations (3 direct) | 0 B direct; 64,564 B in 758 indirect |
 | WMS | `artifacts/Debug/test-logs/Wms_unit_test_log.txt` | 145,128 B in 1,426 allocations (7 direct) | 0 B |
 | OGR | `artifacts/Debug/test-logs/OGR_unit_test_log.txt` | 184 B in 1 allocation (1 direct record) | 0 B |
 | King Oracle | (opt-in suite, run against the `dbs` compose Oracle) | 408 B in 4 allocations (2 direct), then 6,284 B in 132 allocations (11 direct records) after r8398 added the batch-insert tests | 0 B |
-| PostGIS | `artifacts/Debug/test-logs/PostGis_unit_test_log.txt` | 1,930,054 B in 15,841 allocations (730 direct records) | 0 B direct; 105,212 B in 942 allocations (388 indirect records) |
-| MySQL | `artifacts/Debug/test-logs/MySql_unit_test_log.txt` | 10,068,363 B in 261,631 allocations (356 direct records) | 0 B direct; 46,236 B in 491 allocations (318 indirect records) |
-| SQL Server Spatial | `artifacts/Debug/test-logs/SqlServerSpatial_unit_test_log.txt` (needs the `dbs` compose `mssql_cs` on 1434 and `msodbcsql18`; `run_fdo_tests.sh --with-sqlserver-init`; drop the `fdo_*` datastores first or the fixtures fail in `setUp`) | `OK (288)`, but 1,913,541 B in 21,486 allocations with **75 direct records** (1,626 indirect); the one `attempting double-free` and the `FdoDatastoreTest` 8,384 B of indirect records were the earlier pass's starting point | that pass: `OK (288)`, **0 direct records**; 1,889,108 B in 21,255 allocations (1,539 indirect). Now at 290: `OK (290)`, 3 direct records (292 B, all test-side) and 1,889,844 B in 21,259 allocations (1,543 indirect, the largest family being `FdoSmPhSqsOwner::LoadExtendedCoordinateSystems()` at 618 KB) |
+| PostGIS | `artifacts/Debug/test-logs/PostGis_unit_test_log.txt` | 1,930,054 B in 15,841 allocations (730 direct records) | **0 records of either kind** — the table-dependency fix, the property back-reference fix and the weak sub-deleted list removed it in three steps (105,212 -> 92,228 -> 67,336 -> 0) |
+| MySQL | `artifacts/Debug/test-logs/MySql_unit_test_log.txt` | 10,068,363 B in 261,631 allocations (356 direct records) | **0 records of either kind** — the class-cycle collector removed the schema graphs the ten leaked connections had been holding, and the property back-reference fix removed the `FdoApplySchemaTest` cycle that was left |
+| SQL Server Spatial | `artifacts/Debug/test-logs/SqlServerSpatial_unit_test_log.txt` (needs the `dbs` compose `mssql_cs` on 1434 and `msodbcsql18`; `run_fdo_tests.sh --with-sqlserver-init`; drop the `fdo_*` datastores first or the fixtures fail in `setUp`) | `OK (288)`, but 1,913,541 B in 21,486 allocations with **75 direct records** (1,626 indirect); the one `attempting double-free` and the `FdoDatastoreTest` 8,384 B of indirect records were the earlier pass's starting point | that pass: `OK (288)`, **0 direct records**; 1,889,108 B in 21,255 allocations (1,539 indirect). At 290 fixtures the direct count moved to 3 (292 B, all test-side); all three are fixed, the class-cycle collector then took the indirect total to `OK (290)`, **0 direct records**, 1,746,736 B in 19,888 allocations (1,312 indirect), the synonym-loader cycle took the next 1.72 MB, and the property back-reference fix took the last 25,088 B: `OK (290)`, **0 records of either kind** |
 
-| ODBC (SQL Server fixtures) | `artifacts/Debug/test-logs/OdbcSqlServer_unit_test_log.txt` (needs the `dbs` compose `mssql_cs` on 1434 and `msodbcsql18`; `run_fdo_tests.sh --with-odbc-sqlserver`) | not run before this pass — the fixtures were Windows-only | `OK (87)`, **0 direct records**; 792 B in 9 allocations (all indirect; the total moved when the fixtures moved to ODBC Driver 18, whose own internals allocate differently) |
+| ODBC (SQL Server fixtures) | `artifacts/Debug/test-logs/OdbcSqlServer_unit_test_log.txt` (needs the `dbs` compose `mssql_cs` on 1434 and `msodbcsql18`; `run_fdo_tests.sh --with-odbc-sqlserver`) | not run before this pass — the fixtures were Windows-only | `OK (87)`, **0 records**: the 792 B / 9 indirect records it used to report were all the aggregate class the factory above lost |
 | ODBC (Access fixtures) | `artifacts/Debug/test-logs/OdbcAccess_unit_test_log.txt` (needs `odbc-mdbtools`; `run_fdo_tests.sh --with-odbc-access`) | not run before this pass — the fixtures were Windows-only | `OK (35)`; **0 records**. The 1 direct record (26,144 B) it first reported was in part a real FDO leak — the column probe sent mdbtools a constant `where 1 = 2` predicate, and mdbtools leaks a glib chunk per `WHERE` it evaluates (168 leaked allocations -> 92 once the probe stopped doing that) — and in part the driver's own per-query leak, which `templates/scripts/container/lsan/odbc-mdbtools.supp` suppresses. See [docs/odbc-linux-support.md](./odbc-linux-support.md#mdbtools-leaks-a-chunk-per-filtered-query) |
 Suite results are green: GDAL `OK (66 tests)`, OGR `OK (58)`, SHP `OK (138)`, SDF `OK (120)`,
 SQLite `OK (95)`, King Oracle `OK (39)` (opt-in, needs the `dbs` compose Oracle), MySQL `OK (249)`
@@ -179,6 +297,13 @@ FDO Core
 schema counts (and unreachable hosts) rather than on the provider's own behaviour. Because of that its
 figures are a lower bound — the paths that ran are the ones the reachable servers exercise.
 
+The ownership fixes were verified suite by suite, in-container first and then through the harness. The
+final full run (`run_fdo_tests.sh` with the MySQL, PostGIS, SQL Server Spatial + perf, ODBC SQL Server and
+ODBC Access options) reports **every suite passed with no LeakSanitizer report at all** — FDO Core,
+SDF, SQLite, OGR, GDAL, SHP, ODBC SQL Server, ODBC Access, PostGIS, MySQL and SQL Server Spatial. The
+intermediate states quoted in the tables above (`25,088` after the synonym-loader fix, `67,336` after the
+property back-reference one) are the steps, not the result.
+
 SQL Server Spatial used to be in the same position for a different reason — its suite was not green
 (`Run: 288   Failure total: 8`, the geography cluster documented in
 `sqlserver-spatial-linux-support.md`), which made its whole-suite figure a lower bound. That pass made
@@ -189,25 +314,26 @@ and `UnitTestUtil::ExportDb`), and the signature-by-signature comparison of the 
 removed 68 record signatures and added none.
 
 The suite has since grown to 290 fixtures (`TestExplicitPropertyListGeometryTypes`, r8415;
-`TestSpatialGeogWinding`, the winding fix in `sqlserver-spatial-linux-support.md`), and a re-run on a
-clean `mssql_cs` (2026-10-26) reports `OK (290)` with **3 direct records, 292 B, all allocating in
-test code** — `TestSpatialGeog`'s `CreateLinearRing`, `TestExplicitPropertyListGeometryTypes`'
-`FdoIdentifier::Create`, and the `FdoSchemaException` from the negative `DropDatastore` path in
-`FdoSchemaTest::OverrideTablesWithOddAsciiChars` — plus 1,543 indirect records (1,889,844 B in 21,259
-allocations). The largest indirect family there is `FdoSmPhSqsOwner::LoadExtendedCoordinateSystems()`
-(618 KB in 14 records), which is new only because the extended coordinate system catalogue now loads
-at all.
+`TestSpatialGeogWinding`, the winding fix in `sqlserver-spatial-linux-support.md`), and that growth
+moved the direct count rather than adding provider defects: a re-run on a clean `mssql_cs`
+(2026-10-26) reported `OK (290)` with **3 direct records, 292 B, all allocating in test code** —
+`TestSpatialGeog`'s `CreateLinearRing` (which is really the `FixGeometryVertexOrder` reference, see
+below), `TestExplicitPropertyListGeometryTypes`' `FdoIdentifier::Create`, and the `FdoSchemaException`
+from the negative `DropDatastore` path in `FdoSchemaTest` — plus 1,543 indirect records (1,889,844 B
+in 21,259 allocations). All three are fixed: the same suite, on a datastore-free `mssql_cs`, reports `OK (290)` with **0
+direct records**, and with the class-cycle collector applied its indirect total falls to 1,312 records
+(1,746,736 B in 19,888 allocations) because the class graphs held by the leaked connections are now
+collectable. The largest indirect family is `FdoSmPhSqsOwner::LoadExtendedCoordinateSystems()`
+(~618 KB), which is new only because the extended coordinate system catalogue now loads at all.
 
-SDF, SHP, WMS, WFS, MySQL, PostGIS, ODBC SQL Server and SQLite (with the r8375 test fixed) now report
-no direct leaks at all, and WMS and SQLite report none of either kind; SQL Server Spatial reports only
-the three test-side records noted above.
-SDF, WFS, MySQL, SQL Server Spatial and FDO Core still report indirect leaks, and so does PostGIS (only
-the schema-error cycle now that the parser's direct records are gone); the SDF indirect total is what remains of the two
-`SdfConnection` graphs the suite leaves
-behind; its largest contributors are the connection's SQLite database
-(`SdfConnection::InitDatabases`, `sqlite3GenericMalloc`, the property-index hashtable nodes), the
-`FdoClassDefinition` graphs reachable from it (`FdoDataPropertyDefinition`, `FdoFeatureClass`, the
-schema-element attributes) and their string buffers. The WFS indirect leaks are the same
+Every suite that does not need a live public server now reports **no records of either kind** — FDO Core,
+SDF, SHP, SQLite, GDAL, OGR, MySQL, PostGIS, ODBC SQL Server, ODBC Access and SQL Server Spatial. What
+follows records the state before those fixes, as the evidence for them: the SDF indirect total was what
+remained of the two `SdfConnection` graphs the suite left behind, its largest contributors being the
+connection's SQLite database (`SdfConnection::InitDatabases`, `sqlite3GenericMalloc`, the
+property-index hashtable nodes), the `FdoClassDefinition` graphs reachable from it
+(`FdoDataPropertyDefinition`, `FdoFeatureClass`, the schema-element attributes) and their string
+buffers — all of which the temp-reader fix removed. The WFS indirect leaks are the same
 `FdoClassDefinition` graphs — every remaining record allocates beneath
 `FdoXmlReaderXrcs::startElement` → `FdoClassDefinition::XmlStartElement` → `Fdo...::Create()` while
 the DescribeFeatureType/DescribeSchema tests read a schema, with no WFS frame in the chain at all, so

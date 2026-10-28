@@ -21,7 +21,7 @@ Durable content (edited and committed to git):
 - Top-level `*.sh` build and utility scripts
 - `templates/**` — distro templates and container scripts that generate Dockerfiles
 - `test/**` — `httpyac` integration test suites (`*.http`)
-- `docs/**` — MapAgent OpenAPI spec (`openapi.yaml`, `swagger.html`), the memory-leak records (`fdo-core-memory-leaks.md`, `fdo-provider-memory-leaks.md`), the exit-teardown record (`fdo-exit-teardown.md`) and `INNER_LOOP_PAIN_POINTS.md`
+- `docs/**` — MapAgent OpenAPI spec (`openapi.yaml`, `swagger.html`), the memory-leak records (`fdo-core-memory-leaks.md`, `fdo-provider-memory-leaks.md`, `mapguide-memory-leaks.md`), the exit-teardown record (`fdo-exit-teardown.md`) and `INNER_LOOP_PAIN_POINTS.md`
 - `patches/atomic.h` — the header the MapGuide `snap.sh` scripts copy into the build tree
 - `dbs/**` — docker-compose fixtures for database-backed tests
 
@@ -141,17 +141,29 @@ against the SDK tarball) before building, and `run_mapguide_tests.sh` does the s
 `--prepare`. Do not "fix" this by rebuilding the whole tree with `build_mapguide.sh`, and do not
 copy an installed FDO between containers.
 
-Two things to keep in mind:
+Three things to keep in mind:
 
 - Debug and Release are **separate containers and separate build trees**. Check
   `ls /tmp/work/build_area` and exec into the container whose build configuration matches what you
   need; that is usually the tree the user is already working in, so you validate the same artefact
   they will. They are also different runtimes, so never install or copy a library between them — see
   [Same source is not the same runtime](#same-source-is-not-the-same-runtime).
+- An edit under `Oem/**` (the internal GEOS, for example) is **not** picked up by
+  `build_mapguide_incremental.sh`. `cmake_bootstrap.sh` copies each OEM tree into
+  `build_area/oem/<name>` and builds that copy, so the incremental loop has to be handed the file
+  explicitly — copy it into the matching `build_area/oem/<name>` path and `make` there before the
+  MapGuide build, or the change silently does nothing and a fix looks like it had no effect.
 - Container state is not precious. If you change something other than the source tree (installed
   FDO, files inside the container, environment variables), that is no big deal — the container is
   disposable and can be killed and recreated in its place. Do not let caution about its state push
   you into spinning up a parallel one-shot container, or into skipping validation.
+- Stopping the host-side command does **not** stop what it started in the container: a killed
+  `$DOCKER_CMD exec ... ./UnitTest...` usually leaves the suite running, creating and dropping
+  datastores behind you. Before trusting a fixture state, or a "clean" run you just started, check
+  `ps -eo pid,cmd | grep UnitTest` inside the container and kill the PID there. Likewise a suite that
+  stops consuming CPU with a log that is not growing is waiting on the database (buffered stdout makes
+  it look frozen); a wedged `dbs` instance reports "delay in prelogin response" and has to be
+  recreated rather than restarted.
 
 With no running container, a one-shot `run --rm` is a fine fallback — see
 [Verifying a leak fix](#verifying-a-leak-fix) for the mount, install and `LD_LIBRARY_PATH` recipe.
@@ -254,6 +266,22 @@ LeakSanitizer report. The per-leak record, the before/after totals and the techn
 [docs/fdo-provider-memory-leaks.md](./docs/fdo-provider-memory-leaks.md) (providers) — add a row for
 every fix and keep their status tables current.
 
+The MapGuide server's `mgserver test all` run is instrumented the same way, and its record is
+[docs/mapguide-memory-leaks.md](./docs/mapguide-memory-leaks.md); the per-leak table there is kept
+current the same way. Run it through `run_mapguide_tests.sh --component all`, judge it by the Catch2
+summary, and note that **a single-suite run is not a smaller `all` run**: shutdown runs once per
+process, so `--component <one suite>` additionally exposes exit-time thread races that the aggregate
+hides (that is how the stranded `ACE_Log_Msg` records in
+[docs/mapguide-memory-leaks.md](./docs/mapguide-memory-leaks.md#the-ace-allocations-that-only-appear-in-a-single-suite-run)
+showed up). Use single-suite runs to attribute a family, and `--component all` as the number you
+report.
+
+Two triage tools earn their keep on this tree: `ASAN_OPTIONS=fast_unwind_on_malloc=0` when the fast
+unwinder stops inside `libstdc++`/`libxerces`/`libACE` and the record cannot name its owner (the
+DWARF unwinder recovered the frames for both the 272 KB wstring and the 190-object Xerces records),
+and `/proc/self/task` printed from the end of `main()` when the suspicion is a thread that outlives
+teardown.
+
 ### Working a new report
 
 1. Read the totals and count both kinds of record before touching any code:
@@ -273,11 +301,30 @@ every fix and keep their status tables current.
    caught the parser fix adding nothing new, and what tells "fixed the leak" apart from "shuffled it"
    when a byte total barely moves. Suites the change does not touch must come back with exactly the
    record counts they had before — that is the cheapest, strongest regression evidence there is.
+6. **Find the one registry that carries the residue before you instrument anything.** The runner takes
+   the registration name as its argument (`./UnitTestSQLServerSpatial initfiletest=<init>
+   SchemaMgrTests`), and a whole-suite residue is usually one or two registries: SQL Server Spatial's
+   1.7 MB is `SchemaMgrTests` alone (`OK (10)`, 1,842,864 B, ninety seconds against ten minutes), and
+   MySQL's and PostGIS's are `FdoApplySchemaTest`. Bisecting by registry costs one run per candidate and
+   turns every later iteration — instrument, build, measure — into a minute-scale loop instead of a
+   ten-minute one. The registration names are the `CPPUNIT_TEST_SUITE_NAMED_REGISTRATION` strings in
+   the provider's `UnitTest` sources, which are not always the class name (`SqlServerSchemaMgrTests`
+   registers as `SchemaMgrTests`).
 
 The provider suites are `Providers/GenericRdbms/Src/UnitTest/UnitTest<Target>`; run one with
 `./UnitTestMySql initfiletest=<init-file> [SuiteName]` from the build area, where the init file lives
 in `templates/scripts/container/test_init/`. Their captured logs are in
 `artifacts/Debug/test-logs/<Suite>_unit_test_log.txt`.
+
+Two things about those runs decide whether the figures mean anything. **The harness is shared**:
+`Utilities/TestCommon/**` and `Providers/GenericRdbms/Src/UnitTest/Common/**` are compiled into every
+RDBMS suite, so a record allocated in shared test code (the silent `catch(...)` in
+`FdoSchemaTest::DropDatastore` is one) appears in several suites' logs and one fix clears them all —
+check two suites that share the file, and ODBC SQL Server and PostGIS are the cheap ones.
+**The run recipe has to match**: `LC_CTYPE=C.UTF-8` (which `run_fdo_tests.sh` defaults and a bare
+`exec bash -lc` does not) and a datastore-free instance, or dozens of fixtures fail in `setUp()` and
+both the failure set and the record families change — see the "datastore-free instance and a UTF-8
+`LC_CTYPE`" entry in [docs/sqlserver-spatial-linux-support.md](./docs/sqlserver-spatial-linux-support.md).
 
 ### Reading the report
 
@@ -292,6 +339,59 @@ in `templates/scripts/container/test_init/`. Their captured logs are in
   single leaked 416-byte owner was found to hold a whole physical schema (~331 KB).
 - `LSAN_OPTIONS=report_objects=1` prints the leaked addresses, which is what instrumentation needs to
   match a report record to a live object.
+- **Your own tracing registry is a root, so it makes the leak you are measuring disappear.** A
+  `std::set<const void*>` (or map) of the objects you are tracing is live global data holding their
+  addresses, and LeakSanitizer scans globals conservatively: every traced survivor becomes reachable,
+  so do the members it owns, and a 1.8 MB report comes back as zero records. Erasing on destruction is
+  not enough — the *survivors* are exactly what stays in the set. Store the addresses **masked**
+  (`addr ^ 0x5A5A…`) and unmask on lookup, or keep only a sequence number and print the survivor's
+  index; the leak then measures as it did before the instrumentation, and the tracing still names what
+  survived. Mask **every** map in the registry, including the one that keeps the object pointer for the
+  `atexit` dump — an unmasked copy there silences the report exactly as the address set does, which is
+  how a "0 records" reading was produced twice on this codebase before the cause was found. A
+  zero-record reading taken from an instrumented build is not evidence of a fix until you have checked
+  that no registry, map or static holds an unmasked pointer to the survivors.
+- **Count the containers too, not just the objects.** A survivor at `rc == 1` whose creation stack
+  points at the wrong code path usually means a *container* is the actual holder: PostGIS's 14 stranded
+  tables were held by 7 `FdoSmPhDbObjectCollection`s, and counting those (a two-line ctor/dtor counter
+  plus an `atexit` dump) localised the real owner in one run after the reader-chain stacks had misled.
+  Dump each live container's parent, size and member names, then capture the containers' creation stacks
+  the same way as the objects'.
+- **Count live objects one layer at a time and follow the survivors.** Instrument creation against
+  destruction for each class in the ownership chain (the pool trick is not needed; a pair of counters
+  and an `atexit` dump is enough) and read the survivors as a chain: PostGIS's 92 KB turned out to be
+  15 physical db objects, 8 base objects, 1 `FdoSmLpClassBase`, 1 property mapping and 2 object
+  properties — each layer holding exactly the layer above it. When the survivor counts line up like
+  that, the leak is a closed cycle between a handful of objects and the creation stack of the outermost
+  survivor names the code path that built it. A single survivor in a class you did not expect (here an
+  *autogenerated* object-property wrapper class that is never added to its schema's class collection) is
+  the giveaway that a collection-level collector will never see it.
+- **Balanced `AddRef`/`Release` with one reference left does not distinguish an orphan from a cycle.**
+  It says only that the surviving holder is a class your instrumentation did not cover. The SQL Server
+  Spatial owners had exactly that signature — every traced call balanced, `rc == 1` at exit — and were
+  held by a loader class nobody had traced; the physical tables in the same schema manager have the
+  same signature and are still unexplained. Widen the instrumentation to the classes that keep that
+  type in a counted member (grep for `FdoPtr<T>`/`FdoXxxP m` members, not just the type itself) before
+  concluding that a reference is orphaned.
+- **A record's stack names the test that allocated it — read that before instrumenting anything.** Split
+  the log into records (`Direct leak of N byte(s)` / `Indirect leak of N byte(s)` up to the blank line)
+  and pull the `in <Class>Test::<Method>(` frame out of each stack; grouping records by that key and by
+  byte total turns a whole-suite report into "everything is in `FdoApplySchemaTest::TestSchema`" in one
+  pass, which is how the MySQL, PostGIS and SQL Server Spatial residues were localised with no re-run.
+  Two caveats: several records legitimately carry no method frame (the stack is capped at 30 frames, or
+  the allocation came from `setUp`/a helper), so report the unattributed count rather than pretending it
+  is zero; and the frames *below* the test name still matter, because the 30-frame cap hides the test
+  name precisely on the largest records — a 150 KB record whose visible frames are all
+  `FdoSmLpSchema::LoadClasses`/`FdoRdbmsDescribeSchemaCommand::Execute` is an entire logical schema
+  graph, whatever test allocated it.
+- **Pooled objects hide their owner.** FGF geometries and their `FdoByteArray`s are rented from
+  thread-local pools, so a geometry whose reference count is one too high is still *reachable* through
+  the pool and is never reported; only the separately allocated byte-array buffer shows up, as a
+  direct record whose `#1` frame is the constructor that filled it (`FdoArrayHelper::AllocMore` under
+  `FdoFgfLineString::Reset`, say). Neither the test frame nor the provider frame in that record is
+  therefore where the reference was lost. Follow the *array's* refcount, not the geometry's: the lost
+  reference is one AddRef taken on the array somewhere else, and the record disappears when that is
+  released.
 - Totals drift a little between runs (some buffers leak only on some runs), so judge a fix by whole
   records — especially the direct-record count — not by small byte deltas.
 
@@ -337,9 +437,51 @@ the nodes whose stack reference an action already consumed).
   the caller's reference: `coll->Add(FdoX::Create(...))` loses the `Create()` reference outright (40 B
   per call), and `coll->Add(ptr)` obliges the caller to release `ptr` itself. Give every `Create()` a
   home: `FdoPtr<FdoX> x = FdoX::Create(...); coll->Add(x);`.
+- **`FdoFgfGeometryFactory::GetFgf(geometry)` returns a counted reference to the geometry's byte
+  array** — `FdoFgfGeometryImpl::GetFgf()` is `FDO_SAFE_ADDREF(m_byteArray)` for an FGF geometry and a
+  fresh array otherwise. Handing it inline to something that AddRefs it in turn — `FdoGeometryValue::Create(...)`,
+  `SetGeometry(...)`, `CreateGeometryFromFgf(...)` — drops it. The stranded chunk is then the *array*,
+  whose report frames are the ring or polygon that filled it, not the call that dropped the reference,
+  so the allocation site in the record is innocent (`FdoRdbmsSchemaUtil::FixGeometryVertexOrder` is the
+  worked example). Hold it in an `FdoPtr<FdoByteArray>` and pass that.
 - **A counted reference stored in an object whose owner holds it raw is a cycle.** The connection
   holds its capabilities in a raw member, so the capabilities' back-pointer to the connection must be
-  raw too. Child-to-parent links are non-owning.
+  raw too. Child-to-parent links are non-owning. The same pair hides in a *loader*: an owner keeps its
+  `FdoSmPhSynonymBaseLoader` in a raw member it releases only in `~FdoSmPhOwner`, so a counted
+  loader-to-owner reference is unbreakable — the owner's other references all go, the loader keeps it
+  at 1, and the destructor that would release the loader never runs. Releasing it earlier is not an
+  option, so the back-pointer is what has to become weak. Watch for a derived class **shadowing** a
+  weak member its base class already keeps (`FdoSmPhDbObjectComponentLoader::mOwner` is
+  `FdoSmPhOwner*` with the comment "Weak reference since an FdoSmPhOwner can own this object");
+  `FdoSmPhSynonymBaseLoader` redeclared it as a counted `FdoSmPhOwnerP` and cost the SQL Server
+  Spatial suite 1.72 MB.
+- **A copy must not own what it was copied from.** `FdoSmLpPropertyDefinition::mSrcProperty` (the
+  original of a copy) and `mPrevProperty` (the previous version) were `FdoPtr`s, so every copy owned its
+  original; for the autogenerated object-property class — which is deliberately in no collection — that
+  closed `wrapper class -> its copy of the property -> the original -> the property mapping -> the
+  wrapper class`, a rootless cycle no teardown sweep could reach, and it cost MySQL 24 KB and SQL Server
+  Spatial 25 KB. Both are now non-owning pointers and the `Get*Property()` accessors `FDO_SAFE_ADDREF`
+  what they hand out. Whenever a member's name is `mSrc…`, `mPrev…`, `mParent`, `mOwner` or `mContaining…`,
+  ask which object *owns* the relationship before making it counted.
+- **A *cache of dependents kept on the owning side* is a cross-reference, so it must be weak too.**
+  `FdoSmPhPostGisTable::mSubDeletedTables` records each derived table in its base table so the drop
+  order is right, and it was a counted collection: `base table -> (list) dependent -> (mBaseObjects)
+  base object -> (mDbObject) base table`. Clearing the list in `CommitChildren()` fixed the normal drop
+  and left the cycle in place for a **schema** drop, because PostGIS drops a whole schema in one
+  statement and `CommitChildren()` never runs — so "I clear it on the commit path" is not the same as
+  "it cannot outlive". A list that exists only for ordering is a list of weak references; this one is
+  now a `std::vector<FdoSmPhDbObject*>` whose owner is the owner's db-object cache, with a duplicate
+  guard because `SetElementState` can visit the same dependent twice. When a container's fix works for
+  one code path, check the *other* paths that fill it.
+- **Any two objects the same container owns must not reference each other by count.** A class's base
+  class, an object property's class, a physical table's dependency list (`mSubDeletedTables`) and a
+  table's base-object links are all cross-references between siblings, and a sibling pair that
+  references each other survives the container that owned them both. When the container is going away
+  it can break them (see the class-cycle collector in `patches/fdo_leak_fixes.patch`, which detaches
+  only the members nothing outside the container holds); when a *drop* is the only moment the list is
+  needed, clear it there (`FdoSmPhPostGisTable::CommitChildren`). Detaching every link unconditionally
+  is the trap — it changes what an externally-held sibling sees, and a fixture that asserts on that is
+  stating the contract.
 - **Empty or nameless catches swallow `FdoException*`** — `catch (...)`, `catch (FdoException*) {}`,
   and `catch (FdoException*) { return; }` all leak the exception and its message. Name it, assert on
   it, then `FDO_SAFE_RELEASE` it. An exception nested as another exception's *cause* is AddRef'd by
@@ -349,6 +491,10 @@ the nodes whose stack reference an action already consumed).
   slot that was never initialised (see `FdoRdbmsPvcInsertHandler`).
 - **A constructor that throws runs no destructor** — anything it allocated or AddRef'd before the
   throw leaks; release each member as the constructor goes, in a `catch (...) { ...; throw; }`.
+  The same trap applies to a plain factory function: `GetAggregateClassDef()` made its clone with a
+  raw `FdoFeatureClass::Create()` and then let `GetExpressionType()` throw for a bad aggregate
+  argument, losing the clone and its whole property graph (792 B per bad-aggregate fixture). Hold
+  the result in an `FdoPtr` and `Detach()` it on the way out.
 - **A container of raw pointers does not release its elements** — `std::map::clear()`, a defaulted
   destructor and a `std::vector<FdoX*>` all leave every element's reference standing; own the
   contents with an explicit release loop, or hold the elements as `FdoPtr` where the container allows.
@@ -362,6 +508,57 @@ attaches. `FdoIDisposable::Release()` returns the new reference count ("value fo
 only"), which is the cheapest leak probe there is: print it at teardown and an object that should be
 gone shows `1`.
 
+### The MapGuide idioms that cause the same leaks
+
+`Ptr<>` behaves exactly like `FdoPtr<>` (attach on construction and on `operator=(T*)`), so the same
+two mistakes appear on the `Mg*` side. The ownership contract is in
+[CPP_STYLE.md](./CPP_STYLE.md#mapguide) and the measured record in
+[docs/mapguide-memory-leaks.md](./docs/mapguide-memory-leaks.md); what cleared 648 KB of the server
+report was these five shapes:
+
+- **Dereferencing a counted getter inline.** `schema->GetClasses()->GetItem(0)`,
+  `layer->GetLayerDefinition()->ToString()`, `envelope->GetLowerLeftCoordinate()->GetX()` and
+  `siteConn->Open(MgUserInformation::GetCurrentUserInfo())` each drop one reference. They are the
+  same defect, and they differ only in what the lost reference dragged with it: the class collection
+  behind `DescribeSchema` was 285 KB of the report (its class definitions, property definitions and
+  every string they hold), while the definition id, the `MgCoordinateXY` pair and the users'
+  information were 1.6 KB between them. Hold the result in a `Ptr` and use that.
+- **Removing the explicit `SAFE_ADDREF` after a `Ptr` assignment.** `m_definition = layerDefinition;`
+  attaches the *caller's* reference, so a member which needs its own (the caller keeps its `Ptr`)
+  must pair it with `SAFE_ADDREF`. It reads like a double count and is not; deleting it compiles
+  cleanly and produces a use-after-free on the next read of the member. Addref'ing a getter's result
+  before assigning it to a `Ptr` is the reverse mistake, and that one leaks.
+- **A raw `Mg*` local or helper return in test code.** `MgMap* map = new MgMap(...)` leaks the map
+  and its layer/resource-content graph (172 KB here). The report then has *no* direct record naming
+  the map: `MgLayerCollection` keeps a raw back-pointer to its `MgMapBase` owner
+  (`MgLayerCollection(MgMapBase* owner)`), and LSan follows raw pointers, so the leaked group is one
+  cycle in which every chunk is reachable from another. Read an all-indirect report as "find the
+  owner the stack names", not as "there is no direct leak".
+- **Leaving thread-local state set.** `MgUserInformation::SetCurrentUserInfo()` stores into an ACE
+  key created with a NULL destructor, so whichever value a thread last set — the main thread at exit,
+  or a worker the tests spawn — is never released unless the thread clears it first.
+- **`ACE::fini()` running while an ACE thread is still alive.** That thread loses its per-thread
+  `ACE_Log_Msg` (4,216 B + a 4,097 B buffer) and `ACE_Thread_Exit` (16 B). `MgThreadBase` therefore
+  spawns **joinable** threads: `ACE_Task::wait()` on a `THR_DETACHED` thread returns in 0 us, which
+  is why the waits in `MgLogManager::StopLogThread`, `MgServerManager::StopWorkerThreads` and
+  `MgServer::svc` were no-ops. Any new long-lived ACE thread must be joinable *and* waited for
+  before `ACE::fini()`.
+
+Three library facts sit behind those. Xerces' `createLSSerializer()`/`createLSOutput()` objects are
+owned by their caller (`MgXmlUtil::ToBytes()` leaked one descriptor per call). CS-Map
+(`Oem/CsMap`) is compiled **without** `-fsanitize=address`, so its C globals are not LSan roots —
+a live CS-Map cache reads as leaked and has to be released explicitly (`CSrlsCategories()` from
+`MgCoordinateSystemFactory::DeleteCatalog()`, which `MgServer::fini()` now calls). And in the
+internal GEOS (`Oem/geos`), an overlay ring builder leaks its partial result when a
+`TopologyException` escapes and `SnapIfNeededOverlayOp` then retries, so a *passing* geometry suite
+can still be leaking rings; a throwing ring constructor runs no destructor.
+
+The general rule those three share: **release process-lifetime third-party state from
+`MgServer::fini()`** (the "orderly clean up applicable static manager objects" block), not from a
+static destructor. LSan's check is an `atexit` handler that runs before `__cxa_finalize`, so anything
+freed only at static-destruction time is reported as leaked; that is also why the CS-Map catalog
+being *reachable* rather than destroyed at teardown was not good enough.
+
 ### Instrumentation, when the report cannot name the lost reference
 
 1. Temporarily override `AddRef`/`Release` (plus ctor/dtor) on the suspect class to print `this` and
@@ -374,7 +571,19 @@ gone shows `1`.
    a *lost* reference shows balanced AddRef/Release, but a surviving initial reference.
 3. Confirm the provider actually recompiled with the instrumented header (check the build log for the
    translation units) — a stale vtable silently bypasses the overrides.
-4. Revert the instrumentation before measuring the final numbers.
+4. When the suspect is a pooled buffer rather than an object with a vtable, step 1 becomes a trace of
+   the *rent/buy-back* points instead: `FdoFgfGeometryPools::GetByteArray()` and
+   `TakeReleasedByteArray()`, `FdoFgfGeometryImpl::SetFgf()`/`SurrenderByteArray()`,
+   `FdoArrayHelper::AllocMore`/`DisposeOfArray`, and `FdoArray<T>::AddRef`/`Release` (defined in
+   `Inc/Common/Array.h`, so a header edit rebuilds only the targets you build). Print the pointer and
+   count at each, then print a `backtrace()` **only** when the count is higher than the code path can
+   explain — `rc >= 3` for an array handed out of a pool with one owner is what caught the
+   `GetFgf()` reference. `backtrace_symbols_fd()` in that inline template yields readable provider
+   symbols in a Debug build. The pool machinery itself is not the defect: it hands out a single owner
+   reference, and its double-homing (a factory pool entry and the thread-local pool) plus
+   `*newArray = *array` in `AllocMore` are consequences of a stray reference, not causes — never
+   "fix" a pooled-array report there.
+5. Revert the instrumentation before measuring the final numbers.
 
 ### Verifying a leak fix
 
@@ -405,9 +614,17 @@ gone shows `1`.
   to prove they compile.
 - Confirm the run is still green (`OK (<n>)`), record the before/after totals and the direct-record
   count, and update the matching `docs/*memory-leaks.md` in the same change.
-- Leave cycles that need a semantic ownership change recorded rather than "fixed" — breaking them
-  changes behaviour. The FDO Core `FdoClassDefinition` cycles and the SDF/WFS residues are documented
-  for that reason.
+- Record cycles that need a semantic ownership change rather than "fix" them — but *measure* the
+  claim first, because "the strong link is load-bearing" is often only true for the naive break. The
+  cheap experiment is: detach the cycle's links unconditionally at the owning container's teardown,
+  rebuild, and run the suite. If it goes green *and* the records vanish, the cycle is collectable; if
+  a fixture fails on an observable property (a refcount, a `GetBaseClass()` after the schema is gone),
+  that fixture is stating the contract the naive break violates — and a mark/sweep pass at the same
+  teardown point usually satisfies both. Mark roots as the members whose count is not explained by the
+  container's own reference plus the links from inside it, follow their links, and detach only the
+  unmarked members. See the measured `FdoClassDefinition` result in
+  [docs/fdo-core-memory-leaks.md](./docs/fdo-core-memory-leaks.md); the SDF/WFS residues are recorded
+  rather than fixed because their anchor is a connection-to-reader reference, not a container.
 
 ### Platform locking semantics (`CRITICAL_SECTION` vs `pthread_mutex_t`)
 
@@ -539,7 +756,9 @@ nothing and no teardown runs while the process lives. That is ticket #965, and i
   it — and would run the teardown *twice* at exit, because both callbacks are exit-time on Linux.
 - Forcing the unload (`-fno-gnu-unique`) was measured and is harmful: `libWMSProvider` segfaults on `dlclose()`
   (GDAL register-then-destroy followed by unloading libgdal; reproducible from a libgdal-only DSO), and the OGR
-  suite gains a leak record and a second static init. Do not re-attempt it.
+  suite gains a leak record and a second static init. Do not re-attempt it. The "register-then-destroy" half is
+  now gone — the WMS provider no longer calls `GDALDestroyDriverManager()`, which was also a heap-use-after-free
+  at ordinary process exit; see [docs/fdo-exit-teardown.md](./docs/fdo-exit-teardown.md).
 
 This conclusion is about **vague-linkage data being pinned**, and it does not generalise to every exit-time
 destructor. A teardown that reads state owned by *another static in the same library* is a real
@@ -576,7 +795,7 @@ See [CPP_STYLE.md](./CPP_STYLE.md) — applies to edits under `MgDev` and `fdo`.
 - **Release vs Debug** — a Debug (ASan) pass does not validate the Release build. Release's optimiser assumes `this` is never NULL and deletes the NULL guards that Debug's `-O0` keeps, so a suite can pass in Debug and segfault in Release; run the affected suite in **both** configurations. See the NULL-`this` note in [CPP_STYLE.md](./CPP_STYLE.md).
 - **Shipped-header changes** — check the [current mode](#current-cycle) first. A change to a header the SDK installs can move the provider-facing ABI; see [FDO API/ABI compatibility](#fdo-apiabi-compatibility) for how to rule it in or out. For `mapguide` the equivalent question is whether the binding surface moved, not whether a C++ class did; see [MapGuide API/ABI compatibility](#mapguide-apiabi-compatibility).
 - **Container-based validation** — run it in the container that is already running for that target and build configuration (`$DOCKER_CMD exec`), not in a freshly started one; see [Running commands inside build containers](#running-commands-inside-build-containers).
-- **Memory-leak fixes** — a full run of the affected suite in the baseline Debug container, reporting the before/after leak totals and the direct-record count, plus an update to the matching `docs/*memory-leaks.md`. See [Debugging memory leaks](#debugging-memory-leaks-asanlsan).
+- **Memory-leak fixes** — a full run of the affected suite in the baseline Debug container, reporting the before/after leak totals and the direct-record count, plus an update to the matching `docs/*memory-leaks.md`. For MapGuide the suite is the whole server (`run_mapguide_tests.sh --component all`); a clean single-suite run is not the same evidence, because each process's exit-time races are different. See [Debugging memory leaks](#debugging-memory-leaks-asanlsan).
 - **Locking/thread-safety changes** — reproduce the failure first (a deadlock proves itself: single-threaded process, no CPU, waiting in `futex_do_wait`), then show the affected suite green. A lock that only exists for Windows cannot be signed off by reading the diff, because the two platforms do not share the semantics being changed — see **Platform locking semantics** above.
 - Full builds are expensive and are not required for every change — use them only when build logic changed or as verification for source-tree edits.
 - Before committing or pushing, re-run the validation relevant to the files you touched.

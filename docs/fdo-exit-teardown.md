@@ -3,7 +3,9 @@
 This note records an intermittent hang/segfault at process exit in `mgserver`, the
 static-destruction-order bug in `libFDO` behind it, the fix, and the measurements that
 proved the cause. It also explains why this is **not** the same thing as ticket #965,
-which is the other exit-teardown note in this repository.
+which is the other exit-teardown note in this repository. A second, provider-side instance
+of the same class of bug — the WMS provider tearing GDAL down at exit — is recorded at the
+end, because it is the same lesson with a different owner.
 
 Paths below are relative to the source roots (`fdo/` and `mapguide/MgDev` on the host,
 `/tmp/work/src` inside the build container).
@@ -184,3 +186,106 @@ Until that is done, test runs against the packaged SDK will keep showing the fla
    container, not lock contention.
 3. If the stack is in `_dl_fini`/`__cxa_finalize`/`~InitClass`, it is static-destruction
    order between translation units inside one library. The fix belongs in that library.
+
+## Second instance: the WMS provider must not destroy GDAL from a static destructor
+
+`mgserver test all` — every suite in one process — died at exit with AddressSanitizer's
+`heap-use-after-free`, while each suite run on its own did not:
+
+```
+WRITE of size 104 at ...
+    #0 __interceptor_memset
+    #1 OSRCleanup (/lib/libgdal.so.30)
+    #2 GDALDriverManager::~GDALDriverManager()
+    #3 GDALDestroyDriverManager
+    #4 GDALRegister::~GDALRegister() (/usr/local/fdo-4.2.0/lib64/libWMSProvider.so)
+    #5 libc.so.6 __run_exit_handlers / _dl_fini
+freed by thread T0 here:
+    #1 __call_tls_dtors (/lib/x86_64-linux-gnu/libc.so.6)
+previously allocated by thread T0 here:
+    #1 OGRSpatialReference::importFromEPSGA (/lib/libgdal.so.30)
+```
+
+The owner is `fdo/Providers/WMS/Src/Provider/FdoWmsConnection.cpp`, which registered GDAL
+with a namespace-scope object whose destructor tore it down again:
+
+```c++
+class GDALRegister
+{
+public:
+    GDALRegister ()  { GDALAllRegister(); }
+    ~GDALRegister () { GDALDestroyDriverManager(); }
+};
+GDALRegister g_GDALRegister;
+```
+
+That destructor is a static destructor, so glibc runs it after the thread-local destructors:
+`__run_exit_handlers` calls `__call_tls_dtors()` first, then walks the exit-function list
+(where C++ static destructors live), then `_dl_fini`. GDAL 3 keeps its PROJ context in
+`static thread_local OSRPJContextHolder g_tls_projContext`
+(`ogr/ogr_proj_p.cpp`), `~GDALDriverManager()` ends in `OSRCleanup()` →
+`OSRCleanupTLSContext()` → `GetProjTLSContextHolder().deinit()`, and that write lands in
+the object `__call_tls_dtors` has just destroyed.
+
+Both ingredients are needed — something must create GDAL's thread-local PROJ context (any
+SRS call: `importFromEPSGA` in the report) *and* this provider must be loaded — and the
+`all` run is where they meet: none of the per-suite logs in `artifacts/Debug/test-logs/`
+records the report, which is why it looked specific to running everything in one process.
+Ten lines reproduce it with no MapGuide involved (compiled with `-fsanitize=address` to
+match the ASan-instrumented provider, which is what makes the write visible at all):
+
+```c++
+int main()
+{
+    dlopen("/usr/local/fdo-4.2.0/lib64/libWMSProvider.so", RTLD_NOW);
+    OGRSpatialReferenceH srs = OSRNewSpatialReference(nullptr);
+    OSRImportFromEPSG(srs, 4326);
+    OSRDestroySpatialReference(srs);
+    return 0;
+}
+```
+
+### Fix
+
+The destructor is gone; the object only registers the drivers, and GDAL's driver manager is
+left to the process lifetime:
+
+```c++
+class GDALRegister
+{
+public:
+    GDALRegister () { GDALAllRegister(); }
+};
+```
+
+That is what upstream GDAL does (nothing calls `GDALDestroyDriverManager()` on exit, in GDAL
+itself or in this tree's GDAL provider, whose `CreateConnection()` runs `GDALAllRegister()`
+once and never tears it down), and it costs nothing in the leak report: the 243 records the
+`all` run does produce name no GDAL frame, because the driver manager stays reachable from
+GDAL's own globals. The reproducer goes from an ASan abort to a clean run with no report of
+any kind. It also removes the "register then destroy, then unload libgdal" pattern behind
+the `libWMSProvider` `dlclose()` segfault recorded under #965 in [AGENTS.md](../AGENTS.md).
+
+Note what the old code did to the leak gate: it never *was* a leak fix. glibc 2.35's
+`__run_exit_handlers` runs the thread-local destructors, then the exit-function list (where
+C++ static destructors live), then `_dl_fini` — so the provider's teardown ran before
+LeakSanitizer's own exit-function entry (registered at runtime init, and therefore later in
+the reverse order), and the abort meant the `all` run never printed a leak report at all.
+
+Verification, Debug/ubuntu22 tree, `mgserver test all`:
+
+| `libWMSProvider.so` | Runs | Exit |
+|---|---|---|
+| original | 1 | `==53==ERROR: AddressSanitizer: heap-use-after-free`, `ABORTING`, no leak report |
+| fixed | 1 | 610 test cases / 49,061 assertions in 256 s, then a normal LeakSanitizer teardown (647,644 bytes in 1,587 allocations); no ASan error. The harness still reports the run as failed, for the two known `LogManager` cases |
+
+The provider's own offline registries still pass against the fixed library (`WmsTestRaster`
+`OK (8)`, `CapabilityTest` `OK (1)`; `OverridesTest` needs a live WMS layer and fails on the
+same missing `Foundation coastl_1m` as before the change).
+
+### The rule this generalises to
+
+A static destructor must not tear down a library whose state lives in thread-locals: C++
+sequences thread-local destruction **before** static-object destruction, so the teardown
+runs against objects that are already gone. Releasing process-lifetime state at exit is not
+a leak fix — the OS does it, and LeakSanitizer has already run.

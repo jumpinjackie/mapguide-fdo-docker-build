@@ -146,6 +146,39 @@ configurations (see [AGENTS.md](./AGENTS.md)).
 - `Mg*` objects derive from `MgGuardDisposable` (or `MgDisposable`).
 - When MapGuide code touches FDO objects, use `FdoPtr` / `FDO_SAFE_*` on them.
 
+`Ptr<T>` has the same shape as `FdoPtr`: `Ptr(T*)` and `Ptr::operator=(T*)` **attach** (they also
+call `SetRefCountFlag()`), the copy constructor and copy-assignment **AddRef**, and `operator=(T*)`
+releases the old value before attaching. Consequences, in the order they cost leaks:
+
+- `Ptr<MgClassDefinitionCollection> classes = schema->GetClasses();` — correct: the getter's owned
+  reference is taken over by `classes`.
+- `schema->GetClasses()->GetItem(0)` — **wrong**: the collection's reference is dropped. Every
+  `Get*`/`Find*` that returns an `Mg*` from a collection or a cache is counted —
+  `MgFeatureSchema::GetClasses()`, `MgLayerBase::GetLayerDefinition()`,
+  `MgUserInformation::GetCurrentUserInfo()`, `MgEnvelope::GetLowerLeftCoordinate()`/
+  `GetUpperRightCoordinate()`, and `MgDisposableCollection::GetItem()` (whose body is
+  `SAFE_ADDREF(m_list[index])`). Dereferencing one inline loses exactly one reference, and what
+  leaks is whatever it owned.
+- `m_definition = layerDefinition; SAFE_ADDREF(m_definition.p);` — correct *when the caller keeps
+  its own reference to `layerDefinition`*: the assignment attaches the caller's reference, and the
+  explicit addref gives the member its own. Dropping the `SAFE_ADDREF` is not a tidy-up — it leaves
+  two `Ptr`s owning one reference and turns into a use-after-free on the next read of the member.
+  The mirror image (`Ptr<T> x = getter(); SAFE_ADDREF(x.p);`) is the leak. Read the call site: a
+  getter result is already owned; a raw parameter the caller still holds is not.
+- Two `Ptr`s must never be built from the same raw pointer — the second is a *borrow*: keep it raw,
+  or copy the `Ptr` (which AddRefs). The symptom is a double release, not a leak.
+- `coll->Add(x)`/`SetItem(i, x)` AddRef their argument, so the caller keeps its own reference and
+  must release it (`Ptr` locals do that for you; an inline `coll->Add(MgX::Create(...))` does not).
+- A thread-local `MgUserInformation` (`SetCurrentUserInfo`) is stored in an ACE key created with a
+  NULL destructor, so a thread that never calls `SetCurrentUserInfo(NULL)` leaks the value it left
+  behind — including the main thread at process exit.
+- Test code and helpers are not exempt: a raw `MgMap*`/`MgReader*` local leaks the object and
+  everything it owns, and a helper may return a raw pointer only while every caller wraps the result
+  in a `Ptr`.
+
+The per-leak record, with the measured before/after totals, is
+[docs/mapguide-memory-leaks.md](./docs/mapguide-memory-leaks.md).
+
 ### Standard library smart pointers
 
 - `std::shared_ptr` / `std::unique_ptr` are fine for anything that is **not** an `Fdo*` or
