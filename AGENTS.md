@@ -163,7 +163,9 @@ Three things to keep in mind:
   `ps -eo pid,cmd | grep UnitTest` inside the container and kill the PID there. Likewise a suite that
   stops consuming CPU with a log that is not growing is waiting on the database (buffered stdout makes
   it look frozen); a wedged `dbs` instance reports "delay in prelogin response" and has to be
-  recreated rather than restarted.
+  recreated rather than restarted — and because each fixture now keeps its database files in its own
+  `dbs/data/<service>` directory, recreating it only gives you a clean database if that directory is
+  deleted too (`podman unshare rm -rf dbs/data/<service>`; see [README.md § 4.5](./README.md#45-database-backed-tests)).
 
 With no running container, a one-shot `run --rm` is a fine fallback — see
 [Verifying a leak fix](#verifying-a-leak-fix) for the mount, install and `LD_LIBRARY_PATH` recipe.

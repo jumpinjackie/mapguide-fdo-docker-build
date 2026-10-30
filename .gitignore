@@ -20,6 +20,8 @@ packages/*.mgp
 !artifacts/Release/README.md
 caches/*
 !caches/README.md
+dbs/data/*
+!dbs/data/README.md
 fdo_version.sh
 mapguide_version.sh
 build_area/*

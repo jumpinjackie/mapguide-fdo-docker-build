@@ -1,4 +1,17 @@
 version: "3"
+
+# Every fixture whose image can initialise an empty data directory bind-mounts one under
+# ./data/<service>, so the database files live on the host instead of in the container's writable
+# layer. Each service has a directory of its own - never point two services at the same one.
+#
+# Persisting the data changes what a down/up cycle means:
+#  - Recreating a container no longer resets its database; delete the service's directory to do that.
+#    Under rootless podman the mount is chowned to the container's database user, so that is
+#    `podman unshare rm -rf dbs/data/<service>` rather than a plain `rm -rf`.
+#  - Settings that only apply when a database is first created (MySQL's --collation-server, SQL
+#    Server's MSSQL_COLLATION) live on in whatever the directory already holds, so changing one needs
+#    the directory wiped, not just the container recreated.
+#  - The directories are gitignored; see dbs/data/README.md.
 services:
   oracle_xe_11g:
     image: "wnameless/oracle-xe-11g-r2"
@@ -12,12 +25,21 @@ services:
       # /docker-entrypoint-initdb.d/*.sql as SYS on every start, so the CREATE USER in here fails
       # harmlessly (startup continues) once the user already exists.
       - ../fdo/Providers/KingOracle/src/KgOraUnitTest/ora_init.sql:/docker-entrypoint-initdb.d/ora_init.sql
+      # No data directory mount here: unlike the fixtures below, this image ships a pre-built XE
+      # database (1.2 GB of data files under /u01/app/oracle/oradata/XE), so an empty host directory
+      # mounted over that path would mask it and the instance would come up with no data files to
+      # open. Persisting it would need a named volume - docker and podman seed a named volume from
+      # the image, which a bind mount does not - rather than a directory on the host.
   postgis:
     image: "mdillon/postgis:9.6"
     ports:
       - "5432:5432"
     environment:
       POSTGRES_PASSWORD: "changeme"
+    volumes:
+      # PGDATA. The entrypoint runs initdb when it finds it empty, so the host directory only has to
+      # exist.
+      - ./data/postgis:/var/lib/postgresql/data:z
   postgis_pg11:
     image: "kartoza/postgis:11.0-2.5"
     ports:
@@ -27,6 +49,10 @@ services:
       POSTGRES_PASS: "changeme"
       POSTGRES_MULTIPLE_EXTENSIONS: "postgis,pgrouting"
       POSTGRES_DB: "template_postgis"
+    volumes:
+      # Kartoza keeps the cluster at /var/lib/postgresql/<major>/main and its entrypoint creates and
+      # chowns whatever it finds, so the version-independent parent is the mount point.
+      - ./data/postgis_pg11:/var/lib/postgresql:z
   postgis_pg12:
     image: "kartoza/postgis:12.0"
     ports:
@@ -36,6 +62,8 @@ services:
       POSTGRES_PASS: "changeme"
       POSTGRES_MULTIPLE_EXTENSIONS: "postgis,pgrouting"
       POSTGRES_DB: "template_postgis"
+    volumes:
+      - ./data/postgis_pg12:/var/lib/postgresql:z
   postgis_pg14:
     image: "kartoza/postgis:14-3.3"
     ports:
@@ -45,6 +73,8 @@ services:
       POSTGRES_PASS: "changeme"
       POSTGRES_MULTIPLE_EXTENSIONS: "postgis,pgrouting"
       POSTGRES_DB: "template_postgis"
+    volumes:
+      - ./data/postgis_pg14:/var/lib/postgresql:z
   postgis_pg16:
     image: "kartoza/postgis:16-3.4"
     ports:
@@ -57,12 +87,16 @@ services:
       # NOTE: Disable pg_cron, otherwise it will hold an "exclusive lock" on the template db
       # preventing database creation from working
       ACTIVATE_CRON: "false"
+    volumes:
+      - ./data/postgis_pg16:/var/lib/postgresql:z
   mariadb:
     image: "mariadb:10.4"
     ports:
       - "3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: "fdotest"
+    volumes:
+      - ./data/mariadb:/var/lib/mysql:z
   # FDO identifiers are case-sensitive, but a MySQL datastore created without an explicit collation
   # inherits the server's default, and the stock default is case-insensitive. That makes the unique
   # index on f_classdefinition(classname, schemaname) reject two classes whose names differ only in
@@ -76,6 +110,10 @@ services:
       - "3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: "fdotest"
+    volumes:
+      # DATADIR. An empty directory is initialised on first start, and because --collation-server
+      # only applies at that point, re-applying a changed collation means wiping this directory.
+      - ./data/mysql_56:/var/lib/mysql:z
   mysql_80:
     image: "mysql:8.0"
     command: --default-authentication-plugin=mysql_native_password
@@ -84,6 +122,8 @@ services:
       - "3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: "fdotest"
+    volumes:
+      - ./data/mysql_80:/var/lib/mysql:z
     cap_add:
       - SYS_NICE  # CAP_SYS_NICE
   # Two SQL Server fixtures, because the Windows and Linux SQL Server Spatial suites must not share an
@@ -103,6 +143,9 @@ services:
       ACCEPT_EULA: "Y"
     volumes:
       - ./db_tmp:/tmp
+      # SQL Server's data directory. The 2017 image runs as root and creates the contents on first
+      # start, so an empty host directory is all that is needed.
+      - ./data/mssql:/var/opt/mssql:z
 
   # The Linux suite's own instance, which templates/scripts/container/test_init/SqlServerSpatialInit.txt
   # points at. Case-sensitive collation, for the same reason mysql_56 pins latin1_bin below: a datastore
@@ -112,9 +155,10 @@ services:
   # environmental reason rather than a provider one.
   #
   # MSSQL_COLLATION is only honoured when the server is created and only by SQL Server 2017, so a
-  # changed value needs the container recreated, not restarted. There is deliberately no ./db_tmp
-  # bind here: SQL Server keeps its databases in /var/opt/mssql, which no fixture persists, and
-  # leaving /tmp unshared keeps the two instances independent.
+  # changed value needs the data directory wiped rather than the container recreated - a directory
+  # that was initialised without it keeps the stock collation. There is deliberately no ./db_tmp
+  # bind here: that is scratch space for sqlcmd queries against the 1433 instance, and leaving /tmp
+  # unshared keeps the two instances independent.
   mssql_cs:
     image: "mcr.microsoft.com/mssql/server:2017-latest"
     ports:
@@ -123,3 +167,5 @@ services:
       SA_PASSWORD: "Sql2016!"
       ACCEPT_EULA: "Y"
       MSSQL_COLLATION: "Latin1_General_CS_AS"
+    volumes:
+      - ./data/mssql_cs:/var/opt/mssql:z
