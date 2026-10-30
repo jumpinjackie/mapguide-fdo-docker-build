@@ -227,7 +227,7 @@ or `./make_installer_all.sh` for all combinations.
 | Reactor-path check | Inside the container: `/tmp/work/scripts/run_mapguide_tests.sh --mapguide-build-dir /tmp/work/build_area/mapguide --run-mode` | Runs the real server (`mgserver run`), waits for the client port, stops it with SIGTERM and requires a clean exit. The only coverage of `MgServer::svc()`'s reactor branch; no packaging needed. |
 | Unit tests (build image) | `./env_test.sh --target fdo \| mapguide --distro ubuntu22 --cpu x64` | Runs inside the `build` container. |
 | Install + smoke test | `./mapguide_image_install.sh --target ubuntu22 \| generic --target-distro <img> --tag <tag>` | Installs the `.run` package and runs the smoke test. |
-| Installer shell | `./image_install.sh --docker-image <img>` | Drops into a container with the installer mounted. |
+| Installer shell | `./image_install.sh --docker-image <img>` | Drops into a container with the installer mounted and `$PWD/packages` mounted over the installed server's `Packages` dir (`--volume host:container[:opts]` adds more mounts, `--no-packages` skips that one). |
 | Integration tests | `cd test && ./run.sh` | `httpyac` suites; see [Testing](#testing). |
 | Package installer | `./make_installer.sh <distro_nover> <distro_ver> <Release\|Debug>` | `ubuntu 22 Release`, or `generic "" Release`. |
 | Package all installers | `./make_installer_all.sh` | |
