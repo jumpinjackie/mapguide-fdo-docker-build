@@ -339,6 +339,23 @@ Running suite: Geometry
 
 One suite fails for a reason that is in the test code rather than the build: `LogManager`'s `EnumerateLogs` and `RenameLog` cases assert `logs->Contains(<property>)`, and `MgPropertyCollection::Contains(const MgProperty*)` ends in `MgDisposableCollection::Contains`, which compares pointers, so a freshly constructed property never matches. They fail in every build configuration; do not read them as a regression from a change in the tree.
 
+#### Checking the reactor path (`--run-mode`)
+
+Every `mgserver test <component>` run executes an `MgTestCommand`, so `MgServer::svc()` returns before it reaches its accept handlers, the client/admin/site operation-thread pools and `ACE_Reactor::run_reactor_event_loop()`. None of the 610 test cases therefore covers the path a *real* server takes, and the installer smoke test in `mapguide_smoke_test.sh` needs a packaged `.run` to get at it. The build tree can run the real thing directly, so the runner has a mode for it:
+
+```
+/tmp/work/scripts/run_mapguide_tests.sh --mapguide-build-dir /tmp/work/build_area/mapguide \
+    --log-path /tmp/run-logs --run-mode
+```
+
+It starts `./mgserver run` from the build tree (the tree's own `serverconfig.ini`, so the client port is 2811 unless you changed it), waits for that port to accept, sends `SIGTERM`, and requires that the process
+
+- exits 0 within `--shutdown-timeout` (default 30s) — a thread that never leaves its `getq()` loop shows up here as `Server did not exit within Ns of SIGTERM`, not as a hang;
+- reaches `Server stopped` in its log, and
+- prints no LeakSanitizer summary.
+
+`--startup-timeout` (default 60s) covers the wait for the port. The run takes about as long as the two waits, because the server starts in a second or two and stops in about the same. It fails fast if any of the three ports is already listening, so a stray `mgserver` is reported rather than silently tested instead of the build. It is not a substitute for the installer smoke test — it does not exercise the packaged layout, the web tier or the PHP binding — but it is the only check that covers the reactor path without packaging anything, and it is where a shutdown-ordering regression (or a leak in the threads teardown leaves behind) shows up.
+
 #### Running one MapGuide suite by hand
 
 Same thing, without the wrapper:

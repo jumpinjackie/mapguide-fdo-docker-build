@@ -224,6 +224,7 @@ or `./make_installer_all.sh` for all combinations.
 | Build all | `./build_all_thin.sh` | All distros, Release + Debug for ubuntu22. |
 | Build all thin images | `./build_all_thin_images.sh` | |
 | Unit tests (thin) | `./env_test_thin.sh --target fdo \| mapguide --distro ubuntu22 --cpu x64` | Runs inside the `develop_thin` container. May be flaky. |
+| Reactor-path check | Inside the container: `/tmp/work/scripts/run_mapguide_tests.sh --mapguide-build-dir /tmp/work/build_area/mapguide --run-mode` | Runs the real server (`mgserver run`), waits for the client port, stops it with SIGTERM and requires a clean exit. The only coverage of `MgServer::svc()`'s reactor branch; no packaging needed. |
 | Unit tests (build image) | `./env_test.sh --target fdo \| mapguide --distro ubuntu22 --cpu x64` | Runs inside the `build` container. |
 | Install + smoke test | `./mapguide_image_install.sh --target ubuntu22 \| generic --target-distro <img> --tag <tag>` | Installs the `.run` package and runs the smoke test. |
 | Installer shell | `./image_install.sh --docker-image <img>` | Drops into a container with the installer mounted. |
@@ -242,6 +243,13 @@ There are two levels of tests:
 1. **Unit/integration tests inside build containers** — `env_test_thin.sh` (thin) or `env_test.sh` (build image) dispatch `templates/scripts/container/run_fdo_tests.sh` / `run_mapguide_tests.sh`. `env_test_thin.sh` attempts to recreate the author's ad-hoc testing inner loop, but the FDO path **may be flaky**. When debugging, prefer ad-hoc commands inside an interactive build container (`./build_thin.sh ... --interactive`) — and if one is already running, `exec` into it instead of starting another (see [Running commands inside build containers](#running-commands-inside-build-containers)).
 
    For MapGuide, the inner loop is `/tmp/work/scripts/build_mapguide_incremental.sh` (FDO SDK + `atomic.h`, then `mgserver` and `MgUnitTesting` only) followed by `run_mapguide_tests.sh --component <name>`; the details, the `LD_LIBRARY_PATH` it sets and the pass/fail rules are in [README.md § 4.4](./README.md#44-the-mapguide-rapid-inner-loop).
+   `mgserver test <component>` executes an `MgTestCommand`, so `MgServer::svc()` returns before the
+   accept handlers, the client/admin/site operation-thread pools and `ACE_Reactor` — the path a real
+   server takes is covered only by `run_mapguide_tests.sh --run-mode` (below) and by the installer
+   smoke test. Use `--run-mode` when the change is in `Server/src/Core`, the accept handlers or
+   `MgThreadBase`/the thread pools; it needs no packaged `.run` and fails on a shutdown hang, a
+   non-zero exit, a missing `Server stopped` marker and any LeakSanitizer summary.
+
 2. **HTTP API suites** — `test/*.http` are `httpyac` request files run against a live MapGuide server (started via `mapguide_image_install.sh`):
 
    ```
@@ -797,6 +805,7 @@ See [CPP_STYLE.md](./CPP_STYLE.md) — applies to edits under `MgDev` and `fdo`.
 - **Container-based validation** — run it in the container that is already running for that target and build configuration (`$DOCKER_CMD exec`), not in a freshly started one; see [Running commands inside build containers](#running-commands-inside-build-containers).
 - **Memory-leak fixes** — a full run of the affected suite in the baseline Debug container, reporting the before/after leak totals and the direct-record count, plus an update to the matching `docs/*memory-leaks.md`. For MapGuide the suite is the whole server (`run_mapguide_tests.sh --component all`); a clean single-suite run is not the same evidence, because each process's exit-time races are different. See [Debugging memory leaks](#debugging-memory-leaks-asanlsan).
 - **Locking/thread-safety changes** — reproduce the failure first (a deadlock proves itself: single-threaded process, no CPU, waiting in `futex_do_wait`), then show the affected suite green. A lock that only exists for Windows cannot be signed off by reading the diff, because the two platforms do not share the semantics being changed — see **Platform locking semantics** above.
+- **Thread-lifecycle or server-shutdown changes** (`MgThreadBase`, the pools, `MgServer::fini()`, accept handlers) — `run_mapguide_tests.sh --run-mode` in the baseline container as well as `--component all`: the suites never enter `MgServer::svc()`'s reactor branch, so a shutdown hang or a leak in that branch is invisible to them.
 - Full builds are expensive and are not required for every change — use them only when build logic changed or as verification for source-tree edits.
 - Before committing or pushing, re-run the validation relevant to the files you touched.
 

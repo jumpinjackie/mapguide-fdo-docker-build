@@ -116,6 +116,36 @@ logs a system message. It appeared in roughly one Geometry-suite run in three un
 unwinder and not at all in the six runs measured after the thread fix, so do not mistake a lone
 8-byte record for a regression.
 
+## The reactor path is not in the unit suite
+
+`mgserver test <component>` runs an `MgTestCommand`, so `MgServer::svc()` returns at its
+`if (m_command.get())` branch and never reaches the accept handlers, the client/admin/site operation
+thread pools or `ACE_Reactor::run_reactor_event_loop()`. The thread-teardown fix above touches that
+branch too (`MgOperationThread` is only started from it), and the waits in `MgServer::svc()` became
+effective with it, so the reactor path needs its own check:
+
+```
+/tmp/work/scripts/run_mapguide_tests.sh --mapguide-build-dir /tmp/work/build_area/mapguide \
+    --log-path /tmp/run-logs --run-mode
+```
+
+It starts the real server from the build tree, waits for the client port, sends `SIGTERM`, and fails
+on a hang in the shutdown wait, a non-zero exit, a log that never reaches `Server stopped`, or a
+LeakSanitizer summary. A clean run of the measured build looks like this:
+
+```
+  >> Server is accepting connections after 1s
+  >> Server exited 1s after SIGTERM (exit 0)
+Run-mode check passed
+```
+
+Every pool prints `MgOperationThread - Exiting thread` (and the worker and log threads theirs)
+*before* `MgServer::~MgServer()`, which is the observable form of "the waits returned because the
+threads exited", and the run reports no leaks. Two failure modes were injected to prove the check
+works: a server that ignores `SIGTERM` is killed after `--shutdown-timeout` and reported as
+`Server did not exit within Ns of SIGTERM`, and a server that exits non-zero is reported against both
+the exit code and the missing `Server stopped` marker.
+
 ## Technique notes
 
 - **`Ptr<T>` attaches.** `Ptr(T*)` and `Ptr::operator=(T*)` take ownership of an *existing*

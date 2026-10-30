@@ -10,6 +10,11 @@
 # next one, and the run then exits 130 (SIGINT), 143 (SIGTERM) or 129 (SIGHUP).
 #
 # The component names are the ones `mgserver test list` reports.
+#
+# --run-mode runs the real server instead (`mgserver run`): it waits for the client port, sends
+# SIGTERM and requires a clean, prompt exit. `mgserver test` executes an MgTestCommand and never
+# enters MgServer::svc()'s reactor branch (acceptors, the client/admin/site operation-thread pools,
+# ACE_Reactor), so this is the only automated coverage that branch and its shutdown ordering get.
 
 COMPONENTS_ALL="CoordinateSystem DrawingService FeatureService Geometry KmlService LogManager MappingService MdfModel Misc Performance RenderingService RasterStylization ResourceService ServerAdminService ServerManager ServiceManager SiteManager SiteService Stylization TileService ProfilingService TransformMesh"
 
@@ -20,6 +25,10 @@ COMPONENTS=
 SUITE_TIMEOUT=5m
 TIMEOUT_SET=0
 LIST_COMPONENTS=0
+RUN_MODE=0
+COMPONENTS_SET=0
+STARTUP_TIMEOUT=60
+SHUTDOWN_TIMEOUT=30
 FAILED_SUITES=0
 FAILED_COMPONENTS=
 RUN_SUITES=0
@@ -78,6 +87,10 @@ usage()
     echo "  --log-path [Unit test log path]"
     echo "  --component [Component to run, repeatable, 'all' runs every suite in one process,"
     echo "               default: every component, one process each]"
+    echo "  --run-mode [Start the real server (mgserver run), wait for its client port, then stop it"
+    echo "              with SIGTERM and require a clean exit; takes no --component]"
+    echo "  --startup-timeout [Seconds to wait for the client port in --run-mode, default: $STARTUP_TIMEOUT]"
+    echo "  --shutdown-timeout [Seconds to wait for exit after SIGTERM in --run-mode, default: $SHUTDOWN_TIMEOUT]"
     echo "  --timeout [Per-suite timeout, default: $SUITE_TIMEOUT, or 'none' to disable]"
     echo "  --list-components [List the component names and exit]"
     echo "  --help [Display usage]"
@@ -108,6 +121,7 @@ suite_passed()
 
 add_component()
 {
+    COMPONENTS_SET=1
     if [ "$1" != "all" ] && ! is_known_component "$1"; then
         echo "FATAL: unknown component '$1'"
         echo "Valid components: all $COMPONENTS_ALL"
@@ -137,6 +151,17 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
         --timeout)
             SUITE_TIMEOUT="$2"
             TIMEOUT_SET=1
+            shift
+            ;;
+        --run-mode)
+            RUN_MODE=1
+            ;;
+        --startup-timeout)
+            STARTUP_TIMEOUT="$2"
+            shift
+            ;;
+        --shutdown-timeout)
+            SHUTDOWN_TIMEOUT="$2"
             shift
             ;;
         --list-components)
@@ -176,6 +201,124 @@ if [ "$SUITE_TIMEOUT" = "none" ]; then
 else
     RUN_TIMEOUT="$SUITE_TIMEOUT"
 fi
+
+# Reads a Port value out of serverconfig.ini for the given [section].
+server_port()
+{
+    sed -n "/^\\[$1\\]/,/^\\[/p" "$CORE_DIR/serverconfig.ini" \
+        | sed -n 's/^Port[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
+        | head -1
+}
+
+# True when something already accepts connections on the port. The probe connects, so it is only
+# used to fail fast with a clear message - a stray listener means this run would test the wrong
+# process (or fail to bind) rather than the build we just made.
+port_in_use()
+{
+    (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
+}
+
+# Starts the real server, waits for the client port, stops it with SIGTERM and requires a clean exit.
+#
+# This is the reactor path: MgServer::svc() with no command registers the accept handlers, starts the
+# client/admin/site operation-thread pools and runs ACE_Reactor. None of the unit suites reach it, so
+# this is where a shutdown ordering bug shows up - as a hang in the thread-manager wait, or as a
+# LeakSanitizer report from the threads that outlived teardown.
+run_server_mode()
+{
+    CORE_DIR="$MG_BUILD_DIR/Server/src/Core"
+    run_log="$TEST_LOG_PATH/mapguide_run_mode.log"
+    port=$(server_port "ClientConnectionProperties")
+    if [ -z "$port" ]; then
+        echo "FATAL: no Port in [ClientConnectionProperties] of $CORE_DIR/serverconfig.ini"
+        return 1
+    fi
+    for p in "$(server_port AdministrationConnectionProperties)" \
+             "$port" \
+             "$(server_port SiteConnectionProperties)"; do
+        if [ -n "$p" ] && port_in_use "$p"; then
+            echo "FATAL: port $p is already in use; stop whatever is listening on 127.0.0.1:$p"
+            return 1
+        fi
+    done
+
+    echo "Starting the server: ./mgserver run (client port $port, log $run_log)"
+    mkdir -p /var/lock/mgserver 2>/dev/null
+    start=$SECONDS
+    # `timeout` puts the server in its own process group, so the interrupt handler and the SIGKILL
+    # escalation cannot signal this script's own group. Its duration is only a backstop: the test is
+    # the SIGTERM below.
+    timeout "$((STARTUP_TIMEOUT + SHUTDOWN_TIMEOUT + 30))" ./mgserver run > "$run_log" 2>&1 &
+    SUITE_PID=$!
+
+    ready=0
+    elapsed=0
+    while [ "$elapsed" -lt "$STARTUP_TIMEOUT" ]; do
+        if ! kill -0 "$SUITE_PID" 2>/dev/null; then
+            break
+        fi
+        if port_in_use "$port"; then
+            ready=1
+            break
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+
+    if [ "$ready" -ne 1 ]; then
+        echo "  >> Server did not accept connections on port $port within ${STARTUP_TIMEOUT}s"
+        tail -20 "$run_log" | sed 's/^/    /'
+        kill -TERM "$SUITE_PID" 2>/dev/null
+        sleep 1
+        kill -KILL -"$SUITE_PID" 2>/dev/null
+        kill -KILL "$SUITE_PID" 2>/dev/null
+        wait "$SUITE_PID" 2>/dev/null
+        SUITE_PID=
+        return 1
+    fi
+    echo "  >> Server is accepting connections after $((SECONDS - start))s"
+
+    kill -TERM "$SUITE_PID" 2>/dev/null
+    stop=$SECONDS
+    elapsed=0
+    while [ "$elapsed" -lt "$SHUTDOWN_TIMEOUT" ] && kill -0 "$SUITE_PID" 2>/dev/null; do
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+    if kill -0 "$SUITE_PID" 2>/dev/null; then
+        echo "  >> Server did not exit within ${SHUTDOWN_TIMEOUT}s of SIGTERM - killing it"
+        echo "  >>   (a thread is still running in the shutdown wait; see docs/mapguide-memory-leaks.md)"
+        kill -KILL -"$SUITE_PID" 2>/dev/null
+        kill -KILL "$SUITE_PID" 2>/dev/null
+        wait "$SUITE_PID" 2>/dev/null
+        SUITE_PID=
+        return 1
+    fi
+    wait "$SUITE_PID"
+    server_rc=$?
+    SUITE_PID=
+    echo "  >> Server exited $((SECONDS - stop))s after SIGTERM (exit $server_rc)"
+
+    failed=0
+    if [ "$server_rc" -ne 0 ]; then
+        echo "  >> Expected a clean (exit 0) shutdown, got $server_rc"
+        failed=1
+    fi
+    if ! grep -q "Server stopped" "$run_log"; then
+        echo "  >> The log never reached \"Server stopped\"; shutdown did not complete"
+        failed=1
+    fi
+    leak_summary=$(grep -E "^SUMMARY: AddressSanitizer:" "$run_log" | tail -1)
+    if [ -n "$leak_summary" ]; then
+        echo "  >> ${leak_summary#SUMMARY: AddressSanitizer: } - see $run_log"
+        failed=1
+    fi
+    if [ "$failed" -ne 0 ]; then
+        tail -30 "$run_log" | sed 's/^/    /'
+        return 1
+    fi
+    return 0
+}
 
 if [ -z "$MG_BUILD_DIR" ]; then
     echo "FATAL: --mapguide-build-dir is required"
@@ -221,7 +364,11 @@ echo "MapGuide build dir: $MG_BUILD_DIR"
 echo "Log path is: $TEST_LOG_PATH"
 echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
 echo "Timeout per suite: $SUITE_TIMEOUT"
-echo "Components: $COMPONENTS"
+if [ "$RUN_MODE" -eq 1 ]; then
+    echo "Components: (none - --run-mode runs the server itself)"
+else
+    echo "Components: $COMPONENTS"
+fi
 if [ ! -d "$TEST_LOG_PATH" ]; then
     mkdir -p "$TEST_LOG_PATH"
 fi
@@ -235,6 +382,19 @@ fi
 if [ ! -f "$MG_BUILD_DIR/Server/src/UnitTesting/libMgUnitTesting.so" ]; then
     echo "FATAL: libMgUnitTesting.so is missing from the build tree"
     echo "Build it with /tmp/work/scripts/build_mapguide_incremental.sh --target MgUnitTesting"
+    exit 1
+fi
+
+if [ "$RUN_MODE" -eq 1 ]; then
+    if [ "$COMPONENTS_SET" -ne 0 ]; then
+        echo "FATAL: --run-mode runs the server, not a suite; do not combine it with --component"
+        exit 1
+    fi
+    if run_server_mode; then
+        echo "Run-mode check passed"
+        exit 0
+    fi
+    echo "Run-mode check FAILED"
     exit 1
 fi
 

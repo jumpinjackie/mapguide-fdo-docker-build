@@ -247,24 +247,56 @@ int main()
 
 ### Fix
 
-The destructor is gone; the object only registers the drivers, and GDAL's driver manager is
-left to the process lifetime:
+The teardown is gone on Linux; the object only registers the drivers there, and GDAL's driver
+manager is left to the process lifetime:
 
 ```c++
 class GDALRegister
 {
 public:
     GDALRegister () { GDALAllRegister(); }
+
+    // Destructor to unregister all drivers of GDAL.
+    ~GDALRegister ()
+    {
+#ifdef _WIN32
+        GDALDestroyDriverManager();
+#endif
+    }
 };
 ```
+
+The destructor is kept for the Windows build on purpose. The fault is a glibc/Linux ordering
+one as much as a GDAL one, and it has not been observed in a Debug Windows run, so the Windows
+teardown stays exactly as it was rather than being changed without evidence. On Linux the call
+is compiled out, so the object code is the same as with no destructor at all — an empty
+`~GDALRegister()` that the exit-function list calls and that does nothing:
+
+```
+$ nm -C -u FdoWmsConnection.cpp.o | grep -E 'GDALDestroyDriverManager|OSRCleanup'
+  (none: the teardown call is compiled out)
+$ objdump -d --demangle FdoWmsConnection.cpp.o | sed -n '/<GDALRegister::~GDALRegister()>:/,+6p'
+    ...  nop ; pop %rbp ; ret
+```
+
+and the constructor still registers the drivers (`U GDALAllRegister`). If the same crash is
+ever seen on Windows, deleting the `#ifdef` pair disables the teardown there too, for the same
+reason it is disabled here.
 
 That is what upstream GDAL does (nothing calls `GDALDestroyDriverManager()` on exit, in GDAL
 itself or in this tree's GDAL provider, whose `CreateConnection()` runs `GDALAllRegister()`
 once and never tears it down), and it costs nothing in the leak report: the 243 records the
 `all` run does produce name no GDAL frame, because the driver manager stays reachable from
-GDAL's own globals. The reproducer goes from an ASan abort to a clean run with no report of
-any kind. It also removes the "register then destroy, then unload libgdal" pattern behind
-the `libWMSProvider` `dlclose()` segfault recorded under #965 in [AGENTS.md](../AGENTS.md).
+GDAL's own globals. It also removes the "register then destroy, then unload libgdal" pattern
+behind the `libWMSProvider` `dlclose()` segfault recorded under #965 in
+[AGENTS.md](../AGENTS.md).
+
+The reproducer below went from an ASan abort to a clean run with no report of any kind, and it
+was re-run after the destructor was reinstated for Windows only: against the rebuilt guarded
+`libWMSProvider-4.2.0.so` it reaches the end of `main` and exits 0, and taking the `#ifdef`
+pair out of the same tree rebuilds the negative control and reproduces the exact stack above
+(`OSRCleanup` ← `GDALDriverManager::~GDALDriverManager` ← `GDALDestroyDriverManager` ←
+`GDALRegister::~GDALRegister`).
 
 Note what the old code did to the leak gate: it never *was* a leak fix. glibc 2.35's
 `__run_exit_handlers` runs the thread-local destructors, then the exit-function list (where
