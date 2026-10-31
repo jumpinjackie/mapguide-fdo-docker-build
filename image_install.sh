@@ -85,6 +85,15 @@ fi
 echo "Setting up container from image ($DOCKER_IMAGE)"
 if [ "${#PACKAGES_MOUNTS[@]}" -gt 0 ]; then
     echo "MapGuide packages in $PACKAGES_DIR will be available at $MG_INSTALL_ROOT/server/Packages inside the container"
+    if [ -n "$SELINUX_LABEL" ]; then
+        # The mount is relabelled when the container is created, so anything dropped in later keeps
+        # whatever label it arrived with and is then denied to the container even as root (SELinux
+        # is not bypassed by CAP_DAC_OVERRIDE). Easy to hit with `mv` from a home directory, which
+        # preserves the label where a plain `cp` would inherit the directory's.
+        echo "SELinux is enforcing, so that directory is labelled only when this container starts."
+        echo "A package added while it is running needs relabelling before the container can read it:"
+        echo "    chcon -R -t container_file_t $PACKAGES_DIR"
+    fi
 fi
 echo "To run the installer package from within the container, execute the following inside the container:"
 echo "    /tmp/artifacts/$INSTALL_PKG"

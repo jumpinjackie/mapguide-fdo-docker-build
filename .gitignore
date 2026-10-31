@@ -16,6 +16,7 @@ staging/*
 artifacts/Debug/*
 artifacts/Release/*
 packages/*.mgp
+packages/*.mgp.log
 !artifacts/Debug/README.md
 !artifacts/Release/README.md
 caches/*

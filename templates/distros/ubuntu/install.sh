@@ -29,6 +29,7 @@ NO_SERVICE_INSTALL=0
 NO_MGSERVER_START=0
 NO_TOMCAT_START=0
 NO_HTTPD_START=0
+INSTALL_MSTTCOREFONTS=0
 INSTALLER_TITLE="MapGuide Open Source installer"
 
 DEFAULT_ENABLE_TOMCAT=N
@@ -92,6 +93,9 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             ;;
         -no-httpd-start|--no-httpd-start)
             NO_HTTPD_START=1
+            ;;
+        -with-msttcorefonts|--with-msttcorefonts)
+            INSTALL_MSTTCOREFONTS=1
             ;;
         -with-sdf|--with-sdf)
             fdo_provider_choice="$fdo_provider_choice sdf"
@@ -192,6 +196,7 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             # Doesn't work atm, don't advertise
             #echo "  --no-tomcat-start [Do not start tomcat after installation]"
             echo "  --no-httpd-start [Do not start httpd after installation]"
+            echo "  --with-msttcorefonts [Install Microsoft TrueType core fonts]"
             echo "  --server-ip [Server IP, default: $DEFAULT_SERVER_IP]"
             echo "  --admin-port [Admin Server Port, default: $DEFAULT_ADMIN_PORT]"
             echo "  --client-port [Client Server Port, default: $DEFAULT_CLIENT_PORT]"
@@ -290,6 +295,7 @@ dump_configuration()
     echo " No mgserver start: ${NO_MGSERVER_START}"
     echo " No httpd start: ${NO_HTTPD_START}"
     echo " No tomcat start: ${NO_TOMCAT_START}"
+    echo " Install MS TrueType core fonts: ${INSTALL_MSTTCOREFONTS}"
     echo "********************************************"
     if [ "$DRY_RUN" = "1" ]; then
         exit 0
@@ -417,7 +423,8 @@ dialog_extras()
             --checklist "Check the extra features you want to enable/install" 20 61 5 \
             noserviceinstall "do not install services" OFF \
             nomgserverstart "do not start mgserver" OFF \
-            nohttpdstart "do not start httpd" OFF 2> $tempfile
+            nohttpdstart "do not start httpd" OFF \
+            msttcorefonts "install Microsoft TrueType core fonts" OFF 2> $tempfile
     case $? in
       1)
         echo "Cancelled"
@@ -439,10 +446,13 @@ dialog_extras()
             nohttpdstart)
                 NO_HTTPD_START=1
                 ;;
+            msttcorefonts)
+                INSTALL_MSTTCOREFONTS=1
+                ;;
         esac
     done
     # re-read to trim these extraneous options
-    extras_choice=$(cat $tempfile | sed s/noserviceinstall//g | sed s/nomgserverstart//g | sed s/nohttpdstart//g | sed s/\"//g)
+    extras_choice=$(cat $tempfile | sed s/noserviceinstall//g | sed s/nomgserverstart//g | sed s/nohttpdstart//g | sed s/msttcorefonts//g | sed s/\"//g)
     rm $tempfile
 }
 
@@ -515,6 +525,24 @@ try_install_mssql_odbc_driver()
     fi
 }
 
+install_mscorefonts()
+{
+    # The package asks whether to accept the Microsoft EULA and downloads the fonts from SourceForge
+    # as part of the install, so acceptance is preselected to keep --headless non-interactive, and a
+    # failure (no network, or multiverse disabled) is a warning rather than a failed installation.
+    echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | debconf-set-selections
+    if apt-get install -y ttf-mscorefonts-installer; then
+        echo "[install]: Microsoft TrueType core fonts installed"
+    else
+        echo "==== WARNING ===="
+        echo "The Microsoft TrueType core fonts (ttf-mscorefonts-installer) could not be installed."
+        echo "MapGuide will still run, but text that asks for Arial, Times New Roman or Courier New"
+        echo "falls back to a substitute font. The package needs the multiverse component and network"
+        echo "access to SourceForge; install it later with:"
+        echo "  apt-get install ttf-mscorefonts-installer"
+    fi
+}
+
 install_prerequisites()
 {
     # Only need to check for JRE. All other deps are already embedded in their respective deb package files
@@ -523,6 +551,9 @@ install_prerequisites()
     fi
     # FIXME: Why did dpkg-shlibdeps not pick up these as required dependencies of mapguideopensource-httpd???
     apt-get install -y libxslt1.1 libonig5
+    if [ "$INSTALL_MSTTCOREFONTS" = "1" ]; then
+        install_mscorefonts
+    fi
 }
 
 install_fdo()
