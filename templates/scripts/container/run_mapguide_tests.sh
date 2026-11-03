@@ -56,6 +56,7 @@ FAILED_SUITES=0
 FAILED_COMPONENTS=
 RUN_SUITES=0
 SKIPPED_SUITES=
+SKIPPED_REASONS=
 TOTAL_START=$SECONDS
 SUITE_PID=
 INTERRUPTED=0
@@ -795,6 +796,23 @@ build_sample_package()
     fi
 }
 
+# The interpreter cmake_linuxapt.sh built, wherever that working dir is: its CLI binary is usable
+# straight from the build tree, which saves an install (and, before the incremental build learned to
+# run cmake_linuxapt.sh, saved a full build).
+linuxapt_php_cli()
+{
+    linuxapt_dir=$(cache_value MG_LINUXAPT_WORK_DIR)
+    if [ -n "$linuxapt_dir" ]; then
+        ls "$linuxapt_dir"/LinuxApt/php-*/sapi/cli/php 2>/dev/null | head -1
+    fi
+}
+
+php_loads_mapguide()
+{
+    "$1" -d "extension_dir=$INSTALL_DIR/webserverextensions/lib64" \
+        -d "extension=libphp_MapGuideApi.so" -m 2>/dev/null | grep -qx 'MapGuideApi'
+}
+
 php_cmd()
 {
     if [ -n "$PHP_CMD" ]; then
@@ -807,8 +825,13 @@ php_cmd()
         echo "$INSTALL_DIR/webserverextensions/php/bin/php"
         return
     fi
+    candidate=$(linuxapt_php_cli)
+    if [ -n "$candidate" ] && php_loads_mapguide "$candidate"; then
+        echo "$candidate"
+        return
+    fi
     candidate=$(command -v php 2>/dev/null)
-    if [ -n "$candidate" ] && "$candidate" -m 2>/dev/null | grep -qx 'MapGuideApi'; then
+    if [ -n "$candidate" ] && php_loads_mapguide "$candidate"; then
         echo "$candidate"
     fi
 }
@@ -839,8 +862,15 @@ provision_php_interpreter()
         tarball=$(ls -t "$ARTIFACTS_DIR"/mapguideopensource-*.*.*.*-"$MG_DISTRO"-*.tar.gz 2>/dev/null | head -1)
     fi
     if [ -z "$tarball" ]; then
+        # webserverextensions/php/lib/php.ini is a CMake install artefact, so the directory exists and
+        # looks populated; only the interpreter is absent, because only the full build makes one.
+        if [ -d "$INSTALL_DIR/webserverextensions/php" ] && [ ! -x "$INSTALL_DIR/webserverextensions/php/bin/php" ]; then
+            echo "  >> $INSTALL_DIR/webserverextensions/php has php.ini but no bin/php:"
+            echo "  >>   cmake --install installs the configuration, the interpreter comes from a full build"
+        fi
         echo "  >> No PHP interpreter and no MapGuide release tarball for ${MG_DISTRO:-this distro} in $ARTIFACTS_DIR"
-        echo "  >>   (set MG_DISTRO, or point --artifacts-dir at the directory with the distro tarball)"
+        echo "  >>   (build one with ./build_mapguide_incremental.sh, or point --artifacts-dir at a"
+        echo "  >>    directory with the distro tarball, or pass --php-path)"
         return 0
     fi
     if ! tar -tzf "$tarball" 2>/dev/null | grep -qx 'webserverextensions/php/bin/php'; then
@@ -1010,7 +1040,7 @@ web_suite_unavailable_reason()
         php)
             cmd=$(php_cmd)
             if [ -z "$cmd" ]; then
-                echo "no PHP interpreter with the MapGuide extension (cmake_linuxapt.sh builds it as part of a full build, so cmake --install never provides one; --artifacts-dir with a distro tarball, or --php-path, supplies it)"
+                echo "no PHP interpreter with the MapGuide extension (cmake --install only installs its configuration; run ./build_mapguide_incremental.sh to build one, or supply --php-path / --artifacts-dir with a distro tarball)"
             elif ! "$cmd" -m 2>/dev/null | grep -qx 'MapGuideApi'; then
                 echo "$cmd does not load the MapGuide extension"
             fi
@@ -1345,6 +1375,9 @@ run_web_tier()
             else
                 echo "Web Suite ($suite) skipped: $reason"
                 SKIPPED_SUITES="$SKIPPED_SUITES $suite"
+                # Repeated in the summary: the reason scrolls away between the other suites' output,
+                # and "Skipped suites: php" on its own is the question this line answers.
+                SKIPPED_REASONS="$SKIPPED_REASONS\n  $suite: $reason"
             fi
             continue
         fi
@@ -1616,6 +1649,7 @@ fi
 echo "Suites run: $RUN_SUITES, failed: $FAILED_SUITES (total $((SECONDS - TOTAL_START))s)"
 if [ -n "$SKIPPED_SUITES" ]; then
     echo "Skipped suites:$SKIPPED_SUITES"
+    printf "%b\n" "$SKIPPED_REASONS"
 fi
 if [ "$INTERRUPTED" -ne 0 ]; then
     echo "Interrupted - remaining suites were not run"

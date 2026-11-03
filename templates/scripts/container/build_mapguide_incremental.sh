@@ -21,6 +21,7 @@ DO_INSTALL=0
 PREPARE_ONLY=0
 SKIP_PREPARE=0
 FORCE_SDK=0
+DO_PHP=1
 JOBS=
 FDO_SDK=
 
@@ -140,6 +141,54 @@ prepare()
     fi
 }
 
+# The PHP binding test suite needs an interpreter, and it is the one artefact the incremental
+# targets never produce: the extension is a CMake target, but the interpreter itself is built by
+# cmake_linuxapt.sh, which only a full build used to run. Building it here is a couple of minutes
+# once and makes `run_mapguide_tests.sh --tier web` self-contained in a fresh container.
+ensure_php()
+{
+    if [ "$DO_PHP" -eq 0 ]; then
+        return 0
+    fi
+    prefix=$(sed -n 's/^MG_INSTALL_PREFIX:[A-Z]*=//p' "$BUILD_DIR/CMakeCache.txt")
+    if [ -z "$prefix" ]; then
+        echo "FATAL: $BUILD_DIR/CMakeCache.txt records no MG_INSTALL_PREFIX"
+        exit 1
+    fi
+    php="$prefix/webserverextensions/php/bin/php"
+    if [ -x "$php" ]; then
+        # Existing is not enough: the MapGuide extension is built thread-safe (the web tier runs
+        # Apache's threaded MPM), and a non-thread-safe interpreter refuses to load it with
+        # "Module compiled with build ID=API...,TS / PHP compiled with build ID=API...,NTS".
+        if "$php" -i 2>/dev/null | grep -q "Thread Safety => enabled"; then
+            echo "PHP interpreter already installed ($php)"
+            return 0
+        fi
+        echo "The installed PHP is not thread-safe, which the MapGuide extension requires; rebuilding"
+    fi
+
+    src_dir=$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "$BUILD_DIR/CMakeCache.txt")
+    linuxapt_dir=$(sed -n 's/^MG_LINUXAPT_WORK_DIR:[A-Z]*=//p' "$BUILD_DIR/CMakeCache.txt")
+    oem_dir="$(dirname "$BUILD_DIR")/oem"
+    if [ -z "$src_dir" ] || [ -z "$linuxapt_dir" ] || [ ! -x "$src_dir/cmake_linuxapt.sh" ]; then
+        echo "FATAL: could not work out where to build PHP from"
+        echo "  source: ${src_dir:-?}  linuxapt: ${linuxapt_dir:-?}"
+        exit 1
+    fi
+
+    echo "Building the PHP interpreter into $prefix/webserverextensions/php"
+    echo "  (the PHP binding suite needs it; cmake --install only installs its configuration)"
+    ( cd "$src_dir" && ./cmake_linuxapt.sh --php-only --prefix "$prefix" \
+        --oem-working-dir "$oem_dir" --working-dir "$linuxapt_dir" )
+    check_step "building PHP"
+
+    if [ ! -x "$php" ]; then
+        echo "FATAL: the PHP build produced no $php"
+        exit 1
+    fi
+    echo "PHP interpreter installed: $php"
+}
+
 list_targets()
 {
     require_build_tree
@@ -204,6 +253,9 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
         --reinstall-fdo)
             FORCE_SDK=1
             ;;
+        --no-php)
+            DO_PHP=0
+            ;;
         --fdo-sdk)
             FDO_SDK="$2"
             shift
@@ -225,6 +277,7 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             echo "  --prepare [Install the FDO SDK and atomic.h, then stop without building]"
             echo "  --skip-prepare [Do not install the FDO SDK/atomic.h, just build]"
             echo "  --reinstall-fdo [Re-extract the FDO SDK even if it is already installed]"
+    echo "  --no-php [Do not build the PHP interpreter when it is missing]"
             echo "  --fdo-sdk [FDO SDK tarball to install, default: the one build_thin.sh picks]"
             echo "  --jobs [Parallel build jobs, default: the generator's own default]"
             echo "  --list-targets [List the CMake targets and exit]"
@@ -251,4 +304,5 @@ if [ "$PREPARE_ONLY" -eq 1 ]; then
     exit 0
 fi
 
+ensure_php
 build

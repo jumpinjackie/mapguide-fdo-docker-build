@@ -566,14 +566,37 @@ that build writes next to the glue. On the first run the script:
 The staging copy is why the SVN working copy stays clean: the Windows build writes its generated C#
 into the managed project directories, and nothing here does.
 
-The PHP interpreter is the part that separates the two images. It is built by
-`cmake_linuxapt.sh` as part of a full build and is **not** a CMake install artefact, so
-`cmake --install` puts the extension (`webserverextensions/lib64/libphp_MapGuideApi.so`) in place
-but never an interpreter to load it with. An installed `.run` package and the `build` image have
-one; a `develop_thin` container that only ever ran `build_mapguide_incremental.sh` does not.
+The PHP interpreter is the one artefact no CMake target produces. `cmake --install` puts the
+extension (`webserverextensions/lib64/libphp_MapGuideApi.so`) and the interpreter's configuration
+(`webserverextensions/php/lib/php.ini`) in place, but never an interpreter to load it with: the
+interpreter is built by `cmake_linuxapt.sh`, which a full build runs. An installed `.run` package
+and the `build` image have one out of the box; a `develop_thin` container does not.
 
-Rather than make that a rebuild, the script takes the interpreter from the release tarball that
-`build_thin.sh` already mounts at `/tmp/work/artifacts`:
+`build_mapguide_incremental.sh` therefore builds one, because the alternative was a full MapGuide
+build just to run one suite:
+
+```
+$ /tmp/work/scripts/build_mapguide_incremental.sh
+Building the PHP interpreter into /usr/local/mapguideopensource-4.0.0/webserverextensions/php
+  (the PHP binding suite needs it; cmake --install only installs its configuration)
+...
+PHP interpreter installed: /usr/local/mapguideopensource-4.0.0/webserverextensions/php/bin/php
+```
+
+That is `cmake_linuxapt.sh --php-only`: the same recipe a full build uses, minus httpd, the tomcat
+connector and fusion. Two details follow from not building httpd. It configures PHP **without
+`--with-apxs2`**, because there is no `apxs` yet, so the interpreter has no Apache module — fine for
+the CLI the test suite runs, and a later full build reconfigures the tree with the module. And it
+adds **`--enable-zts`**, because `--with-apxs2` would have implied thread safety and the extension
+is a `TS` module: an `NTS` interpreter refuses to load it (`Module compiled with build ID=API…,TS /
+PHP compiled with build ID=API…,NTS`). The step is idempotent — it is skipped when the installed
+interpreter already reports `Thread Safety => enabled` — and `--no-php` skips it. It costs about
+eight minutes the first time in a container and nothing after that.
+
+With no interpreter and no build step having run, the script falls back to the release tarball that
+`build_thin.sh` already mounts at `/tmp/work/artifacts`, and will also use the CLI straight out of
+the `cmake_linuxapt.sh` build tree if one is there (`<linuxapt>/LinuxApt/php-*/sapi/cli/php`, which
+needs no install at all). The tarball path looks like this:
 
 ```
 Installing the PHP interpreter from mapguideopensource-4.0.0.10232-ubuntu22-amd64.tar.gz
