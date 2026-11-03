@@ -320,7 +320,7 @@ Add `--debug` to `build_thin.sh` to iterate on the ASan/LSan-instrumented tree i
 
 #### Selecting MapGuide suites
 
-`run_mapguide_tests.sh` runs every component suite by default, in the order `mgserver test list` reports them (22 of them, including `CoordinateSystem` and `DrawingService`). `--component <name>` narrows that to the suites you are iterating on, and `--list-components` prints the names:
+`run_mapguide_tests.sh` runs every component suite by default, in the order `mgserver test list` reports them (23 of them, including `CoordinateSystem` and `DrawingService`). `--component <name>` narrows that to the suites you are iterating on, and `--list-components` prints the names:
 
 ```
 /tmp/work/scripts/run_mapguide_tests.sh --mapguide-build-dir /tmp/work/build_area/mapguide \
@@ -354,7 +354,7 @@ One suite fails for a reason that is in the test code rather than the build: `Lo
 
 #### Checking the reactor path (`--run-mode`)
 
-Every `mgserver test <component>` run executes an `MgTestCommand`, so `MgServer::svc()` returns before it reaches its accept handlers, the client/admin/site operation-thread pools and `ACE_Reactor::run_reactor_event_loop()`. None of the 610 test cases therefore covers the path a *real* server takes, and the installer smoke test in `mapguide_smoke_test.sh` needs a packaged `.run` to get at it. The build tree can run the real thing directly, so the runner has a mode for it:
+Every `mgserver test <component>` run executes an `MgTestCommand`, so `MgServer::svc()` returns before it reaches its accept handlers, the client/admin/site operation-thread pools and `ACE_Reactor::run_reactor_event_loop()`. None of the server unit test cases therefore covers the path a *real* server takes, and the installer smoke test in `mapguide_smoke_test.sh` needs a packaged `.run` to get at it. The build tree can run the real thing directly, so the runner has a mode for it:
 
 ```
 /tmp/work/scripts/run_mapguide_tests.sh --mapguide-build-dir /tmp/work/build_area/mapguide \

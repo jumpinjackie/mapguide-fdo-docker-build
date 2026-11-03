@@ -30,7 +30,7 @@
 # those suites expect. `build_mapguide_incremental.sh` does not build the web tier, so the
 # script builds the binding targets and installs the tree itself when they are missing.
 
-COMPONENTS_ALL="CoordinateSystem DrawingService FeatureService Geometry KmlService LogManager MappingService MdfModel Misc Performance RenderingService RasterStylization ResourceService ServerAdminService ServerManager ServiceManager SiteManager SiteService Selection Stylization TileService ProfilingService TransformMesh"
+COMPONENTS_ALL="CoordinateSystem DrawingService FeatureService Geometry GwsQueryEngine KmlService LogManager MappingService MdfModel Misc Performance RenderingService RasterStylization ResourceService ServerAdminService ServerManager ServiceManager SiteManager SiteService Selection Stylization TileService ProfilingService TransformMesh"
 
 # The language binding suites run against a live server. The .NET one exists to check the
 # arrangement that ships: the C# assemblies are compiled from SWIG-generated sources on Linux here,
