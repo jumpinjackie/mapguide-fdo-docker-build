@@ -107,25 +107,22 @@ contract — not the cycle itself. Two experiments settle it (both on a Debug tr
 - The collector that satisfies both marks as *roots* the classes whose refcount is not explained by
   the collection's own reference plus the links from inside the collection, follows their links, and
   detaches only the unmarked (garbage) ones. ~100 lines, and it takes the suite to 0 B with the
-  original `OK (130)`. The landing form adds a non-virtual member and `friend` declarations rather
-  than the prototype's temporary public hooks — no virtual and no data member, so it is ABI-neutral.
+  original `OK (130)`. The form that landed adds a non-virtual member function and `friend`
+  declarations rather than temporary public hooks — no virtual and no data member, so it is
+  ABI-neutral.
 - **Change tracking doubles every link, which the record above missed.** `_StartChanges()` snapshots
   the current link into a *counted* `*CHANGED` member (`m_baseClassCHANGED`, `m_classCHANGED`,
   `m_associatedClassCHANGED`), so a modified element holds two references to the class it points at.
   Any fix has to detach both, and any refcount expectation written against a modified element counts
   both.
 
-A working prototype is kept as [patches/fdo_leak_fixes.patch](../patches/fdo_leak_fixes.patch)
-(paths relative to the FDO source root, so `cd fdo && svn patch ../patches/fdo_leak_fixes.patch`; it also
-carries the aggregate-class factory fix described in the provider record, and does not include the
-unrelated fixes above) rather than landed: it is
-a behaviour change that lands in shipped headers
+The collector is landed (FDO r8430, ticket #1013), together with the aggregate-class factory fix
+described in the provider record. It is a behaviour change in shipped headers
 (`Inc/Fdo/Schema/ClassCollection.h` plus accessor additions on `ClassDefinition.h`,
 `ObjectPropertyDefinition.h` and `AssociationPropertyDefinition.h`), it runs on every schema
-teardown in every provider suite, and the current cycle is `freeze` — the policy gate in
-[AGENTS.md](../AGENTS.md) makes that an escalation, and `FdoFeatureSchema` teardown
-is exercised by MapGuide's schema cache as well as by every FDO consumer, so it wants a deliberate
-change with a release note rather than a leak-plug.
+teardown in every provider suite, and `FdoFeatureSchema` teardown is exercised by MapGuide's schema
+cache as well as by every FDO consumer — which is why it went in as the deliberate change the policy
+gate in [AGENTS.md](../AGENTS.md) asks for, not as a quiet leak-plug.
 
 ## Status
 
@@ -133,7 +130,7 @@ change with a release note rather than a leak-plug.
 |---|---|---|---|
 | `artifacts/Debug/test-logs/Fdo_unit_test_log.txt` (before this pass) | 784 B (4 records) | 8,449,838 B (896 records) | 8,450,622 B in 80,343 allocations |
 | After the fixes (re-measured with the fixes in the tree) | 0 B (0 records) | 220,980 B (50 records) | 220,980 B in 2,418 allocations |
-| With the unlanded cycle collector (see the correction below) | 0 B (0 records) | 0 B (0 records) | 0 B |
+| After the cycle collector landed (FDO r8430) | 0 B (0 records) | 0 B (0 records) | 0 B |
 
 (An earlier run of the same suite, before the first batch of fixes, reported 33,392 B direct; the log
 in `artifacts/` was re-taken part-way through the effort and shows the 784 B figure above.)

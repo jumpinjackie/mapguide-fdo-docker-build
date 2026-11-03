@@ -101,7 +101,7 @@ Inside the container everything lives under `/tmp/work`:
 | `/tmp/work/build_area` | `build_area/<cpu>/<config>/<distro_label>/<target>` | CMake/Ninja build output |
 | `/tmp/work/artifacts` | `artifacts/<config>` | SDK tarballs and packages |
 | `/tmp/work/sdks` | `sdks/` | Oracle Instant Client, etc. |
-| `/tmp/work/patches` | `patches/` | MapGuide patches (MapGuide container only) |
+| `/tmp/work/patches` | `patches/` | scratch hand-over diffs (MapGuide container only, empty when the tree is settled) |
 | `/tmp/work/scripts` | `templates/scripts/container` | build/test scripts |
 | `/tmp/ccache` | `caches/<cpu>/<config>/<target>/<distro_label>/.ccache` | ccache cache |
 

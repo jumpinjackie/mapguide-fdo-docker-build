@@ -92,7 +92,7 @@ tabled with an assessment in the provider doc — read it before re-triaging.
 - **`svn patch`**: the git repo root is *not* an SVN working copy (`fdo/` is). A diff generated from
   the repo root has root-relative paths, so re-apply with `cd fdo && svn patch --strip 1 <patch>`;
   this SVN rejects `-p1`. See `/memories/repo/svn-working-copy.md`.
-- **Attributing a failure to your own change**: `svn diff <file> > /tmp/x.patch`, `svn revert <file>`,
+- **Attributing a failure to your own change**: `svn diff <file> > /tmp/x.diff`, `svn revert <file>`,
   rebuild, run the one fixture, then re-apply — do it all in one command so the tree is never left
   without the change. A whole-suite run that aborted leaves no failure list, so "did I break it?" often
   needs this A/B.

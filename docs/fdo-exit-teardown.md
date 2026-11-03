@@ -26,8 +26,8 @@ Finished running the unit tests.
 
 Measured on the `[RasterStylization]` suite in Release builds: **14 failures in 100 runs
 (14%)**, split between hangs (`timeout` hitting) and `SIGSEGV` — 80 runs on an unmodified
-r10225 working copy and 20 with the band-IO hardening patch applied, i.e. the defect is in
-neither of those change sets. It is not specific to that suite either: `[FeatureService]`
+r10225 working copy and 20 with the band-IO hardening in place, i.e. the defect is in neither of
+those change sets. It is not specific to that suite either: `[FeatureService]`
 was seen doing the same after passing 316 assertions.
 
 Two properties make it easy to misdiagnose:
@@ -98,10 +98,8 @@ Every `m_moduleMap` use goes through `GetModuleMap()`. The `dlclose`/`FreeLibrar
 harmless: the process is exiting, and the values are DSO handles the loader tears down
 itself.
 
-This is in the **FDO working copy**, not MapGuide, so it is a pending change there to be
-committed with `svn commit` (one file) — never committed by an agent — and kept as
-`patches/fdo_connection_manager_static_teardown.patch` for the sibling
-`mapguide-fdo-build-windows` repo. It is platform-neutral: the same
+This is in the **FDO working copy**, not MapGuide: one file, landed as r8421, which reaches the
+sibling `mapguide-fdo-build-windows` repo by `svn update`. It is platform-neutral: the same
 ordering hazard exists on Windows, where `InitClass` is compiled out but `DllMain`'s
 process-detach path runs the same `~FdoConnectionManager`.
 
@@ -115,8 +113,8 @@ Each run is one `mgserver test RasterStylization`, classified by exit code
 |------|--------|------|----------|
 | pristine r10225 | original | 80 | 11 (13.8%) |
 | pristine r10225 | fixed | 80 | **0** |
-| hardening patch applied | original | 20 | 3 (15%) |
-| hardening patch applied | fixed | 20 | **0** |
+| band hardening in place | original | 20 | 3 (15%) |
+| band hardening in place | fixed | 20 | **0** |
 
 At the measured 14% rate, 80 consecutive clean runs have probability below 10⁻⁵, so the
 causality is established rather than inferred from a lucky sample. An earlier 20-run

@@ -22,7 +22,8 @@ Durable content (edited and committed to git):
 - `templates/**` — distro templates and container scripts that generate Dockerfiles
 - `test/**` — `httpyac` integration test suites (`*.http`)
 - `docs/**` — MapAgent OpenAPI spec (`openapi.yaml`, `swagger.html`), the memory-leak records (`fdo-core-memory-leaks.md`, `fdo-provider-memory-leaks.md`, `mapguide-memory-leaks.md`), the exit-teardown record (`fdo-exit-teardown.md`) and `INNER_LOOP_PAIN_POINTS.md`
-- `patches/atomic.h` — the header the MapGuide `snap.sh` scripts copy into the build tree
+- `patches/atomic.h` — the header the MapGuide `snap.sh` scripts copy into the build tree, and the only
+  durable file under `patches/` (see [Source trees](#source-trees) for what the rest of that directory is)
 - `dbs/**` — docker-compose fixtures for database-backed tests
 
 Generated content (never hand-edited; gitignored):
@@ -49,7 +50,17 @@ Rules for working with source trees:
 - Both trees track their current release branches. The MapGuide 4.0 branch has diverged significantly from `trunk`; those changes will eventually be merged back into `trunk`. `svn_checkout.sh` currently checks out `trunk` for both trees and is intentionally left as-is — if a fresh checkout lands on `trunk`, switch to the intended branch manually (for example `svn switch https://svn.osgeo.org/mapguide/branches/4.0/MgDev mapguide/MgDev`).
 - Both source trees compile as **C++11** (`CMAKE_CXX_STANDARD 11` in each tree's top-level `CMakeLists.txt`). See [CPP_STYLE.md](./CPP_STYLE.md) for code guidelines.
 - `add_submodules.sh` / `remove_submodules.sh` are placeholders for a hypothetical future where the upstream SVN repositories are migrated to git. They do not work yet — do not use them.
-- `patches/pending.patch` is a **scratch destination for a `svn diff` dump, not a durable artifact**. `svn diff`, run from the FDO tree root, is piped into it so the whole change set can be read in a text editor before `svn commit`, and the file is deleted afterwards. It sits under `patches/` but, unlike `patches/atomic.h`, it is neither committed to git nor gitignored, so it shows up in `git status` until it goes. Write it when the user asks for the change set to review; otherwise leave it alone — do not keep it in step with the working copy, and never describe it in a commit message (see [Commit messages](#commit-messages-one-scope-per-repository)).
+- `patches/` is a **transfer directory, not storage.** Except for `patches/atomic.h`, everything that
+  lands there is a transient diff of an uncommitted change: it exists to carry work between the Linux
+  build environment and the [mapguide-fdo-build-windows](https://github.com/jumpinjackie/mapguide-fdo-build-windows)
+  one for a fast feedback loop, and is deleted once it has served that purpose. Neither source tree is
+  on git, so there are no feature branches or pull requests to do that job instead — which is exactly
+  why a diff file must not be treated as the record of anything. Delete it rather than keeping it "for
+  reference", keep the directory to `atomic.h` when you are done, and **never cite a patch file in
+  `docs/**`, a commit message or a code comment**: a change is described by the source file plus the
+  revision or ticket it landed as, never by the diff that carried it. `svn diff` is still the way to
+  review a change set (dump it under `/tmp`, or under `patches/` only while it is being handed over);
+  it is not the way to remember one.
 
 ### Source of truth and history
 
@@ -57,7 +68,7 @@ The local SVN working copies are the only source of truth — `fdo/` and `mapgui
 
 - The GitHub repositories `jumpinjackie/fdo` and `jumpinjackie/fdo_cmake` are **unofficial by-products of abandoned SVN→Git experiments**. They are not authoritative, may be stale or divergent, and must **not** be used as a point of reference or cited for behaviour, capabilities or history.
 - For history, query the working copy with the read-only SVN commands instead of any mirror: `svn log [-l N] [-r REV] path`, `svn blame`, `svn diff -r A:B`, `svn cat -r REV path`, `svn info`. Never `svn commit` (see the rules above).
-- The sibling [mapguide-fdo-build-windows](https://github.com/jumpinjackie/mapguide-fdo-build-windows) repo builds these same upstream branches from its own working copies. A source fix made here reaches that repo by `svn update` once it is committed upstream (the user commits; you never do — see the rules above), or by applying the same diff there while it is still uncommitted; what must not happen is the fix being re-derived independently in the other repo. Do not treat `patches/pending.patch` as the transport — it is scratch (see [Source trees](#source-trees)).
+- The sibling [mapguide-fdo-build-windows](https://github.com/jumpinjackie/mapguide-fdo-build-windows) repo builds these same upstream branches from its own working copies. A source fix made here reaches that repo by `svn update` once it is committed upstream (the user commits; you never do — see the rules above), or by handing that repo a diff of the change while it is still uncommitted and deleting the diff afterwards; what must not happen is the fix being re-derived independently in the other repo. Such a diff is a message, not a record — see [Source trees](#source-trees).
 
 ### Commit messages: one scope per repository
 
@@ -79,8 +90,9 @@ one of them and must **not** mention files the other one owns:
   `mapguide/MgDev`. `/fdo/` and `/mapguide/MgDev` are gitignored, so git has no record of them and
   they are not part of any commit you can make here — those edits are committed with `svn commit`,
   after the user has reviewed the `svn diff` dump.
-- `patches/pending.patch` is a copy of the very diff the message describes, so it must never appear in
-  the message — it is not a path in either change set.
+- A diff written under `patches/` is a copy of the very change set the message describes, so it must
+  never appear in the message — it is not a path in either change set, and it will not exist by the
+  time anyone reads the message.
 - The git-tracked files most often mistaken for source-tree content are the `docs/**` pages that
   describe source-tree fixes (`docs/fdo-core-memory-leaks.md`, `docs/fdo-provider-memory-leaks.md`,
   `docs/generic-rdbms-framework.md`) and `patches/atomic.h`, which the MapGuide build consumes. They are
@@ -501,8 +513,8 @@ the nodes whose stack reference an action already consumed).
   class, an object property's class, a physical table's dependency list (`mSubDeletedTables`) and a
   table's base-object links are all cross-references between siblings, and a sibling pair that
   references each other survives the container that owned them both. When the container is going away
-  it can break them (see the class-cycle collector in `patches/fdo_leak_fixes.patch`, which detaches
-  only the members nothing outside the container holds); when a *drop* is the only moment the list is
+  it can break them (see the class-cycle collector in `FdoClassCollection`, which detaches only the
+  members nothing outside the container holds); when a *drop* is the only moment the list is
   needed, clear it there (`FdoSmPhPostGisTable::CommitChildren`). Detaching every link unconditionally
   is the trap — it changes what an externally-held sibling sees, and a fixture that asserts on that is
   stating the contract.

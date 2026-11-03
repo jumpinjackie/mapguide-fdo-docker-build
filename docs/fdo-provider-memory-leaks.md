@@ -160,8 +160,7 @@ The recurring shapes in these suites are:
 | ODBC | The reserved-word map, a class-static `std::map`, was destroyed twice at process exit | `Providers/GenericRdbms/Src/ODBC/SchemaMgr/Ph/Mgr.h`, `.../Ph/Mgr.cpp` | Same shape as the SQL Server Spatial one, but this map is live — `FdoSmPhOdbcMgr::IsDbObjectNameReserved()` consults it — so it could not simply be removed. It is now a function-local static inside that method: initialised once, with one destructor registration, so the second `__cxa_finalize`/`__run_exit_handlers` pass has nothing left to destroy. Found when the SQL Server fixtures first ran on Linux; it is invisible under a normal Debug run because LeakSanitizer exits before the static destructors. |
 ## What the class-cycle collector removes, and what it leaves
 
-The `FdoClassDefinition` cycle collector prototyped in
-[patches/fdo_leak_fixes.patch](../patches/fdo_leak_fixes.patch) (see the measured result in
+The `FdoClassDefinition` cycle collector in `FdoClassCollection` (see the measured result in
 [docs/fdo-core-memory-leaks.md](./fdo-core-memory-leaks.md)) runs at `FdoClassCollection` teardown, so it
 only helps a suite where a schema's class collection is actually destroyed. A suite that leaks a whole
 *connection* keeps its schema manager, its class collections and every class in them alive, so the

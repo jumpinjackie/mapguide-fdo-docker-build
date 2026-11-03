@@ -1067,9 +1067,8 @@ provider defect; all three are now fixed:
 
 Beyond those, the run went on to leave 1,312 indirect records (1,746,736 B in 19,888 allocations), all of
 which two later `SchemaMgr` ownership fixes cleared; that
-drop came from the class-cycle collector and the PostGIS/SDF table-dependency fixes in
-[patches/fdo_leak_fixes.patch](../patches/fdo_leak_fixes.patch), not from a provider change. The largest
-family there was the extended coordinate system catalogue —
+drop came from the class-cycle collector and the PostGIS/SDF table-dependency fixes (FDO r8430), not
+from a provider change. The largest family there was the extended coordinate system catalogue —
 `FdoSmPhSqsOwner::LoadExtendedCoordinateSystems()` alone accounted for 618 KB in 14 records, and it was
 new only because fix 15 makes the file load at all (when the name did not resolve, nothing was read and
 nothing could leak). After it came the schema-document graphs every RDBMS suite carries:
