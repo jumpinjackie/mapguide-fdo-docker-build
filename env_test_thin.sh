@@ -7,6 +7,8 @@ ROOT=$(realpath .)
 SCRIPT_ROOT=$ROOT/templates/scripts/container
 INTERACTIVE=0
 BUILD_CONF=Release
+# Extra arguments for run_mapguide_tests.sh (--tier, --web-suite)
+RUN_ARGS=
 
 test_fdo_env()
 {
@@ -65,7 +67,7 @@ test_mapguide_env()
     then
         "$DOCKER_CMD" run --rm -it -e MG_BUILD_CONFIG=$BUILD_CONF -e MG_DISTRO=$distro -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e FDOSDK=$fdosdk -e CCACHE_DIR=/tmp/ccache -v $patches_dir:$container_root/patches${DOCKER_VOLUME_OPT} -v $ccache_dir:/tmp/ccache${DOCKER_VOLUME_OPT} -v $build_area_dir:$container_root/build_area${DOCKER_VOLUME_OPT} -v ${log_path}:/logs${DOCKER_VOLUME_OPT} -v $src_dir:$container_root/src${DOCKER_VOLUME_OPT} -v $fdo_src_dir:$container_root/fdo_src${DOCKER_VOLUME_OPT} -v $artifacts_dir:$container_root/artifacts${DOCKER_VOLUME_OPT} -v $sdks_dir:$container_root/sdks${DOCKER_VOLUME_OPT} -v ${SCRIPT_ROOT}:/scripts${DOCKER_VOLUME_OPT} $DOCKER_RUN_EX_ARGS $DOCKER_RUN_AS_ROOT_ARGS $container_name /bin/bash
     else
-        "$DOCKER_CMD" run --rm -it -e MG_BUILD_CONFIG=$BUILD_CONF -e MG_DISTRO=$distro -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e FDOSDK=$fdosdk -e CCACHE_DIR=/tmp/ccache -v $patches_dir:$container_root/patches${DOCKER_VOLUME_OPT} -v $ccache_dir:/tmp/ccache${DOCKER_VOLUME_OPT} -v $build_area_dir:$container_root/build_area${DOCKER_VOLUME_OPT} -v ${log_path}:/logs${DOCKER_VOLUME_OPT} -v $src_dir:$container_root/src${DOCKER_VOLUME_OPT} -v $fdo_src_dir:$container_root/fdo_src${DOCKER_VOLUME_OPT} -v $artifacts_dir:$container_root/artifacts${DOCKER_VOLUME_OPT} -v $sdks_dir:$container_root/sdks${DOCKER_VOLUME_OPT} -v ${SCRIPT_ROOT}:/scripts${DOCKER_VOLUME_OPT} $DOCKER_RUN_EX_ARGS $DOCKER_RUN_AS_ROOT_ARGS $container_name /scripts/run_mapguide_tests.sh --log-path /logs --mapguide-build-dir $container_root/build_area/mapguide
+        "$DOCKER_CMD" run --rm -it -e MG_BUILD_CONFIG=$BUILD_CONF -e MG_DISTRO=$distro -e FDO_VER_TRIPLE=$FDO_VER_TRIPLE -e FDOSDK=$fdosdk -e CCACHE_DIR=/tmp/ccache -v $patches_dir:$container_root/patches${DOCKER_VOLUME_OPT} -v $ccache_dir:/tmp/ccache${DOCKER_VOLUME_OPT} -v $build_area_dir:$container_root/build_area${DOCKER_VOLUME_OPT} -v ${log_path}:/logs${DOCKER_VOLUME_OPT} -v $src_dir:$container_root/src${DOCKER_VOLUME_OPT} -v $fdo_src_dir:$container_root/fdo_src${DOCKER_VOLUME_OPT} -v $artifacts_dir:$container_root/artifacts${DOCKER_VOLUME_OPT} -v $sdks_dir:$container_root/sdks${DOCKER_VOLUME_OPT} -v ${SCRIPT_ROOT}:/scripts${DOCKER_VOLUME_OPT} $DOCKER_RUN_EX_ARGS $DOCKER_RUN_AS_ROOT_ARGS $container_name /scripts/run_mapguide_tests.sh --log-path /logs --mapguide-build-dir $container_root/build_area/mapguide $RUN_ARGS
     fi
 }
 
@@ -92,6 +94,14 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
         --debug)
             BUILD_CONF=Debug
             ;;
+        --tier)
+            RUN_ARGS="$RUN_ARGS --tier $2"
+            shift
+            ;;
+        --web-suite)
+            RUN_ARGS="$RUN_ARGS --web-suite $2"
+            shift
+            ;;
         --help)
             echo "Usage: $0 (options)"
             echo "Options:"
@@ -99,6 +109,8 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             echo "  --distro [the distro you are targeting, ubuntu|generic]"
             echo "  --cpu [x86|x64]"
             echo "  --debug [Test the debug build area and ccache]"
+            echo "  --tier [server|web|all - MapGuide only, forwarded to run_mapguide_tests.sh]"
+            echo "  --web-suite [Web tier suite for --tier web, repeatable, MapGuide only]"
             echo "  --help [Display usage]"
             exit
             ;;
@@ -108,6 +120,11 @@ done
 
 . fdo_version.sh
 . mapguide_version.sh
+
+if [ -n "$RUN_ARGS" ] && [ "$TARGET" != "mapguide" ]; then
+    echo "FATAL: --tier and --web-suite only apply to --target mapguide"
+    exit 1
+fi
 
 case "$TARGET" in
     fdo)

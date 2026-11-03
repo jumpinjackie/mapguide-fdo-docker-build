@@ -5,6 +5,8 @@
 
 ROOT=$(realpath .)
 SCRIPT_ROOT=$ROOT/templates/scripts/container
+# Extra arguments for run_mapguide_tests.sh (--tier, --web-suite)
+RUN_ARGS=
 
 test_fdo_env()
 {
@@ -29,7 +31,7 @@ test_mapguide_env()
     # podman will not create a missing bind mount source for us
     mkdir -p "${log_path}"
 
-    "$DOCKER_CMD" run --rm -it -v ${log_path}:/logs${DOCKER_VOLUME_OPT} -v ${SCRIPT_ROOT}:/scripts${DOCKER_VOLUME_OPT} $DOCKER_RUN_EX_ARGS $DOCKER_RUN_AS_ROOT_ARGS $container_name /scripts/run_mapguide_tests.sh --log-path /logs --mapguide-build-dir /usr/local/src/mapguide/build
+    "$DOCKER_CMD" run --rm -it -v ${log_path}:/logs${DOCKER_VOLUME_OPT} -v ${SCRIPT_ROOT}:/scripts${DOCKER_VOLUME_OPT} $DOCKER_RUN_EX_ARGS $DOCKER_RUN_AS_ROOT_ARGS $container_name /scripts/run_mapguide_tests.sh --log-path /logs --mapguide-build-dir /usr/local/src/mapguide/build $RUN_ARGS
 }
 
 TARGET=fdo
@@ -49,18 +51,33 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             CPU="$2"
             shift
             ;;
+        --tier)
+            RUN_ARGS="$RUN_ARGS --tier $2"
+            shift
+            ;;
+        --web-suite)
+            RUN_ARGS="$RUN_ARGS --web-suite $2"
+            shift
+            ;;
         --help)
             echo "Usage: $0 (options)"
             echo "Options:"
             echo "  --target [mapguide|fdo]"
             echo "  --distro [the distro you are targeting, ubuntu|generic]"
             echo "  --cpu [x86|x64]"
+            echo "  --tier [server|web|all - MapGuide only, forwarded to run_mapguide_tests.sh]"
+            echo "  --web-suite [Web tier suite for --tier web, repeatable, MapGuide only]"
             echo "  --help [Display usage]"
             exit
             ;;
     esac
     shift   # Check next set of parameters.
 done
+
+if [ -n "$RUN_ARGS" ] && [ "$TARGET" != "mapguide" ]; then
+    echo "FATAL: --tier and --web-suite only apply to --target mapguide"
+    exit 1
+fi
 
 case "$TARGET" in
     fdo)

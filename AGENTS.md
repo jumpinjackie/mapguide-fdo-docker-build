@@ -227,6 +227,7 @@ or `./make_installer_all.sh` for all combinations.
 | Build all thin images | `./build_all_thin_images.sh` | |
 | Unit tests (thin) | `./env_test_thin.sh --target fdo \| mapguide --distro ubuntu22 --cpu x64` | Runs inside the `develop_thin` container. May be flaky. |
 | Reactor-path check | Inside the container: `/tmp/work/scripts/run_mapguide_tests.sh --mapguide-build-dir /tmp/work/build_area/mapguide --run-mode` | Runs the real server (`mgserver run`), waits for the client port, stops it with SIGTERM and requires a clean exit. The only coverage of `MgServer::svc()`'s reactor branch; no packaging needed. |
+| Web tier tests | Inside the container: `/tmp/work/scripts/run_mapguide_tests.sh --log-path /tmp/work/artifacts/test-logs --mapguide-build-dir /tmp/work/build_area/mapguide --tier web` | Runs the C++ web tier runner and the PHP/Java/.NET binding suites, each against a server the script starts and stops itself. `--tier all` runs the server suites as well; `--web-suite` selects one. |
 | Unit tests (build image) | `./env_test.sh --target fdo \| mapguide --distro ubuntu22 --cpu x64` | Runs inside the `build` container. |
 | Install + smoke test | `./mapguide_image_install.sh --target ubuntu22 \| generic --target-distro <img> --tag <tag>` | Installs the `.run` package and runs the smoke test. |
 | Installer shell | `./image_install.sh --docker-image <img>` | Drops into a container with the installer mounted and `$PWD/packages` mounted over the installed server's `Packages` dir (`--volume host:container[:opts]` adds more mounts, `--no-packages` skips that one). |
@@ -251,6 +252,19 @@ There are two levels of tests:
    smoke test. Use `--run-mode` when the change is in `Server/src/Core`, the accept handlers or
    `MgThreadBase`/the thread pools; it needs no packaged `.run` and fails on a shutdown hang, a
    non-zero exit, a missing `Server stopped` marker and any LeakSanitizer summary.
+
+   The **web tier** suites (`Web/src/WebTestRunner`, `Bindings/src/Test/{Java,Php}`) need a running
+   server too, and `run_mapguide_tests.sh --tier web` is the only way to run them: it builds and
+   installs the binding artifacts when the install does not have them, stages a writable copy of the
+   test pack under the log path, and brackets each suite with the same start/stop/shutdown check
+   `--run-mode` uses, so a suite only passes if the server also shut down cleanly. Two things are
+   theirs rather than the runner's: the PHP suite needs an interpreter, which `cmake --install`
+   never provides (it comes from `cmake_linuxapt.sh` in a full build), so the runner takes it from
+   the distro release tarball under `/tmp/work/artifacts` — a `develop_thin` container that has
+   neither that tarball nor an interpreter skips the suite, and
+   the Java suite needs the `sqlite4java` Linux native checked in under
+   `Bindings/src/Test/Java/extlib`. [README.md § 4.6](./README.md#46-running-the-web-tier-test-suites)
+   has the per-suite prerequisites.
 
 2. **HTTP API suites** — `test/*.http` are `httpyac` request files run against a live MapGuide server (started via `mapguide_image_install.sh`):
 
@@ -726,7 +740,7 @@ The pipeline behind all of it starts at `Bindings/src/Bindings/MapGuideApi/MapGu
 
 ### Which build produces which binding
 
-Both full builds run `cmake_build.sh`, which sets `-DWITH_JAVA=TRUE`, and `Bindings/src/Bindings/CMakeLists.txt` always adds `Php` outside the common subset — so the `ubuntu22` and `generic` full builds both emit the Java and PHP bindings. The .NET glue is built **only** by the extra common-subset pass that `build_mapguide_generic.sh` runs (`--common-subset-only`), and its `mapguideopensource-common-*.tar.gz` is the tarball the Windows build consumes; on Linux that pass compiles the native `*UnmanagedApi` libraries only — the C# proxies are compiled on Windows, as `Bindings/src/Bindings/DotNet/Foundation/CMakeLists.txt` states outright. A `.i` change that reaches the .NET binding is therefore not validated by a Linux-only build.
+Both full builds run `cmake_build.sh`, which sets `-DWITH_JAVA=TRUE`, and `Bindings/src/Bindings/CMakeLists.txt` always adds `Php` outside the common subset — so the `ubuntu22` and `generic` full builds both emit the Java and PHP bindings. The .NET glue is built **only** by a common-subset pass (`--common-subset-only`) — the one `build_mapguide_generic.sh` runs, and the one `run_mapguide_tests.sh --tier web` runs for its `dotnet` suite — and its `mapguideopensource-common-*.tar.gz` is the tarball the Windows build consumes; that pass compiles the native `*UnmanagedApi` libraries, and the C# proxies are compiled on Windows from the C# that the same pass generates. A `.i` change that reaches the .NET binding is therefore exercised by `--tier web` locally (the suite compiles that generated C# and runs it against the glue), but still needs a Windows build to validate the packaged assemblies.
 
 ### Checking a change
 
@@ -805,6 +819,8 @@ See [CPP_STYLE.md](./CPP_STYLE.md) — applies to edits under `MgDev` and `fdo`.
 - **Release vs Debug** — a Debug (ASan) pass does not validate the Release build. Release's optimiser assumes `this` is never NULL and deletes the NULL guards that Debug's `-O0` keeps, so a suite can pass in Debug and segfault in Release; run the affected suite in **both** configurations. See the NULL-`this` note in [CPP_STYLE.md](./CPP_STYLE.md).
 - **Shipped-header changes** — check the [current mode](#current-cycle) first. A change to a header the SDK installs can move the provider-facing ABI; see [FDO API/ABI compatibility](#fdo-apiabi-compatibility) for how to rule it in or out. For `mapguide` the equivalent question is whether the binding surface moved, not whether a C++ class did; see [MapGuide API/ABI compatibility](#mapguide-apiabi-compatibility).
 - **Container-based validation** — run it in the container that is already running for that target and build configuration (`$DOCKER_CMD exec`), not in a freshly started one; see [Running commands inside build containers](#running-commands-inside-build-containers).
+- **A byte source built over a directory wedges the socket protocol on POSIX.** `open()` succeeds on a directory there and `lseek(SEEK_END)` returns `LLONG_MAX`, so an `MgByteSource` over one serializes a stream header claiming 2^63-1 bytes; the first `read()` then fails with `EISDIR` *after* that header, leaving the peer in `recv_n` forever and the connection desynchronised — a hang, not a failure. `ByteSourceFileImpl::LoadFile` now rejects a directory with `MgFileIoException` (Windows failed the open outright all along), which is what let the three binding runners stop skipping `ApplyResourcePackage` off Windows. The wedge itself is general: any client that dies mid-`WriteStream` strands a server operation thread, because nothing bounds what a client may declare.
+- **Web tier changes (`Web/src`, `Bindings/src/Test`)** — `run_mapguide_tests.sh --tier web` in the container that is already running: it runs the web tier runner and the three binding suites against a server it starts and stops, and reports each suite's own summary. A change to the binding glue needs the binding target rebuilt (`php_MapGuideApi<ver>` / `MapGuideJavaApi<ver>`) before the suite can see it; the script builds and installs them when the install is stale, so `--no-install` is only for checking what is already installed. The `dotnet` suite is different: its glue comes from a separate `--common-subset-only` tree beside the build area, which the script builds on first use — that tree's `Bindings/src/Bindings/DotNet` targets are ordered by their `%include` graph because the C# generation writes into the source tree, so do not remove those `add_dependencies` lines to "speed up" the build.
 - **Memory-leak fixes** — a full run of the affected suite in the baseline Debug container, reporting the before/after leak totals and the direct-record count, plus an update to the matching `docs/*memory-leaks.md`. For MapGuide the suite is the whole server (`run_mapguide_tests.sh --component all`); a clean single-suite run is not the same evidence, because each process's exit-time races are different. See [Debugging memory leaks](#debugging-memory-leaks-asanlsan).
 - **Locking/thread-safety changes** — reproduce the failure first (a deadlock proves itself: single-threaded process, no CPU, waiting in `futex_do_wait`), then show the affected suite green. A lock that only exists for Windows cannot be signed off by reading the diff, because the two platforms do not share the semantics being changed — see **Platform locking semantics** above.
 - **Thread-lifecycle or server-shutdown changes** (`MgThreadBase`, the pools, `MgServer::fini()`, accept handlers) — `run_mapguide_tests.sh --run-mode` in the baseline container as well as `--component all`: the suites never enter `MgServer::svc()`'s reactor branch, so a shutdown hang or a leak in that branch is invisible to them.

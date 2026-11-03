@@ -769,6 +769,17 @@ following are the traps most likely to cost you a day.
 - **Driver failure paths leak.** Because the driver has no RAII or exceptions, an early `return`
   on an error must free what it allocated (`mysql_real_connect` failing without `mysql_close`, a
   dropped `new[]`). This is a recurring defect class in the RDBI drivers.
+- **A geometry column's SRID is sometimes not knowable.** The PostGIS filter processor binds the
+  filter geometry with the SRID of the physical column, which it reads from `geometry_columns`. A
+  column without a typmod — a bare `geometry` column, or a view over an expression such as
+  `COALESCE(pt, ln)`, which does not propagate it — is reported there as SRID 0 while its rows
+  keep the SRID they were written with. PostGIS then rejects the *whole* query with "Operation on
+  mixed SRID geometries" as soon as a bounding box overlaps, which a caller such as MapGuide's
+  `SELECTFEATURES` surfaced as an empty result (MapGuide ticket #2841). `GetSRID()` returns `-1`
+  for those columns, and `FdoRdbmsPostGisFilterProcessor` answers with `ST_SetSRID(col,0)` on the
+  column operand of the exact predicate (and of `ST_Distance`) so the comparison is by coordinate;
+  the SRID-insensitive `&&` pre-filter stays on the raw column so the spatial index is still used.
+  Any new geometry predicate must do the same, or it will fail only for the typmod-less columns.
 - **Two lock semantics, one shim.** The SQLite provider (not GenericRdbms, but the same era) shims
   `CRITICAL_SECTION`, which is recursive, onto a POSIX mutex, which is not. If you introduce a
   lock in GenericRdbms code that was written against Windows behaviour, check whether a

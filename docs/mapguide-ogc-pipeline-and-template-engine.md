@@ -372,7 +372,10 @@ Consequences:
 - Comparison is lexical, so `1.10.0` would sort below `1.2.0`. The code comments acknowledge this.
 - A Debug build additionally accepts `VERSION=REGRESS`, which is how `Wms:REGRESS.xml` is exercised;
   the negotiation is bypassed and `TemplateVersion=REGRESS` is defined
-  ([OgcServer.cpp:1665](../mapguide/MgDev/Web/src/HttpHandler/OgcServer.cpp#L1665)).
+  ([OgcServer.cpp:1665](../mapguide/MgDev/Web/src/HttpHandler/OgcServer.cpp#L1665)). The
+  `webtestrunner` suite owns that exercise: `Wms_GetCapabilities_OgcServerSelfTest` in
+  `Web/src/WebTestRunner/OgcTest.cpp` sends the `VERSION=REGRESS` request and passes only when the
+  template reports every one of its `<Test>` elements as `<Success/>` (see § 11 item 4).
 
 ### 3.4 Template document shape and response selection
 
@@ -1256,7 +1259,8 @@ Security-relevant observations (not vulnerabilities in themselves, but the bound
   a restricted file-tag character set, and the path comes from `serverconfig.ini`, not the request.
 - **`EnumDictionary` deliberately suppresses `Request.PASSWORD`.** That is the only built-in redaction.
 - **Debug-only surface.** `VERSION=REGRESS` selects `Wms:REGRESS.xml` and `<?Diagnostic?>` exists, but
-  both are compiled out of Release (`_DEBUG`).
+  both are compiled out of Release (`_DEBUG`). `Wms_GetCapabilities_OgcServerSelfTest` is guarded the
+  same way, so a Release `webtestrunner` run simply has no such case.
 
 ---
 
@@ -1276,10 +1280,13 @@ information per unit of effort:
 3. **Confirm the round trip through files.** `strace -f -e trace=openat,read` the mapagent for one
    request and look for `Wms/1.3.0.xml.awd` being opened on each request (no template cache), and for
    the `wfs*.xml` temp file on GetFeature.
-4. **Exercise the language.** Use a Debug build and `VERSION=REGRESS` (which selects
-   `Wms:REGRESS.xml`), or add a scratch `<Response>` to a copy of a template, to test:
-   `<?Enum subset=...?>` separators; a non-nesting `If`; `&'...;` versus `&...;`; `<?Unescape?>`;
-   an `&` without `;`.
+4. **Exercise the language.** The `webtestrunner` suite already does this: in a Debug build,
+   `Wms_GetCapabilities_OgcServerSelfTest` requests `VERSION=REGRESS`, which selects
+   `Wms:REGRESS.xml`, and asserts on the template's own `<Success/>`/`<Failure/>` verdict for each of
+   its nine tests (`.http`-free but the same idea). To probe behaviour the template does not yet
+   cover, add a `<Test>` to it — or a scratch `<Response>` to a copy of a version template — to check
+   `<?Enum subset=...?>` separators; a non-nesting `If`; `&'...;` versus `&...;`; `<?Unescape?>`; an
+   `&` without `;`.
 5. **Confirm the transport caveat.** Run a GetFeature over CGI (not ISAPI/Apache) with a response that
    is an exact multiple of 8192 bytes and watch for an over-read under ASan/Valgrind. This validates
    quirk 20.

@@ -160,6 +160,19 @@ Or, inside the interactive build container:
 
 `run_fdo_tests.sh` always runs the Core/SDF/SQLite/OGR/GDAL/SHP suites and installs FDO first (`cmake --build . --target install`). It reports the elapsed time of the install step and of each suite, plus the total at the end of the run. The MapGuide runner drives `mgserver test <component>` for each component `mgserver test list` reports, with a 5 minute timeout per suite; [4.4](#44-the-mapguide-rapid-inner-loop) covers selecting individual suites and how the runner decides pass from fail.
 
+`run_mapguide_tests.sh` runs the web tier suites too, which is the only way to run them: they need a running server, and the script owns that lifecycle. `--tier web` runs the C++ web tier runner and the PHP and Java binding suites, and `--tier all` runs those and the server suites in one go:
+
+```
+# Server suites (the default), web tier suites, or both
+/tmp/work/scripts/run_mapguide_tests.sh --log-path /tmp/work/artifacts/test-logs --mapguide-build-dir /tmp/work/build_area/mapguide
+/tmp/work/scripts/run_mapguide_tests.sh --log-path /tmp/work/artifacts/test-logs --mapguide-build-dir /tmp/work/build_area/mapguide --tier web
+/tmp/work/scripts/run_mapguide_tests.sh --log-path /tmp/work/artifacts/test-logs --mapguide-build-dir /tmp/work/build_area/mapguide --tier all
+```
+
+Web tier output is namespaced under `<log-path>/webtier/`, so it sits beside the FDO and `mgserver` logs without colliding with them.
+
+[4.6](#46-running-the-web-tier-test-suites) covers what each suite is and what the script does for it.
+
 `run_fdo_tests.sh` points `NLSPATH` at the generated message catalogues in the build tree when the caller has not already set it, and echoes the value it ends up using. This matters because `env_test.sh`/`env_test_thin.sh` export `NLSPATH` themselves when they start the one-shot container, whereas a hand-run inside an interactive container has nobody to do it — and without it FDO falls back to raw message symbols (for example `FDOSM_220`) instead of resolved English text, which fails every test that asserts on message text (including `FdoApplySchemaTest::TestSchema`).
 
 It also generates the system locales the SHP suite switches between (`en_US.iso88591`, `en_US.utf8`, `fr_FR.iso88591`, `ja_JP.eucjp`), and resets the generated SHP test data before that suite, because those tests create filesets with `IDF_CREATE_NEW` and a leftover from an earlier run fails a later one. The reset deletes `Providers/SHP/TestData` in the build area and copies the tree back from the FDO sources the build was configured against (the `CMAKE_HOME_DIRECTORY` entry in the build tree's `CMakeCache.txt`), so the suite always starts from the state a fresh build has. `TestData/clean`, the script the FDO sources ship, is only the fallback for when those sources cannot be located: it removes `*Generated.*`, `*.idx`, `schema.xml` and `Testing/`, but leaves `TestingSC/`, `InsertTest_default_values/` and the sidecars some tests create inside the shipped data directories behind. `InsertTests::insert_with_locale` calls `setlocale` without checking the result, so when a locale is missing the previous one stays in effect and the round-tripped value mismatches — the test then reports `incorrect street value` rather than naming the unavailable locale.
@@ -422,6 +435,195 @@ The King Oracle suite takes no init file. `run_fdo_tests.sh` points it at the co
 `host.docker.internal` works under Podman and Docker Desktop, and under Docker on Linux when the container is run with `--add-host=host.docker.internal:host-gateway`; Podman also provides the native alias `host.containers.internal`. To target a different host, edit the `service=` value in the file.
 
 > ODBC DSNs must be configured separately on Linux, as the dynamic DSN setup in the FDO sources is Windows-only. The SQL Server fixtures do not need a DSN (they use the `DRIVER=...` connection string) and run with `--with-odbc-sqlserver`; the Access fixtures build a `DRIVER={MDBTools};DBQ=...` string and run with `--with-odbc-access`. The remaining file-based fixtures (Excel/dBase/Text) still need drivers that only exist on Windows. What the provider can and cannot open on Linux — the mdbtools read-only and SQL-parser limits, and why the `.xls`/`.dbf`/`.txt` story has no Linux equivalent of the Windows Access Database Engine — is in [docs/odbc-linux-support.md](./docs/odbc-linux-support.md).
+
+### 4.6 Running the web tier test suites
+
+The web tier is the part of MapGuide that a client talks to: the mapagent HTTP handlers and the
+language bindings that sit on top of them. Its suites live in the source tree as
+`Web/src/WebTestRunner` (a Catch2 binary) and `Bindings/src/Test/{Java,Php}` (the binding test
+runners), and they all have the same problem: each one drives a *running* MapGuide Server, so
+"run the tests" means start a server, set half a dozen environment variables, run the suite and
+shut the server down again — per suite, because the binding suites leave resources behind.
+
+`run_mapguide_tests.sh --tier web` does all of that, for every suite:
+
+```
+/tmp/work/scripts/run_mapguide_tests.sh --mapguide-build-dir /tmp/work/build_area/mapguide \
+    --log-path /tmp/work/artifacts/test-logs --tier web
+```
+
+`--log-path` is the same mounted log root [4.3](#43-run-unit-test-suites) points the FDO and
+`mgserver` suites at, so a web tier run writes *beside* their logs rather than into the container's
+throw-away current directory (which is what the option defaults to). Everything it produces — the
+per-suite logs, each suite's server log, the ant build log and the staged test pack — goes under
+`/tmp/work/artifacts/test-logs/webtier/`, which is `artifacts/<Release|Debug>/test-logs/webtier/` on
+the host (`artifacts/**` is gitignored), so the logs outlive the container.
+
+| Suite | What it runs | Needs |
+|-------|--------------|-------|
+| `webtestrunner` | `Web/src/WebTestRunner`, the in-process Catch2 tests over the mapagent HTTP handlers | the build tree (target `MgWebTestRunner`) |
+| `java` | `Bindings/src/Test/Java`, built with ant into `MgUnitTest.jar` | ant, java, `MapGuideApi.jar` and `libMapGuideJavaApi.so` from the install |
+| `php` | `Bindings/src/Test/Php`, `RunTests.php` | the PHP 8.3 interpreter *and* the MapGuide extension from the install |
+| `dotnet` | `Bindings/src/Test/DotNet` (the `net6.0` runner), built with `dotnet build` | the .NET SDK and swig; the `lib*UnmanagedApi.so` glue, which the script builds |
+
+`webtestrunner` also carries the OGC template engine's own self-test: in a Debug build,
+`Wms_GetCapabilities_OgcServerSelfTest` asks the WMS service for `VERSION=REGRESS`, which selects
+`server/Wms/REGRESS.xml.awd`, and fails unless the template reports every one of its checks as
+`<Success/>`. The case is compiled out of Release, where the `REGRESS` version hook does not exist
+(see [docs/mapguide-ogc-pipeline-and-template-engine.md](./docs/mapguide-ogc-pipeline-and-template-engine.md#33-version-negotiation)).
+
+What it does before each suite runs, which is what used to be manual:
+
+1. **Installs the build tree into its install prefix when the web tier artifacts are missing**
+   (`MG_INSTALL_PREFIX` from the build tree's `CMakeCache.txt`, normally
+   `/usr/local/mapguideopensource-4.0.0`). The PHP extension, the Java glue library and the API jar
+   are only ever built as part of the web tier, and `build_mapguide_incremental.sh` builds neither,
+   so the script builds those targets and runs `cmake --install .` itself. `--no-install` turns
+   that off and reports what is missing instead.
+2. **Stages a test pack** under `<log-path>/webtier/testpack` — a copy of `UnitTest/TestData`, of
+   `Bindings/src/Test/Php`, and the `Sheboygan.mgp` package, which `UnitTest/TestData` ships the
+   sources for but not the archive. The suites write the sqlite fixtures they generate next to the
+   `.dump` files, so they get a copy: the SVN working copy stays clean.
+3. **Copies the WFS/WMS service documents into the build tree.** `serverconfig.ini` points
+   `WfsDocumentPath`/`WmsDocumentPath` at `<build>/Server/src/Core/{Wfs,Wms}`, but nothing in the
+   build populates them: `Server/src/Core/CMakeLists.txt` copies `Resources` and `Schema` into the
+   build tree, while `Server/src/CMakeLists.txt` only *installs* the two document directories, to
+   `<prefix>/server/{Wfs,Wms}` for an installed server. A server run out of the build tree without
+   them answers every WFS and WMS request with
+   `The specified file was not found: <build>/Server/src/Core/Wfs/OgcWfsService.config.awd`, which
+   is exactly what the `Wfs_*` and `Wms_*` cases assert on. The script copies
+   `Server/src/{Wfs,Wms}/*.awd` there before any server starts (and before `--run-mode`), touching
+   only files whose content differs, so a repeat run is silent.
+4. **Starts the server, runs the suite, stops the server**, and judges the shutdown the way
+   `--run-mode` does — exit 0, `Server stopped` in the log, no LeakSanitizer summary. A suite only
+   passes if the server also shut down cleanly. Each suite gets its own server log
+   (`<log-path>/webtier/mapguide_server_<suite>.log`).
+5. **Exports what the suites expect**: `MENTOR_DICTIONARY_PATH`, `MG_TEST_DATA_PATH`,
+   `MG_TEST_WEBCONFIG_PATH` and `LC_CTYPE=C.UTF-8`, from the install and the staged pack.
+
+A suite is judged by the summary it prints, not by its exit code: the binding runners print
+`Tests failed/run: <failed>/<run>` as their last line and exit with the failure count, and a run
+that aborts before printing it (a PHP fatal error, for instance) is a failure. `--web-suite` picks
+individual suites; naming one makes its prerequisites required, while `--web-suite all` (the
+default) skips what this install cannot run and lists it under `Skipped suites`.
+`--reset-repository` deletes the server's `Repositories` directory before the run, which is the only
+way to get a pristine server without recreating the container; the suites are otherwise designed to
+clean up after themselves.
+
+The `dotnet` suite is what checks the .NET arrangement the packages are assembled from. The C#
+assemblies are only ever compiled on Windows, and the Linux `lib*UnmanagedApi.so` glue libraries are
+overlaid on those binaries and bundled into the NuGet packages, so what ships is Windows-compiled C#
+P/Invoking Linux glue — a pairing nothing used to exercise. There is no `MgWebTestRunner`-style
+target for it: the glue comes from a **common-libs subset build** (the CMake option that adds
+`Bindings/DotNet`, which a full build does not), and the C# comes from the SWIG-generated sources
+that build writes next to the glue. On the first run the script:
+
+1. builds that subset beside the main build tree (`<build-area>/mapguide_commonlibs`, installing to
+   `mapguide_commonlibs/install` so nothing is mixed into the web tier install), which includes
+   building SWIG from source if it is not on `PATH` — about two minutes with a warm ccache. The five
+   modules generate one after another rather than all at once, because `IMake` writes
+   `<Api>Api_Properties.i` into the source tree while each module `%include`s the `.i` files the
+   earlier ones generate: run concurrently, one module reads another's fragments mid-write and SWIG
+   fails with `Unterminated %{ ... %}` in `<Api>Api_Doc.i` or `Unable to find
+   '<Api>Api_Properties.i'`. That ordering is the `add_dependencies` line each
+   `Bindings/src/Bindings/DotNet/*/CMakeLists.txt` carries;
+2. stages `Bindings/src/Managed` and `Bindings/src/Test/DotNet`, drops the generated `.cs` into the
+   managed projects, and rewrites the test projects' `OSGeo.MapGuide.*` package references to those
+   local projects, so the run tests *this* tree's assemblies against *this* tree's glue rather than
+   whatever version is on nuget.org;
+3. runs `TestRunner` against the live server, with `LD_LIBRARY_PATH` pointing at the glue directory
+   and `DOTNET_ROLL_FORWARD=Major` (the projects target `net6.0`; the image's SDK is newer).
+
+The staging copy is why the SVN working copy stays clean: the Windows build writes its generated C#
+into the managed project directories, and nothing here does.
+
+The PHP interpreter is the part that separates the two images. It is built by
+`cmake_linuxapt.sh` as part of a full build and is **not** a CMake install artefact, so
+`cmake --install` puts the extension (`webserverextensions/lib64/libphp_MapGuideApi.so`) in place
+but never an interpreter to load it with. An installed `.run` package and the `build` image have
+one; a `develop_thin` container that only ever ran `build_mapguide_incremental.sh` does not.
+
+Rather than make that a rebuild, the script takes the interpreter from the release tarball that
+`build_thin.sh` already mounts at `/tmp/work/artifacts`:
+
+```
+Installing the PHP interpreter from mapguideopensource-4.0.0.10232-ubuntu22-amd64.tar.gz
+  >> /usr/local/mapguideopensource-4.0.0/webserverextensions/php/bin/php
+```
+
+Only `webserverextensions/php` is extracted — the rest of that tarball is the packaged build, and
+unpacking it over the install would replace the libraries this run just built with the packaged
+ones. The tarball is chosen for `MG_DISTRO` and never "any tarball", for the same reason the FDO
+SDK is: one built for another distro links a different set of thirdparty libraries. If neither an
+interpreter nor a matching tarball can be found the suite is skipped with that reason and the other
+suites still run; `--artifacts-dir` points at a different directory, `--php-path` at a specific
+interpreter (and a `--php-path` that does not exist is a hard error rather than a silent skip).
+
+The Java suite reads its `.dump` fixtures through `sqlite4java`, which loads a native library
+per platform. The Windows ones have always been checked in under `Bindings/src/Test/Java/extlib`;
+`libsqlite4java-linux-amd64.so` now sits beside them, and `Bindings/src/Test/Java/README.txt`
+records where it came from and how it is verified. Without it every dump-driven Java test fails
+with `no sqlite4java-linux-amd64 in java.library.path`.
+
+A Debug web tier run is also a LeakSanitizer run of the server, exactly like `--run-mode`, so it
+fails on a leak summary even when every suite passed. Both the server and the C++ runner process
+report one, and the records are in
+[docs/mapguide-memory-leaks.md](./docs/mapguide-memory-leaks.md); a Debug run of the four suites now
+comes back with no report from either:
+
+- 17,168 B in 12 allocations (server, `Wfs_*` cases) from `TransformCache::GetLayerToMapTransform`:
+  the `reverse == false` direction is deliberately not cached, so the entry it returns belongs to the
+  caller, and `MgWfsQueryAdapter::SetOptions` used to keep only its transform and drop the entry.
+- 2,560 B in 20 allocations (the runner process, `Wms_*` cases) from
+  `MgHttpWmsGetFeatureInfo::GetSelectionGeometry`, whose `linearRingCoords->Add(new MgCoordinateXY(...))`
+  dropped the reference `Add()` does not consume, once per corner per request.
+- 3,156 B in 30 allocations (server, every binding suite) from the SDF schema graph: a describe with
+  a schema name that does not match the file's read a whole schema copy and then threw
+  `SDFPROVIDER_58_INVALID_SCHEMANAME`, abandoning it. It is the one report that is all-indirect —
+  every chunk is reachable from another leaked chunk, never from a live one — so it reads as a cycle
+  when it is a lost reference on an exception path.
+
+`mgserver`'s records are what used to make the *suite* verdict fail even though its tests passed; the
+runner's are printed underneath the passing summary. Both are now silent, so a Debug web tier run
+green on assertions is also a green verdict.
+
+> The corrupt-DWF fixture (`DrawingService_MasterApiTest` feeding a truncated package through
+> `MgServerDrawingServiceUtil::OpenDrawingResource`) used to kill the server in a Debug container:
+> DWFTK's `DWFException` copy constructor over-read the message buffer
+> (`AddressSanitizer: heap-buffer-overflow` in `__interceptor_wcslen`, from `throw e;` on the
+> caught `DWFInvalidTypeException`), after which every later call failed with "Cannot establish
+> connection to the MapGuide Server". `DWFCore::DWFException` never terminated its 512-character
+> message buffer — it zeroed `nBytes + 2` bytes, so the two zeroed bytes landed in the low half of
+> the first `wchar_t` past the copy and the uninitialised high half made it non-zero — and the
+> constructor, copy constructor and assignment operator all did it. They now share one bounded
+> copy that always terminates; see `Oem/DWFTK/develop/global/src/dwfcore/Exception.cpp`. The same
+> over-read was happening silently in Release, where there is no ASan to catch it.
+>
+> The defect is Linux-only in effect, which is why it went unnoticed: `2` in `nBytes + 2` is two
+> *bytes*, and on Windows `sizeof(wchar_t)` is 2, so the old code did zero a whole terminator there
+> — the buffers the fix produces are byte-for-byte identical to what Windows already had (verified
+> by modelling both implementations with a 2-byte and a 4-byte character type, and at the 511/512
+> truncation boundary). It only ran off the end where `wchar_t` is 4 bytes. The change is
+> behaviour-neutral on Windows, uses no new language features (it still compiles as C++98, which
+> the VC 8.0 project's `/W4 /WX` build needs), and needs no project-file change: the Windows build
+> compiles the same `Exception.cpp` through `Oem/DWFTK/develop/global/build/VC 14.0/DWFCore/DWFCore.vcxproj`
+> into the `dwfcore_wt.1.7.0.lib` that `ServerDrawingService.vcxproj` links.
+
+> `ResourceService_ApplyResourcePackageApiBranchTest` carried a second, unrelated "will kill the
+> mgserver" record — the `FIXME` all three binding runners threw off Windows — and it was not a
+> DWFTK problem. Param set 18002's `PACKAGE` is empty, which the runners resolve to the working
+> directory, and on POSIX `open()` succeeds on a directory while `lseek(SEEK_END)` reports
+> `LLONG_MAX` for it. `MgByteSource` therefore produced a reader that serialized a stream header
+> declaring 2^63-1 bytes, the first `read()` then failed with `EISDIR` *after* that header had gone
+> out, and the server's `MgStreamReader::GetStream` was left waiting for data that never arrived:
+> the operation thread never returned and the connection stayed desynchronised, so the suite hung
+> rather than failed. Windows fails the directory open outright, which is why it only ever bit on
+> Linux. `ByteSourceFileImpl::LoadFile` now rejects a directory with `MgFileIoException`, so the
+> reader throws before it is serialized, and the three runners run the operation everywhere: the
+> four param sets give `mgfileioexception`, `mginvaliddwfpackageexception` (not a zip),
+> `mginvaliddwfpackageexception` (corrupt zip) and success. That took the binding suites from
+> 1/614 (Java), 4/700 (.NET) and 5/593 (PHP) to 0/618, 0/700 and 1/593 — the one PHP failure left
+> is the unrelated `GETDRAWINGLAYER` binary comparison.
 
 ## 5. Running integration test suites
 

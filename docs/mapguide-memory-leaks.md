@@ -52,6 +52,15 @@ still live.
 610 test cases with 608 passing in both runs; the two failures are `TestLogManager.cpp:152` and
 `:228` before and after, so they are not related to the leak work.
 
+The **web tier** suites (`run_mapguide_tests.sh --tier web`) are instrumented the same way, and they
+reported three more families, all now closed:
+
+| Suite | Before | After |
+|-------|--------|-------|
+| `webtestrunner` (server) | 17,168 B in 12 allocations (1 direct + 5 indirect) | no report |
+| `webtestrunner` (the runner process itself) | 2,560 B in 20 allocations (20 direct) | no report |
+| `java` / `php` / `dotnet` (server) | 3,156 B in 38 allocations (30 records, all indirect) | no report |
+
 ## The fixes
 
 | Record (before) | Root cause | Fix |
@@ -67,6 +76,9 @@ still live.
 | 272 B direct - `MgResourceIdentifier` at `TestKmlService.cpp:298` | `MgServerKmlService::GetPointStyleImageUrl` used `layer->GetLayerDefinition()->ToString()` inline | hold the definition id in a `Ptr<MgResourceIdentifier>` and reuse it for the later lookup |
 | 3 x 48 B direct - `FdoStringElement` in `MgToFdoStringCollection` | `MgFdoForcedOneToOneFeatureReader::GetIdentityHash` used a raw `FdoStringElement*` for `FdoStringCollection::GetItem()` | `FdoPtr<FdoStringElement>` |
 | 4,216 B + 4,097 B + 16 B direct (`ACE_Log_Msg`, its buffer, `ACE_Thread_Exit`) - a thread spawned by `ACE_Thread_Adapter::invoke` | MapGuide spawned its log/worker/operation threads with `THR_DETACHED`, so the `ACE_Task::wait()` in `MgLogManager::StopLogThread`/`MgServerManager::StopWorkerThreads`/`MgServer::svc` returned in 0 us without waiting. `main()` then called `ACE::fini()` with the log thread still running, so ACE's TSS machinery was finalised before that thread exited and its per-thread ACE state was never released | spawn joinable threads in `MgThreadBase::Activate()` (`THR_NEW_LWP` without `THR_DETACHED`), which makes the existing waits actually wait |
+| 17,168 B / 12 records (1 direct) - `TransformCache` + its `MgCSTrans`/CS-Map transform, from `MgOpGetWfsReader` | `TransformCache::GetLayerToMapTransform` deliberately does not cache the `reverse == false` (feature-to-map) direction, because a map-to-feature entry with the same WKT key would answer the wrong way round, so it returns a fresh entry the caller owns - and `MgWfsQueryAdapter::SetOptions` kept only `item->GetMgTransform()` and dropped the entry | hold the entry in a `unique_ptr` in `SetOptions` (the transform it carries is reference counted, so `m_xform` is unaffected), and document the ownership contract on `GetLayerToMapTransform` |
+| 2,560 B / 20 direct - `MgCoordinateXY` from `MgHttpWmsGetFeatureInfo::GetSelectionGeometry` | `linearRingCoords->Add(new MgCoordinateXY(...))` - `MgCoordinateCollection::Add()` takes its own reference, so the one `new` returned was dropped, once per corner per GetFeatureInfo request | give each of the four corners a `Ptr<MgCoordinateXY>` and add the first one twice to close the ring |
+| 3,156 B / 30 indirect records - the SDF schema graph behind `MgServerDescribeSchema::DescribeSchemaAsXml` | `SdfConnection::GetSchema(..., bNewCopyFromFile = true)` reads a whole schema from the file and then validates the requested schema name; on a mismatch it threw `SDFPROVIDER_58_INVALID_SCHEMANAME` and abandoned the copy, which still referenced its class collection, classes, properties and strings. An all-indirect report is the signature here: every chunk is reachable from another leaked chunk (the schema's raw parent links), not from a live one | hold the fresh copy in an `FdoPtr` while the name is validated and `Detach()` it on the way out, so the throwing path releases it; the borrowed `m_dbSchema->GetSchema()` result is still returned untouched |
 
 ## The ACE allocations that only appear in a single-suite run
 
