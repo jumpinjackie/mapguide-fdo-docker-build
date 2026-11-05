@@ -1,0 +1,16 @@
+<Project>
+
+  <!--
+    generate.sh writes the ProjectReference to ./Client into the test project. Some editors and
+    formatters rewrite that generated .csproj back to an earlier buffer, which silently drops the
+    reference and makes every `using MapGuide.MapAgent.Client;` fail to compile.
+
+    This file is imported after the project body, so it only adds the reference when the project
+    lost it. Keeping the invariant here means the harness still builds no matter who rewrites the
+    generated csproj.
+  -->
+  <ItemGroup Condition="'@(ProjectReference)' == ''">
+    <ProjectReference Include="$(MSBuildThisFileDirectory)../Client/MapGuide.MapAgent.Client.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,8 @@
+# Generated client + build output for the OpenAPI C# client harness.
+# See README.md. Regenerate with ./generate.sh.
+Client/
+Tests/MapGuide.MapAgent.OpenApi.Tests.csproj
+bin/
+obj/
+TestResults/
+*.user
