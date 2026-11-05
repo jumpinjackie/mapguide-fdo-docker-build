@@ -372,12 +372,15 @@ then
     popd >& /dev/null
 fi
 
-# The GenericRdbms provider suites load their provider through the FDO registry, and on Linux that
-# registry is providers.xml beside libFDO -- which a build tree does not have, so FDO falls back to
-# the installed one. Its entries are bare library names ("libMySQLProvider.so"), which dlopen()
-# resolves through LD_LIBRARY_PATH, so every one of these suites needs the install location on the
-# path. This has to be exported before the first of them: with it set only for the GDAL/SHP suites
-# further down, MySQL failed all 221 of its fixtures with "Cannot open libMySQLProvider.so".
+# The GenericRdbms provider suites load their provider through the FDO registry. Putting the install
+# on LD_LIBRARY_PATH also selects the installed libFDO -- it wins over the test binary's DT_RUNPATH --
+# so these suites run the installed core against the installed providers.xml, whose entries are bare
+# library names ("libMySQLProvider.so") that dlopen() resolves through this same path. This has to be
+# exported before the first of them: with it set only for the GDAL/SHP suites further down, MySQL
+# failed all 221 of its fixtures with "Cannot open libMySQLProvider.so". The SQL Server Spatial suite
+# below overrides it to empty because it has to run the provider in the build tree; that suite finds
+# its own registry in the test binary's directory (FdoRegistryUtility::GetFileName() probes next to
+# the executable, not the working directory).
 export LD_LIBRARY_PATH="/usr/local/fdo-4.2.0/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 if [ -f "$TEST_ODBC" ];

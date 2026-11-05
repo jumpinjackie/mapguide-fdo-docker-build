@@ -21,7 +21,7 @@ Durable content (edited and committed to git):
 - Top-level `*.sh` build and utility scripts
 - `templates/**` — distro templates and container scripts that generate Dockerfiles
 - `test/**` — `httpyac` integration test suites (`*.http`)
-- `docs/**` — MapAgent OpenAPI spec (`openapi.yaml`, `swagger.html`), the memory-leak records (`fdo-core-memory-leaks.md`, `fdo-provider-memory-leaks.md`, `mapguide-memory-leaks.md`), the exit-teardown record (`fdo-exit-teardown.md`) and `INNER_LOOP_PAIN_POINTS.md`
+- `docs/**` — MapAgent OpenAPI spec (`openapi.yaml`, `swagger.html`), the memory-leak records (`fdo-core-memory-leaks.md`, `fdo-provider-memory-leaks.md`, `mapguide-memory-leaks.md`, `portable-memory-leaks.md`), the binding ownership/measurement guide (`mapguide-bindings-memory-guide.md`) and its portable agent-instructions form for application repositories (`mapguide-bindings-agent-guidance.md`), the exit-teardown record (`fdo-exit-teardown.md`) and `INNER_LOOP_PAIN_POINTS.md`
 - `patches/atomic.h` — the header the MapGuide `snap.sh` scripts copy into the build tree, and the only
   durable file under `patches/` (see [Source trees](#source-trees) for what the rest of that directory is)
 - `dbs/**` — docker-compose fixtures for database-backed tests
@@ -240,6 +240,7 @@ or `./make_installer_all.sh` for all combinations.
 | Unit tests (thin) | `./env_test_thin.sh --target fdo \| mapguide --distro ubuntu22 --cpu x64` | Runs inside the `develop_thin` container. May be flaky. |
 | Reactor-path check | Inside the container: `/tmp/work/scripts/run_mapguide_tests.sh --mapguide-build-dir /tmp/work/build_area/mapguide --run-mode` | Runs the real server (`mgserver run`), waits for the client port, stops it with SIGTERM and requires a clean exit. The only coverage of `MgServer::svc()`'s reactor branch; no packaging needed. |
 | Web tier tests | Inside the container: `/tmp/work/scripts/run_mapguide_tests.sh --log-path /tmp/work/artifacts/test-logs --mapguide-build-dir /tmp/work/build_area/mapguide --tier web` | Runs the C++ web tier runner and the PHP/Java/.NET binding suites, each against a server the script starts and stops itself. `--tier all` runs the server suites as well; `--web-suite` selects one. |
+| MgPortable tests | Inside the container: `/tmp/work/scripts/run_mapguide_tests.sh --log-path /tmp/work/artifacts/test-logs --mapguide-build-dir /tmp/work/build_area/mapguide --tier portable` | Builds the `<build-dir>_commonlibs` tree with `WITH_PORTABLE` (and ASan in Debug), then runs the C++ Catch2 runner and the .NET `DotNetUnitTest` runner. `--portable-suite cpp\|dotnet` selects one; `--tier all` includes them. |
 | Unit tests (build image) | `./env_test.sh --target fdo \| mapguide --distro ubuntu22 --cpu x64` | Runs inside the `build` container. |
 | Install + smoke test | `./mapguide_image_install.sh --target ubuntu22 \| generic --target-distro <img> --tag <tag>` | Installs the `.run` package and runs the smoke test. |
 | Installer shell | `./image_install.sh --docker-image <img>` | Drops into a container with the installer mounted and `$PWD/packages` mounted over the installed server's `Packages` dir (`--volume host:container[:opts]` adds more mounts, `--no-packages` skips that one). |
@@ -278,6 +279,16 @@ There are two levels of tests:
    `Bindings/src/Test/Java/extlib`. [README.md § 4.6](./README.md#46-running-the-web-tier-test-suites)
    has the per-suite prerequisites.
 
+   The **portable** suites (`Portable/UnitTest`, `Portable/DotNetUnitTest`) are selected with
+   `--tier portable`. MgPortable links `MgGwsCommon`/`MgGwsQueryEngine` and the DWF Toolkit, so the
+   runner builds the `<build-dir>_commonlibs` tree with `--with-portable` (it also builds those two
+   in a common-subset tree) and `--with-asan` when the main tree is Debug. The C++ runner is
+   LeakSanitizer-instrumented in Debug; on Windows it honours `MG_CRT_LEAK_CHECK=1` to redirect the
+   CRT leak report to stderr. The .NET runner is built for `net6.0` on Linux **for testing only** —
+   the packaged C# assemblies still come from the Windows build. `--tier all` includes both.
+   [README.md § 4.7](./README.md#47-building-and-testing-mgportable) has the details, including the
+   `mapguideopensource-portable-*` tarball and the `setup_linux_native_libs.cmd` overlay.
+
 2. **HTTP API suites** — `test/*.http` are `httpyac` request files run against a live MapGuide server (started via `mapguide_image_install.sh`):
 
    ```
@@ -311,6 +322,12 @@ hides (that is how the stranded `ACE_Log_Msg` records in
 [docs/mapguide-memory-leaks.md](./docs/mapguide-memory-leaks.md#the-ace-allocations-that-only-appear-in-a-single-suite-run)
 showed up). Use single-suite runs to attribute a family, and `--component all` as the number you
 report.
+
+The MgPortable runner (`run_mapguide_tests.sh --tier portable --portable-suite cpp`) is instrumented
+the same way in a Debug tree, and its record is
+[docs/portable-memory-leaks.md](./docs/portable-memory-leaks.md). It is a single Catch2 process, so
+it is judged by "no records at all" rather than by a server-sized total: a clean Debug run is 215
+test cases with no `Direct leak`, no `Indirect leak` and no `SUMMARY: AddressSanitizer` line.
 
 Two triage tools earn their keep on this tree: `ASAN_OPTIONS=fast_unwind_on_malloc=0` when the fast
 unwinder stops inside `libstdc++`/`libxerces`/`libACE` and the record cannot name its owner (the
@@ -630,11 +647,13 @@ being *reachable* rather than destroyed at teardown was not good enough.
   and `templates/scripts/container`), and read or delete container-written logs through
   `podman unshare`. See [Running commands inside build containers](#running-commands-inside-build-containers).
 - With the one-shot fallback, each `run --rm` is a **fresh container**, so the install step is not
-  optional and its effect does not carry over: a provider that the suite loads *by name* (SHP opens
-  `OSGeo.SHP`, for example) is `dlopen`ed, and the installed `/usr/local/fdo-4.2.0/lib64` has no
-  `ld.so.conf` entry, so run with `LD_LIBRARY_PATH=/usr/local/fdo-4.2.0/lib64`. Without it the
-  connection manager cannot load the provider, tests fail with an exception whose teardown then
-  dereferences a NULL connection and the run dies with an unrelated-looking SEGV in the *test* code.
+  optional and its effect does not carry over. Run with `LD_LIBRARY_PATH=/usr/local/fdo-4.2.0/lib64`:
+  the runner and its libraries are found through that path. (A provider registered in `providers.xml`
+  no longer needs it — the connection manager resolves it next to that file — but a suite binary
+  built in a build tree still needs the directory on the path for `libFDO`/`libExpressionEngine`
+  themselves.) Without the install the connection manager cannot load the provider, tests fail with
+  an exception whose teardown then dereferences a NULL connection and the run dies with an
+  unrelated-looking SEGV in the *test* code.
 - Export `NLSPATH` at the build tree's generated message catalogues
   (`NLSPATH=$(pwd)/nls/linux/en_US/%N`, from the build area root) when you run a suite binary
   directly instead of through `run_fdo_tests.sh`, which defaults it itself. Without it every test
@@ -642,6 +661,10 @@ being *reachable* rather than destroyed at teardown was not good enough.
   (`FDOSM_220`) rather than English — it looks like a regression from your change but is purely the
   environment. In the OGR suite that is `TestCase_EvalQuotedIdentifier`,
   `TestCase_SelectBadReaderProperties` and `TestCase_SelectAggregateBadReaderProperties`.
+  MapGuide's own tests do not need this: `MgPortablePlatform::Initialize()` derives `NLSPATH` from
+  the configured `FdoPath` (`<fdo root>/nls`, `<fdo root>/nls/linux/en_US` and `<FdoPath>/nls`,
+  whichever exist) and prepends them to whatever is already set, so an MgPortable consumer only has
+  to configure `FdoPath`. That is why the portable suites pass with `NLSPATH` unset.
 - The SHP suite additionally needs `locale-gen en_US en_US.UTF-8 fr_FR ja_JP.EUC-JP` and its
   `Providers/SHP/TestData` reset, the same way `run_fdo_tests.sh` does, or it reports locale
   failures and stale filesets instead of the real result.
@@ -715,6 +738,54 @@ A Debug and a Release build of the same source are **different runtimes**, not t
 - The two configurations differ in optimisation, and therefore in what the object code expects at a boundary — see the NULL-`this` note in [CPP_STYLE.md](./CPP_STYLE.md).
 
 Keep each tree's `build_area/**` and installed FDO (`/usr/local/fdo-4.2.0`) belonging to the configuration being built, and reinstall FDO in the tree that consumes it rather than pointing one configuration at the other's artefacts. This is the Linux counterpart of the Windows rule that a provider DLL and `FDO.dll` must share toolset and flag flavour (`/MD` vs `/MDd`, `_ITERATOR_DEBUG_LEVEL`).
+
+### The FDO install is relocatable — do not hardcode its prefix
+
+A moved FDO tree works: every library in the SDK (plus the gdal/xerces/xalan that the `generic`
+build bundles) carries `$ORIGIN` as its runtime path, `providers.xml` is installed beside `libFDO`,
+and a provider registered there is `dlopen`ed **by absolute path resolved against the directory of
+that `providers.xml`** (`FdoRegistryUtility::GetLibraryLocation`), so the directory does not have to
+be on the loader's search path. `providers.xml` itself is found next to `libFDO` (`br_locate`, a
+`dladdr()` call rather than a `/proc/self/maps` scan that only matched when `.rodata` happened to sit
+in an executable segment), then in the **running executable's** directory, then via
+`$FDOHOME/lib64/providers.xml`, then `$FDOHOME/lib/providers.xml`, and only then the compiled-in
+`/usr/local/fdo-4.2.0`. The working directory is never consulted.
+
+The executable's directory is the probe a **build tree** depends on: it keeps one registry per
+provider suite next to that suite's test binary — the same place the Windows build puts it, beside the
+`FDO.dll` copied into each test's output directory — while a build tree's single `libFDO` has no
+`providers.xml` beside it. Before that probe existed, a build tree only worked *because* `br_locate()`
+failed: `SELFPATH` fell back to `./`, and the registry was found relative to the working directory
+instead. Do not rely on that — a `br_locate()` that resolves (to libFDO's directory) silently moves
+every build-tree suite onto the installed registry, which is exactly how the SQL Server Spatial suite
+lost its provider registration; see
+[docs/sqlserver-spatial-linux-support.md](./docs/sqlserver-spatial-linux-support.md#validation).
+
+Two consequences for anything that packages FDO (the MgPortable tarball, an installer, a test
+harness): keep the libraries and `providers.xml` in one directory **named `lib64`** if `FDOHOME` is
+what points at it, and never assume the consumer has `/usr/local/fdo-<ver>` — when that directory
+exists on the target, the fallback silently uses *its* `providers.xml` and therefore its providers.
+
+The MgPortable tarball keeps FDO as one top-level `fdo/` subtree (`fdo/lib64`, `fdo/nls`), so a
+consumer can carry it as a unit. MapGuide libraries find it because every library that *uses* FDO
+(`libMgPortable`, `libPortableUnmanagedApi`, `libMgGwsCommon`, `libMgGwsQueryEngine`,
+`libMgStylization`) installs with `MG_PORTABLE_INSTALL_RPATH` =
+`$ORIGIN:$ORIGIN/../../lib64:$ORIGIN/../fdo/lib64` — the middle entry is the install tree
+(`<prefix>/portable/lib64` beside `<prefix>/lib64`), the last is the tarball. Adding a library that
+uses FDO to that set is part of packaging it; without the entry it only resolved by luck, because
+whichever library loaded FDO first had already put it in the link map under its soname.
+
+The authority for "does this library use FDO" is `nm -D --undefined-only <lib> | grep Fdo` (254 for
+`libMgPortable`, 226 for `libMgGwsQueryEngine`, 71 for `libMgGwsCommon`, 46 for `libMgStylization`,
+0 for `libMgRenderers` and `libMgGwsResource`) and, on Windows, whether the `.vcxproj` imports
+`FDO.dll` — the two agree. Do not infer it from `DT_NEEDED` alone: with the plain
+`target_link_libraries` signature CMake propagates a dependency transitively and the Linux link runs
+without `--as-needed`, so a library can record an entry it never uses. That is why `MgStylization`
+declares FDO `PRIVATE` — `MgRenderers` links it and uses no FDO symbol, and before that change it
+recorded `libFDO`/`libExpressionEngine` purely by inheritance. `MgGwsResource` is an empty stub with
+no `DT_NEEDED` at all, and its build-tree rpath comes out as a run of empty segments, so it is given
+no `INSTALL_RPATH`.
+
 
 ### Checking a revision range
 
@@ -835,6 +906,7 @@ See [CPP_STYLE.md](./CPP_STYLE.md) — applies to edits under `MgDev` and `fdo`.
 - **SWIG is pinned to 4.3.1 on both platforms; never take it from the distro.** The bindings are generated by SWIG proper and one version must generate all of them, so the version `MgDev/cmake_bootstrap.sh` builds (4.3.1 today) is the only one allowed: `find_package(SWIG 4.1)` accepts anything *newer*, so a distro package silently changes the generated Java/PHP glue while the .NET glue the same tree produced came from another SWIG. The images therefore ship no SWIG package, and `run_mapguide_tests.sh` installs the pinned release over `/usr/local/bin/swig` when what is there is not it, refuses to build a tree configured against another version, and regenerates the common-libs subset when that one was. Do not add a `swig` line to a `cmd_prepare_*` template to "fix" a missing SWIG — read the version from the bootstrap, which is what the harness does. Windows pins the same version by convention rather than by a check: `$(SWIG_DIR)` is expected to be a 4.3.1 binary install, and the `*.vcxproj` ask it for the C# glue. Because both platforms run one SWIG, the **flag set** passed to `swig -csharp` is what decides whether the two produce the same C#, so it must not drift: `Bindings/src/Bindings/DotNet/*/CMakeLists.txt` passes the same four suppressions the `*.vcxproj` do, and `-DSWIG_CSHARP_NO_WSTRING_EXCEPTION_HELPER` is load-bearing — 4.3 no longer emits the `SWIGWStringHelper` class, and without that flag its remaining user (the exception helper) still references it, which does not compile (CS0103). Suppressing the class instead is the trap: that combination was measured to emit references with no class definition.
 - **The PHP interpreter is not a CMake artefact.** `cmake --install` installs the extension and `webserverextensions/php/lib/php.ini`, never an interpreter, so the PHP suite needs one from elsewhere: `build_mapguide_incremental.sh` now builds it with `cmake_linuxapt.sh --php-only` (the full-build recipe without httpd/tomcat/fusion), and `run_mapguide_tests.sh` otherwise uses the release tarball, a `--php-path`, or the CLI already built in `<linuxapt>/LinuxApt/php-*/sapi/cli/php`. Two things about that build are load-bearing and easy to lose: it configures **without `--with-apxs2`** (no `apxs` in a thin container) and therefore must pass **`--enable-zts`**, because the extension is a `TS` module and an `NTS` interpreter refuses to load it; and the reuse test in `build_php()` compares both settings against the tree's `config.nice`, so a tree built the other way is reconfigured rather than silently reused.
 - **Web tier changes (`Web/src`, `Bindings/src/Test`)** — `run_mapguide_tests.sh --tier web` in the container that is already running: it runs the web tier runner and the three binding suites against a server it starts and stops, and reports each suite's own summary. A change to the binding glue needs the binding target rebuilt (`php_MapGuideApi<ver>` / `MapGuideJavaApi<ver>`) before the suite can see it; the script builds and installs them when the install is stale, so `--no-install` is only for checking what is already installed. The `dotnet` suite is different: its glue comes from a separate `--common-subset-only` tree beside the build area, which the script builds on first use — that tree's `Bindings/src/Bindings/DotNet` targets are ordered by their `%include` graph because the C# generation writes into the source tree, so do not remove those `add_dependencies` lines to "speed up" the build.
+- **MgPortable changes (`Portable/**`, `Bindings/src/Bindings/DotNet/Portable`)** — `run_mapguide_tests.sh --tier portable` in the baseline Debug container (and the affected suite again in a Release tree). The runner builds the `<build-dir>_commonlibs` tree with `WITH_PORTABLE` and ASan in Debug; the C++ runner is the leak-report carrier and the .NET runner is built for `net6.0` on Linux only for testing. A change to the portable native surface also needs the portable tarball produced by `build_mapguide_generic.sh` and the `setup_linux_native_libs.cmd` overlay checked — that tarball now carries the whole FDO install (`lib64/` merged, plus `nls/`), which is what makes it usable on a machine with no `/usr/local/fdo-<ver>`; see [The FDO install is relocatable](#the-fdo-install-is-relocatable--do-not-hardcode-its-prefix). See [README.md § 4.7](./README.md#47-building-and-testing-mgportable).
 - **Memory-leak fixes** — a full run of the affected suite in the baseline Debug container, reporting the before/after leak totals and the direct-record count, plus an update to the matching `docs/*memory-leaks.md`. For MapGuide the suite is the whole server (`run_mapguide_tests.sh --component all`); a clean single-suite run is not the same evidence, because each process's exit-time races are different. See [Debugging memory leaks](#debugging-memory-leaks-asanlsan).
 - **Locking/thread-safety changes** — reproduce the failure first (a deadlock proves itself: single-threaded process, no CPU, waiting in `futex_do_wait`), then show the affected suite green. A lock that only exists for Windows cannot be signed off by reading the diff, because the two platforms do not share the semantics being changed — see **Platform locking semantics** above.
 - **Thread-lifecycle or server-shutdown changes** (`MgThreadBase`, the pools, `MgServer::fini()`, accept handlers) — `run_mapguide_tests.sh --run-mode` in the baseline container as well as `--component all`: the suites never enter `MgServer::svc()`'s reactor branch, so a shutdown hang or a leak in that branch is invisible to them.

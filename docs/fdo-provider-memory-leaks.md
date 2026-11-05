@@ -100,6 +100,7 @@ The recurring shapes in these suites are:
 | SDF | `SdfUpdate::Execute` only released the optimizer's filter on the success path | `Providers/SDF/Src/Provider/SdfUpdate.cpp` | The optimized filter is held in an `FdoPtr<FdoFilter>` and the reader in an `FdoPtr<SdfUpdatingFeatureReader>`, so a constraint violation raised while validating the update (which throws out of the reader constructor) still releases both. |
 | SDF | `SdfSelect::Execute` same raw-filter-on-the-success-path issue | `Providers/SDF/Src/Provider/SdfSelect.cpp` | Same `FdoPtr` treatment for the optimized filter and for the computed-property definition collection returned by `ProcessComputedIdentifiers()`. |
 | SDF | `FdoExpressionEngineUtilDataReader` constructor left raw members behind when it threw | `Utilities/ExpressionEngine/Src/Util/FdoExpressionEngineUtilDataReader.cpp` | A throwing constructor does not run the destructor, so the raw members (`m_resultsStack`, `m_binReader`, `m_propIndex`, the order-by readers) are now released in a `catch (...) { ...; throw; }`. |
+| SDF | `SdfDeleteDataStore::Execute` threw "file does not exist" without releasing the multibyte copy of the file name | `Providers/SDF/Src/Provider/SdfDeleteDataStore.cpp` | `mbsName` is `new char[]`'d for `fopen`, and the throw for a failed `fopen` came *before* the existing `delete [] mbsName`, so every DeleteDataStore against a missing file lost the buffer (45 B for the fixture's file name). That is the normal case for `ExtendedSelectTest::CreateSDF_SPchars`, which pre-deletes a datastore it does not expect to exist — so it only showed on a clean `TestData` tree, which is why the recorded 0 B baseline hid it. The buffer is now released before the throw. |
 | SHP | `ShpLpClassDefinition::ConvertLogicalToPhysical` overwrote `m_physicalColumns` | `Providers/SHP/Src/Provider/ShpLpClassDefinition.cpp` | A class definition that had already been populated by `ConvertPhysicalToLogical()` leaked its `ColumnInfo` (which owns a variable-length buffer allocated by a custom `operator new`); the old column info is now deleted first. |
 | SHP | `ShpSelectAggregates::Execute` leaked `selAggrList` when no aggregate could be optimised | `Providers/SHP/Src/Provider/ShpSelectAggregates.cpp` | The empty list (and the list left behind by the non-optimizable path) is now deleted before falling back to the generic select-aggregates path. |
 | SHP | Test code did not release AddRef'ing getters and `Create()` results | `Providers/SHP/Src/UnitTest/FdoExpressionFunctionTest.cpp` | `TestXYZMFunction` leaked the whole standard-functions graph returned by `GetExpressionCapabilities()` / `GetFunctions()`; those, and the reassigned locals in `AddXYZMFeature`, are now held in `FdoPtr`. This accounted for ~570 KB of the SHP report. |
@@ -260,12 +261,28 @@ A measurement to keep in mind:
   `SdfSimpleFeatureReader` that `SdfSelect::ProcessComputedIdentifiers` stranded on its exception path
   (see the table above). The fixture that triggers it is a *negative* one, which is why the suite is
   green while the graph leaks.
-- **OGR's "0 records" depends on how the provider is loaded.** With `LD_LIBRARY_PATH` pointing at
-  `/usr/local/fdo-4.2.0/lib64` the suite reports one 56-byte direct record: `StaticInit::StaticInit` in
-  `OgrProvider.cpp` allocating `ProjConverter`, whose destructor only runs at process exit — after
-  LeakSanitizer's check (the deferred-static-destructor case in [AGENTS.md](../AGENTS.md) § "#965"). The
-  runner does not export that path for OGR, so the recorded run has no records; do not read the 56 B as
-  a regression if you measure the suite by hand with the install path set.
+- **OGR's "0 records" depends on which copy of the provider the suite loads.** When the run resolves
+  `OSGeo.OGR.4.2` through the **installed** registry, it reports one 56-byte direct record:
+  `StaticInit::StaticInit` in `OgrProvider.cpp` allocating `ProjConverter`, whose destructor only runs
+  at process exit — after LeakSanitizer's check (the deferred-static-destructor case in
+  [AGENTS.md](../AGENTS.md) § "#965"). The cause is a *second* DSO: the test binary links the build-tree
+  `libOGRProvider`, and the installed registry then `dlopen`s `/usr/local/fdo-4.2.0/lib64/libOGRProvider.so`
+  on top of it. Only the build-tree copy is closed during teardown — `LD_DEBUG=files` shows the extra
+  handle going `direct_opencount=0`, then `calling fini`, which runs its `~StaticInit` — so the installed
+  copy's `~StaticInit`, and therefore `delete ProjConverter`, is deferred to `_dl_fini` and reported.
+  Resolving through the build tree's own `providers.xml` (the one next to the test binary, which is what
+  `FdoRegistryUtility::GetFileName()` finds through its executable-directory probe) loads a single DSO
+  and the record disappears; measured both ways on 2026-11-04, `OK (58)` and 0 records in each direction.
+  Do not attribute it to `LD_LIBRARY_PATH` alone: with `/usr/local/fdo-4.2.0/lib64` on the path the
+  *installed* provider becomes the binary's `DT_NEEDED` copy, only one DSO is loaded, and there is no
+  record either.
+- **SDF's 45-byte record is the fixture's own state, not a code change.** `ExtendedSelectTest::CreateSDF_SPchars()`
+  pre-deletes the datastore whose name is built from the special-character file name
+  (`../../TestData/…,re.sdf`) and expects that delete to fail; `SdfDeleteDataStore::Execute()`
+  builds the `mbsName` buffer and then throws on the failed `fopen` without releasing it, so the record
+  appears on a **clean** `TestData` tree and not on a re-run (the test leaves that file behind). Measured
+  both ways: `OK (122)` with no records when the file exists, `OK (122)` with the 45 B record when it does
+  not, independently of which registry the provider was resolved through.
 
 ## Status
 
@@ -273,7 +290,7 @@ A measurement to keep in mind:
 |---|---|---|---|
 | GDAL | `artifacts/Debug/test-logs/GDAL_unit_test_log.txt` | 28,380 B in 68 allocations | 0 B |
 | SHP | `artifacts/Debug/test-logs/Shp_unit_test_log.txt` | 617,880 B in 9,783 allocations | 0 B |
-| SDF | `artifacts/Debug/test-logs/Sdf_unit_test_log.txt` | 170,243 B in 2,760 allocations | **0 B** |
+| SDF | `artifacts/Debug/test-logs/Sdf_unit_test_log.txt` | 170,243 B in 2,760 allocations | **0 B**; a *clean* `TestData` tree then reported one 45-byte direct record from `SdfDeleteDataStore::Execute()`'s missing-file throw (see the table above), which is now fixed, so both a clean and a re-used tree measure `OK (122)` with no records |
 | SQLite | `artifacts/Debug/test-logs/SQLite_unit_test_log.txt` | 0 B in this pass; 5,712 B in 75 allocations (2 direct records) after r8375 added the "Default" spatial-context test | 0 B |
 | WFS | `artifacts/Debug/test-logs/Wfs_unit_test_log.txt` | 82,112 B in 938 allocations (3 direct) | 0 B direct; 64,564 B in 758 indirect |
 | WMS | `artifacts/Debug/test-logs/Wms_unit_test_log.txt` | 145,128 B in 1,426 allocations (7 direct) | 0 B |

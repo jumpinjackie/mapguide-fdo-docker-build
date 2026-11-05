@@ -39,6 +39,11 @@ COMPONENTS_ALL="CoordinateSystem DrawingService FeatureService Geometry GwsQuery
 WEB_SUITES_ALL="webtestrunner java php dotnet"
 WEB_SUITES_WINDOWS_ONLY=""
 
+# MgPortable suites: the C++ Catch2 runner and the .NET (DotNetUnitTest) runner. They share the
+# common-libs subset tree because MgPortable links the GWS libraries and the DWF Toolkit, which a
+# common-subset build only adds when WITH_PORTABLE is on.
+PORTABLE_SUITES_ALL="cpp dotnet"
+
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 TEST_LOG_PATH=$(pwd)
 MG_BUILD_DIR=
@@ -48,6 +53,7 @@ WEB_SUITE_TIMEOUT=30m
 TIMEOUT_SET=0
 LIST_COMPONENTS=0
 LIST_WEB_SUITES=0
+LIST_PORTABLE_SUITES=0
 RUN_MODE=0
 COMPONENTS_SET=0
 STARTUP_TIMEOUT=60
@@ -65,6 +71,10 @@ TIER=server
 WEB_SUITES=
 WEB_SUITES_SET=0
 WEB_SUITES_REQUIRED=
+PORTABLE_SUITES=
+PORTABLE_SUITES_SET=0
+PORTABLE_BUILD_DIR=
+PORTABLE_GLUE_OK=0
 INSTALL_DIR=
 DO_INSTALL=1
 WEBCONFIG=
@@ -139,11 +149,14 @@ usage()
     echo "Options:"
     echo "  --mapguide-build-dir [MapGuide CMake build dir]"
     echo "  --log-path [Test log path]"
-    echo "  --tier [server|web|all, which suites to run, default: server]"
+    echo "  --tier [server|web|portable|all, which suites to run, default: server]"
     echo "  --component [Server component to run, repeatable, 'all' runs every suite in one process,"
     echo "               default: every component, one process each]"
     echo "  --web-suite [Web tier suite to run, repeatable: $WEB_SUITES_ALL,"
     echo "               'all' runs every suite that this install can run, default: all]"
+    echo "  --portable-suite [MgPortable suite to run, repeatable: $PORTABLE_SUITES_ALL,"
+    echo "                    default: both when --tier portable is selected; they use the"
+    echo "                    common-libs build tree (<mapguide-build-dir>_commonlibs)]"
     echo "  --install-dir [MapGuide install prefix used by the web tier suites,"
     echo "                 default: MG_INSTALL_PREFIX from the build tree]"
     echo "  --webconfig-path [webconfig.ini for the web tier, default: the installed one]"
@@ -165,6 +178,7 @@ usage()
     echo "             $WEB_SUITE_TIMEOUT for web suites, or 'none' to disable]"
     echo "  --list-components [List the server component names and exit]"
     echo "  --list-web-suites [List the web tier suite names and exit]"
+    echo "  --list-portable-suites [List the MgPortable suite names and exit]"
     echo "  --help [Display usage]"
 }
 
@@ -253,6 +267,39 @@ add_web_suite_one()
     esac
 }
 
+is_known_portable_suite()
+{
+    case " $PORTABLE_SUITES_ALL " in
+        *" $1 "*) return 0 ;;
+    esac
+    return 1
+}
+
+add_portable_suite()
+{
+    PORTABLE_SUITES_SET=1
+    if [ "$1" = "all" ]; then
+        for portable_suite in $PORTABLE_SUITES_ALL; do
+            add_portable_suite_one "$portable_suite"
+        done
+        return
+    fi
+    if ! is_known_portable_suite "$1"; then
+        echo "FATAL: unknown portable suite '$1'"
+        echo "Valid portable suites: all $PORTABLE_SUITES_ALL"
+        exit 1
+    fi
+    add_portable_suite_one "$1"
+}
+
+add_portable_suite_one()
+{
+    case " $PORTABLE_SUITES " in
+        *" $1 "*) ;;
+        *) PORTABLE_SUITES="${PORTABLE_SUITES:+$PORTABLE_SUITES }$1" ;;
+    esac
+}
+
 while [ $# -gt 0 ]; do    # Until you run out of parameters...
     case "$1" in
         --mapguide-build-dir)
@@ -273,6 +320,10 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             ;;
         --web-suite)
             add_web_suite "$2"
+            shift
+            ;;
+        --portable-suite)
+            add_portable_suite "$2"
             shift
             ;;
         --install-dir)
@@ -316,6 +367,9 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
         --list-web-suites)
             LIST_WEB_SUITES=1
             ;;
+        --list-portable-suites)
+            LIST_PORTABLE_SUITES=1
+            ;;
         --startup-timeout)
             STARTUP_TIMEOUT="$2"
             shift
@@ -354,10 +408,17 @@ if [ "$LIST_WEB_SUITES" -eq 1 ]; then
     exit
 fi
 
+if [ "$LIST_PORTABLE_SUITES" -eq 1 ]; then
+    for portable_suite in $PORTABLE_SUITES_ALL; do
+        echo "$portable_suite"
+    done
+    exit
+fi
+
 case "$TIER" in
-    server|web|all) ;;
+    server|web|portable|all) ;;
     *)
-        echo "FATAL: unknown tier '$TIER' (expected server, web or all)"
+        echo "FATAL: unknown tier '$TIER' (expected server, web, portable or all)"
         exit 1
         ;;
 esac
@@ -368,8 +429,20 @@ if [ "$COMPONENTS_SET" -eq 1 ] && [ "$TIER" = "web" ]; then
     echo "FATAL: --component selects server suites; use --tier server or --tier all"
     exit 1
 fi
+if [ "$COMPONENTS_SET" -eq 1 ] && [ "$TIER" = "portable" ]; then
+    echo "FATAL: --component selects server suites; use --tier server or --tier all"
+    exit 1
+fi
 if [ "$WEB_SUITES_SET" -eq 1 ] && [ "$TIER" = "server" ]; then
     echo "FATAL: --web-suite selects web tier suites; use --tier web or --tier all"
+    exit 1
+fi
+if [ "$WEB_SUITES_SET" -eq 1 ] && [ "$TIER" = "portable" ]; then
+    echo "FATAL: --web-suite selects web tier suites; use --tier web or --tier all"
+    exit 1
+fi
+if [ "$PORTABLE_SUITES_SET" -eq 1 ] && [ "$TIER" != "portable" ] && [ "$TIER" != "all" ]; then
+    echo "FATAL: --portable-suite selects MgPortable suites; use --tier portable or --tier all"
     exit 1
 fi
 
@@ -380,6 +453,12 @@ fi
 if [ "$WEB_SUITES_SET" -eq 0 ]; then
     for web_suite in $WEB_SUITES_ALL; do
         add_web_suite_one "$web_suite"
+    done
+fi
+
+if [ "$PORTABLE_SUITES_SET" -eq 0 ]; then
+    for portable_suite in $PORTABLE_SUITES_ALL; do
+        add_portable_suite_one "$portable_suite"
     done
 fi
 
@@ -931,6 +1010,21 @@ dotnet_common_build_dir()
 
 dotnet_glue_install_dir()
 {
+    # A tree that already exists (for example the one build_mapguide_generic.sh produced) records
+    # its own install prefix; use it rather than assuming this script created the tree. The
+    # top-level CMakeLists shadows CMAKE_INSTALL_PREFIX with a normal variable, so the cache entry
+    # for it stays at the CMake default: MG_INSTALL_PREFIX is the value that was configured.
+    build_dir=$(dotnet_common_build_dir)
+    if [ -f "$build_dir/CMakeCache.txt" ]; then
+        configured_prefix=$(sed -n 's/^MG_INSTALL_PREFIX:[A-Z]*=//p' "$build_dir/CMakeCache.txt" | head -1)
+        if [ -z "$configured_prefix" ]; then
+            configured_prefix=$(sed -n 's/^CMAKE_INSTALL_PREFIX:PATH=//p' "$build_dir/CMakeCache.txt" | head -1)
+        fi
+        if [ -n "$configured_prefix" ]; then
+            echo "$configured_prefix"
+            return
+        fi
+    fi
     echo "$(dotnet_common_build_dir)/install"
 }
 
@@ -946,22 +1040,53 @@ dotnet_glue_ready()
     return 0
 }
 
+# True when MgPortable, its C++ runner and the SWIG-generated C# are present in the common tree.
+portable_ready()
+{
+    build_dir=$(dotnet_common_build_dir)
+    [ -f "$build_dir/Portable/UnitTest/UnitTest" ] || return 1
+    [ -f "$build_dir/Bindings/src/Bindings/DotNet/Portable/PortableUnmanagedApi.cs" ] || return 1
+    return 0
+}
+
 # Builds the common-libs subset with the .NET glue, the way build_mapguide_generic.sh does for a
 # generic build: a common-subset OEM tree of its own, then cmake_build.sh --common-subset-only.
+# $1 = 1 also enables WITH_PORTABLE, which builds MgPortable, its runner and the portable glue.
 prepare_dotnet_glue()
 {
+    want_portable="${1:-0}"
+    build_dir=$(dotnet_common_build_dir)
+    oem_dir="$(dirname "$MG_BUILD_DIR")/oem_commonlibs"
+    log="$WEB_LOG_PATH/dotnet_glue_build.log"
+    build_config=$(cache_value CMAKE_BUILD_TYPE)
+
+    # Only the portable runner has add_sanitizers in this tree; the .NET glue libraries do not.
+    asan_arg=
+    if [ "$want_portable" -eq 1 ] && [ "$build_config" = "Debug" ]; then
+        asan_arg=--with-asan
+    fi
+    portable_arg=
+    if [ "$want_portable" -eq 1 ]; then
+        portable_arg=--with-portable
+    fi
+
+    required_ready=dotnet_glue_ready
+    if [ "$want_portable" -eq 1 ]; then
+        required_ready=portable_ready
+    fi
+
     # The generated C# lives in the build tree, not in the install, so being "installed" is not a
     # freshness signal for it: the build runs even then, which ninja makes a no-op unless a
     # CMakeLists.txt (or an .i) changed. That is what regenerates the sources after a change to
     # the SWIG command line.
-    if dotnet_glue_ready && [ ! -f "$(dotnet_common_build_dir)/build.ninja" ]; then
+    if $required_ready && [ ! -f "$build_dir/build.ninja" ]; then
         return 0
     fi
     if [ "$DO_INSTALL" -eq 0 ]; then
-        if dotnet_glue_ready; then
+        if $required_ready; then
             return 0
         fi
-        echo "  >> No .NET glue in $(dotnet_glue_install_dir) and --no-install was given"
+        echo "  >> No .NET/portable glue in $(dotnet_glue_install_dir) and --no-install was given"
         return 1
     fi
     # SWIG generates the C# sources here and the Java/PHP glue in the other build tree, and both have
@@ -971,35 +1096,12 @@ prepare_dotnet_glue()
         echo "  >> the pinned SWIG $(swig_required_version) is not installed; building it"
         build_swig || return 1
     fi
-    build_dir=$(dotnet_common_build_dir)
-    oem_dir="$(dirname "$MG_BUILD_DIR")/oem_commonlibs"
-    log="$WEB_LOG_PATH/dotnet_glue_build.log"
 
+    # cmake_build.sh reconfigures the cache, so use it whenever a setting the request needs is
+    # missing from an existing tree (portable, or ASan in a Debug build).
+    reconfigure=0
     if [ ! -f "$build_dir/CMakeCache.txt" ]; then
-        echo "Building the .NET glue libraries (common-libs subset) - first run only"
-        echo "  >> log: $log"
-        : > "$log"
-        if [ ! -f "$oem_dir/env_vars.sh" ]; then
-            ( cd "$MG_SRC_DIR" && ./cmake_bootstrap.sh --config "$(cache_value CMAKE_BUILD_TYPE)" \
-                --oem-working-dir "$oem_dir" --build 64 --with-ccache --have-system-xerces \
-                --with-internal-geos --common-subset-only ) >> "$log" 2>&1 || return 1
-        fi
-        # MG_INST_PREFIX, BUILD_CPU and BUILD_CONFIG are read from the environment by cmake_build.sh.
-        if ! ( cd "$MG_SRC_DIR" && MG_INST_PREFIX="$(dotnet_glue_install_dir)" BUILD_CPU=64 \
-            BUILD_CONFIG="$(cache_value CMAKE_BUILD_TYPE)" \
-            LINUXAPT_WORK_DIR="$(cache_value MG_LINUXAPT_WORK_DIR)" \
-            ./cmake_build.sh --oem-working-dir "$oem_dir" --cmake-build-dir "$build_dir" \
-                --mg-ver-major "$(cache_value MG_VERSION_MAJOR)" \
-                --mg-ver-minor "$(cache_value MG_VERSION_MINOR)" \
-                --mg-ver-rel "$(cache_value MG_VERSION_RELEASE)" \
-                --mg-ver-rev "$(cache_value MG_VERSION_REV)" \
-                --ninja --common-subset-only ) >> "$log" 2>&1; then
-            # cmake_build.sh configures and builds in one call, so a failure here has usually left a
-            # complete configure behind; one more pass finishes it (and fails again if it was the
-            # configure that broke).
-            echo "  >> the glue build failed; retrying once (see $log)" >&2
-            ( cd "$build_dir" && cmake --build . ) >> "$log" 2>&1 || return 1
-        fi
+        reconfigure=1
     else
         configured_swig=$(sed -n "s/^SWIG_VERSION:[A-Z]*=//p" "$build_dir/CMakeCache.txt" | head -1)
         pinned_swig=$(swig_required_version)
@@ -1007,8 +1109,42 @@ prepare_dotnet_glue()
             echo "  >> this tree was configured with SWIG $configured_swig, not the pinned $pinned_swig"
             echo "  >> removing $build_dir so the glue is regenerated with the pinned SWIG"
             rm -rf "$build_dir" || return 1
-            return prepare_dotnet_glue
+            return prepare_dotnet_glue "$want_portable"
         fi
+        if [ "$want_portable" -eq 1 ] && ! grep -qE '^WITH_PORTABLE:[A-Z]+=(ON|1|TRUE)' "$build_dir/CMakeCache.txt"; then
+            reconfigure=1
+        fi
+        if [ -n "$asan_arg" ] && ! grep -qE '^SANITIZE_ADDRESS:[A-Z]+=(ON|1|TRUE)' "$build_dir/CMakeCache.txt"; then
+            reconfigure=1
+        fi
+    fi
+
+    if [ "$reconfigure" -eq 1 ]; then
+        echo "Configuring the common-libs subset${portable_arg:+ with MgPortable}"
+        echo "  >> log: $log"
+        : > "$log"
+        if [ ! -f "$oem_dir/env_vars.sh" ]; then
+            ( cd "$MG_SRC_DIR" && ./cmake_bootstrap.sh --config "$build_config" \
+                --oem-working-dir "$oem_dir" --build 64 --with-ccache --have-system-xerces \
+                --with-internal-geos --common-subset-only $portable_arg ) >> "$log" 2>&1 || return 1
+        fi
+        # MG_INST_PREFIX, BUILD_CPU and BUILD_CONFIG are read from the environment by cmake_build.sh.
+        if ! ( cd "$MG_SRC_DIR" && MG_INST_PREFIX="$(dotnet_glue_install_dir)" BUILD_CPU=64 \
+            BUILD_CONFIG="$build_config" \
+            LINUXAPT_WORK_DIR="$(cache_value MG_LINUXAPT_WORK_DIR)" \
+            ./cmake_build.sh --oem-working-dir "$oem_dir" --cmake-build-dir "$build_dir" \
+                --mg-ver-major "$(cache_value MG_VERSION_MAJOR)" \
+                --mg-ver-minor "$(cache_value MG_VERSION_MINOR)" \
+                --mg-ver-rel "$(cache_value MG_VERSION_RELEASE)" \
+                --mg-ver-rev "$(cache_value MG_VERSION_REV)" \
+                --ninja --common-subset-only $portable_arg $asan_arg ) >> "$log" 2>&1; then
+            # cmake_build.sh configures and builds in one call, so a failure here has usually left a
+            # complete configure behind; one more pass finishes it (and fails again if it was the
+            # configure that broke).
+            echo "  >> the glue build failed; retrying once (see $log)" >&2
+            ( cd "$build_dir" && cmake --build . ) >> "$log" 2>&1 || return 1
+        fi
+    else
         # The DotNet CMakeLists order the modules by their %include graph because generation writes
         # into the source tree, but a second pass is still cheap insurance against a collision.
         if ! ( cd "$build_dir" && cmake --build . ) >> "$log" 2>&1; then
@@ -1020,8 +1156,8 @@ prepare_dotnet_glue()
     # has to reach the glue directory or the suite would run the old one against the new server.
     ( cd "$build_dir" && cmake --install . ) >> "$log" 2>&1 || return 1
 
-    if ! dotnet_glue_ready; then
-        echo "  >> the build produced no glue libraries; see $log"
+    if ! $required_ready; then
+        echo "  >> the build produced no $( [ "$want_portable" -eq 1 ] && echo 'portable' || echo '.NET' ) artifacts; see $log"
         return 1
     fi
     echo "  >> $(dotnet_glue_install_dir)/lib64"
@@ -1473,6 +1609,211 @@ run_web_tier()
     return 0
 }
 
+# --- MgPortable ---------------------------------------------------------------------------
+# MgPortable links the GWS libraries and the DWF Toolkit, so it is built by the common-libs
+# subset tree with WITH_PORTABLE=ON (see prepare_dotnet_glue 1). Both suites read Platform.ini,
+# Resources/ and ../UnitTestFiles relative to their working directory, so each gets its own
+# staged copy of the configured directory and a fresh repository.
+portable_suite_unavailable_reason()
+{
+    case "$1" in
+        cpp)
+            if [ ! -x "$PORTABLE_BUILD_DIR/Portable/UnitTest/UnitTest" ]; then
+                echo "the MgPortable C++ runner was not built (target MgPortableUnitTest)"
+            fi
+            ;;
+        dotnet)
+            if [ -z "$(dotnet_cmd)" ]; then
+                echo "no .NET SDK (the image installs one with dotnet-install.sh; look for ~/.dotnet)"
+            elif [ "$PORTABLE_GLUE_OK" -eq 0 ]; then
+                echo "the portable SWIG glue could not be built (see $WEB_LOG_PATH/dotnet_glue_build.log)"
+            fi
+            ;;
+        *)
+            echo "unknown suite"
+            ;;
+    esac
+}
+
+# The portable tests need ../UnitTestFiles, Platform.ini, Resources/ and Schema/ relative to the
+# working directory. Stage them so a run starts from a clean repository every time.
+prepare_portable_run_dir()
+{
+    run_dir="$WEB_LOG_PATH/run-$1"
+    rm -rf "$run_dir"
+    mkdir -p "$run_dir/UnitTest/Temp" "$run_dir/UnitTest/Logs" \
+             "$run_dir/UnitTest/Repositories/Library/Content" "$run_dir/UnitTest/Packages" || return 1
+    cp "$PORTABLE_BUILD_DIR/Portable/UnitTest/Platform.ini" "$run_dir/UnitTest/" || return 1
+    cp -R "$PORTABLE_BUILD_DIR/Portable/UnitTest/Resources" "$run_dir/UnitTest/" || return 1
+    cp -R "$PORTABLE_BUILD_DIR/Portable/UnitTest/Schema" "$run_dir/UnitTest/" || return 1
+    ln -s "$PORTABLE_BUILD_DIR/Portable/UnitTestFiles" "$run_dir/UnitTestFiles" || return 1
+    echo "$run_dir/UnitTest"
+}
+
+run_portable_cpp()
+{
+    run_log="$1"
+    run_dir=$(prepare_portable_run_dir cpp) || return 1
+    # run_guarded uses WEB_RUN_TIMEOUT; scope the server-suite timeout to this call.
+    WEB_RUN_TIMEOUT="$RUN_TIMEOUT" run_guarded "$run_dir" \
+        "$PORTABLE_BUILD_DIR/Portable/UnitTest/UnitTest" > "$run_log" 2>&1
+}
+
+# The .NET runner prints "N tests passed M tests failed" and now sets its exit code from the
+# failed count. A run that dies before printing the summary is a failure.
+portable_dotnet_passed()
+{
+    summary=$(grep -E '[0-9]+ tests passed [0-9]+ tests failed' "$1" | tail -1)
+    case "$summary" in
+        *" 0 tests failed") return 0 ;;
+    esac
+    return 1
+}
+
+# Builds the portable C# test assembly against the SWIG-generated C# and the managed sources.
+# The checked-in project targets net6.0-windows; the staged copy targets net6.0 because the
+# test does not use a Windows API, and references the local portable project instead of NuGet.
+prepare_portable_dotnet_pack()
+{
+    stage="$WEB_LOG_PATH/dotnet"
+    managed="$stage/Bindings/src/Managed/DotNet"
+    build_log="$WEB_LOG_PATH/portable_dotnet_build.log"
+
+    rm -rf "$stage"
+    mkdir -p "$stage/Bindings/src/Managed" "$stage/Portable" || return 1
+    cp -R "$MG_SRC_DIR/Bindings/src/Managed/." "$stage/Bindings/src/Managed/" || return 1
+    cp -R "$MG_SRC_DIR/Portable/DotNetUnitTest" "$stage/Portable/" || return 1
+    cp "$MG_SRC_DIR/License.txt" "$stage/" || return 1
+    # The managed projects only hold the hand-written layer; the SWIG-generated classes for every
+    # project in the chain have to be copied in beside them.
+    for api in Foundation Geometry PlatformBase Portable; do
+        cp "$PORTABLE_BUILD_DIR/Bindings/src/Bindings/DotNet/$api"/*.cs "$managed/OSGeo.MapGuide.$api/" || return 1
+    done
+    # Stale output from another checkout would shadow the sources we just staged.
+    find "$stage" -type d \( -name obj -o -name bin \) -prune -exec rm -rf {} + 2>/dev/null
+
+    proj="$stage/Portable/DotNetUnitTest/DotNetUnitTest.csproj"
+    sed -i 's|<TargetFramework>net6.0-windows</TargetFramework>|<TargetFramework>net6.0</TargetFramework>|' "$proj" || return 1
+    sed -i 's#<PackageReference Include="OSGeo.MapGuide.Portable" Version="4.0.0" />#<ProjectReference Include="../../Bindings/src/Managed/DotNet/OSGeo.MapGuide.Portable/OSGeo.MapGuide.Portable.csproj" />#' "$proj" || return 1
+
+    ( cd "$stage/Portable/DotNetUnitTest" && \
+        "$(dotnet_cmd)" build DotNetUnitTest.csproj -c Release \
+            -p:GeneratePackageOnBuild=false ) >> "$build_log" 2>&1
+    runner="$stage/Portable/DotNetUnitTest/bin/Release/net6.0/DotNetUnitTest.dll"
+    if [ ! -f "$runner" ]; then
+        echo "  >> Could not build the portable .NET test runner; see $build_log" >&2
+        return 1
+    fi
+    echo "$runner"
+}
+
+run_portable_dotnet()
+{
+    run_log="$1"
+    runner=$(prepare_portable_dotnet_pack) || return 1
+    run_dir=$(prepare_portable_run_dir dotnet) || return 1
+    # The C# P/Invokes the portable glue by bare name, and the glue itself needs the common
+    # libraries and FDO, so the install directories have to be findable at load time.
+    run_guarded "$run_dir" env \
+        LD_LIBRARY_PATH="$(dotnet_glue_install_dir)/portable/lib64:$(dotnet_glue_install_dir)/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        DOTNET_ROLL_FORWARD=Major \
+        "$(dotnet_cmd)" "$runner" > "$run_log" 2>&1
+}
+
+run_portable_tier()
+{
+    WEB_LOG_PATH="$TEST_LOG_PATH/portable"
+    mkdir -p "$WEB_LOG_PATH" || return 1
+
+    if [ -z "$PORTABLE_BUILD_DIR" ]; then
+        PORTABLE_BUILD_DIR=$(dotnet_common_build_dir)
+    fi
+    if [ -z "$MG_SRC_DIR" ]; then
+        MG_SRC_DIR=$(cache_value CMAKE_HOME_DIRECTORY)
+    fi
+    if [ -z "$SWIG_BUILD_DIR" ]; then
+        SWIG_BUILD_DIR=/tmp/download
+    fi
+
+    if prepare_dotnet_glue 1; then
+        PORTABLE_GLUE_OK=1
+    else
+        echo "  >> the MgPortable suites cannot run in this container"
+    fi
+
+    export LC_CTYPE=C.UTF-8
+
+    portable_run=0
+    for suite in $PORTABLE_SUITES; do
+        if [ "$INTERRUPTED" -ne 0 ]; then
+            break
+        fi
+
+        reason=$(portable_suite_unavailable_reason "$suite")
+        if [ -n "$reason" ]; then
+            # A suite named on the command line is required; the default set skips what the
+            # container cannot run.
+            if [ "$PORTABLE_SUITES_SET" -eq 1 ]; then
+                echo "Portable Suite ($suite) FAILED: $reason"
+                FAILED_SUITES=$((FAILED_SUITES + 1))
+                FAILED_COMPONENTS="$FAILED_COMPONENTS $suite"
+            else
+                echo "Portable Suite ($suite) skipped: $reason"
+                SKIPPED_SUITES="$SKIPPED_SUITES $suite"
+                SKIPPED_REASONS="$SKIPPED_REASONS\n  $suite: $reason"
+            fi
+            continue
+        fi
+
+        suite_log="$WEB_LOG_PATH/$suite.log"
+        : > "$suite_log"
+        echo "Running portable suite: $suite"
+        portable_run=$((portable_run + 1))
+        suite_start=$SECONDS
+        case "$suite" in
+            cpp) run_portable_cpp "$suite_log" ;;
+            dotnet) run_portable_dotnet "$suite_log" ;;
+        esac
+        suite_rc=$?
+        suite_elapsed=$((SECONDS - suite_start))
+
+        if [ "$INTERRUPTED" -ne 0 ]; then
+            echo "  >> Portable Suite ($suite) interrupted after ${suite_elapsed}s - see $suite_log"
+            break
+        fi
+
+        if [ "$suite" = "cpp" ]; then
+            if suite_passed "$suite_log"; then suite_ok=1; else suite_ok=0; fi
+        else
+            if portable_dotnet_passed "$suite_log"; then suite_ok=1; else suite_ok=0; fi
+        fi
+        leak_summary=$(grep -E '^SUMMARY: AddressSanitizer:' "$suite_log" | tail -1)
+
+        if [ "$suite_ok" -eq 1 ]; then
+            echo "  >> Portable Suite ($suite) passed! (elapsed ${suite_elapsed}s)"
+            if [ -n "$leak_summary" ]; then
+                echo "  >>   LeakSanitizer reported leaks: ${leak_summary#SUMMARY: AddressSanitizer: } - see $suite_log"
+            fi
+            if [ "$suite" = "cpp" ] && [ "$suite_rc" -eq 124 ]; then
+                echo "  >>   (passed, then hung in exit-time teardown - see docs/fdo-exit-teardown.md)"
+            elif [ "$suite" = "cpp" ] && [ "$suite_rc" -ne 0 ] && [ -z "$leak_summary" ]; then
+                echo "  >>   (passed, then exited $suite_rc in exit-time teardown - see docs/fdo-exit-teardown.md)"
+            fi
+        else
+            echo "  >> Portable Suite ($suite) FAILED (exit $suite_rc, elapsed ${suite_elapsed}s)"
+            grep -E '^(test cases|assertions|[0-9]+ tests passed)' "$suite_log" | tail -2 | while read -r line; do
+                echo "  >>   $line"
+            done
+            echo "  >>   see $suite_log"
+            FAILED_SUITES=$((FAILED_SUITES + 1))
+            FAILED_COMPONENTS="$FAILED_COMPONENTS $suite"
+        fi
+    done
+
+    RUN_SUITES=$((RUN_SUITES + portable_run))
+    return 0
+}
+
 if [ -z "$MG_BUILD_DIR" ]; then
     echo "FATAL: --mapguide-build-dir is required"
     usage
@@ -1526,11 +1867,14 @@ echo "Timeout per suite: $SUITE_TIMEOUT (server), $WEB_SUITE_TIMEOUT (web)"
 echo "Tier: $TIER"
 if [ "$RUN_MODE" -eq 1 ]; then
     echo "Components: (none - --run-mode runs the server itself)"
-elif [ "$TIER" != "web" ]; then
+elif [ "$TIER" = "server" ] || [ "$TIER" = "all" ]; then
     echo "Components: $COMPONENTS"
 fi
-if [ "$TIER" != "server" ]; then
+if [ "$TIER" = "web" ] || [ "$TIER" = "all" ]; then
     echo "Web suites: $WEB_SUITES"
+fi
+if [ "$TIER" = "portable" ] || [ "$TIER" = "all" ]; then
+    echo "Portable suites: $PORTABLE_SUITES"
 fi
 if [ ! -d "$TEST_LOG_PATH" ]; then
     mkdir -p "$TEST_LOG_PATH"
@@ -1538,12 +1882,12 @@ fi
 
 cd "$MG_BUILD_DIR/Server/src/Core" || exit 1
 CORE_DIR=$(pwd)
-if [ ! -x ./mgserver ]; then
+if [ "$TIER" != "portable" ] && [ ! -x ./mgserver ]; then
     echo "FATAL: $MG_BUILD_DIR/Server/src/Core/mgserver is missing"
     echo "Build it with /tmp/work/scripts/build_mapguide_incremental.sh"
     exit 1
 fi
-if [ "$TIER" != "web" ] && [ ! -f "$MG_BUILD_DIR/Server/src/UnitTesting/libMgUnitTesting.so" ]; then
+if { [ "$TIER" = "server" ] || [ "$TIER" = "all" ]; } && [ ! -f "$MG_BUILD_DIR/Server/src/UnitTesting/libMgUnitTesting.so" ]; then
     echo "FATAL: libMgUnitTesting.so is missing from the build tree"
     echo "Build it with /tmp/work/scripts/build_mapguide_incremental.sh --target MgUnitTesting"
     exit 1
@@ -1644,6 +1988,11 @@ fi
 if [ "$TIER" = "web" ] || [ "$TIER" = "all" ]; then
     echo
     run_web_tier || exit 1
+fi
+
+if [ "$TIER" = "portable" ] || [ "$TIER" = "all" ]; then
+    echo
+    run_portable_tier || exit 1
 fi
 
 echo "Suites run: $RUN_SUITES, failed: $FAILED_SUITES (total $((SECONDS - TOTAL_START))s)"

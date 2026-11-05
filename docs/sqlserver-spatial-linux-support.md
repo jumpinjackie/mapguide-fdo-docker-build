@@ -1033,12 +1033,13 @@ whose `com` holds the real catalogue, and the five spatial-context fixtures then
 system … is not in current datastore*. `run_fdo_tests.sh --with-sqlserver-init` clears it for you.
 
 That clearing is specific to this suite, and it has to be: the ODBC, PostGIS and MySQL suites need the
-opposite, because they load their provider **by name** through the FDO registry. On Linux the registry
-is `providers.xml` beside `libFDO`, which a build tree does not have, so FDO falls back to the
-installed `/usr/local/fdo-4.2.0/lib64/providers.xml`, whose entries are bare names
-(`libMySQLProvider.so`) that `dlopen()` resolves through `LD_LIBRARY_PATH`. The runner therefore
-exports that path before the first RDBMS suite and overrides it to empty for this one; when running by
-hand, set it for those suites and unset it for this one.
+opposite, because they load their provider **by name** through the FDO registry — and they do it
+against the **installed** FDO, not the build tree. Putting `/usr/local/fdo-4.2.0/lib64` on
+`LD_LIBRARY_PATH` wins over the test binary's `DT_RUNPATH`, so the *installed* `libFDO` is loaded, its
+`providers.xml` is found beside it, and its bare entries (`libMySQLProvider.so`) are `dlopen()`ed
+through that same path. The runner therefore exports that path before the first RDBMS suite and
+overrides it to empty for this one; when running by hand, set it for those suites and unset it for
+this one.
 
 The staged catalogue is written by CMake when the build is **configured**, not when it is compiled, so a
 build tree that predates that rule, or that has only been built, will not have it — re-run `cmake .` (or
@@ -1053,6 +1054,19 @@ The other thing the suite needs to be current is the **built** provider. The sui
 `providers.xml`, which names the library in the build tree, so a provider edit takes effect after
 `cmake --build . --target UnitTestSQLServerSpatial` (or `install`, which builds it too); running the old
 binary reproduces the old behaviour rather than erroring.
+
+That registry is `providers.xml` in the test binary's **own directory**
+(`Providers/GenericRdbms/Src/UnitTest/providers.xml`, generated from `configs/providers.rdbms.xml.in`),
+whose entry is `../SQLServerSpatial/libSQLServerSpatialProvider-4.2.0.so`. FDO reaches it through the
+executable's-directory probe in `FdoRegistryUtility::GetFileName()`, never through the working
+directory, and this suite is the one that notices when that probe is lost — it is the only RDBMS suite
+run with `LD_LIBRARY_PATH` cleared, and its provider is the only one the installed registry has never
+listed. A `br_locate()` that resolves `SELFPATH` to libFDO's build-tree directory (which holds no
+`providers.xml`) drops the lookup to `/usr/local/fdo-4.2.0/lib64/providers.xml`, and then 265 of the
+290 fixtures fail in `setUp()` with `FDO Provider 'OSGeo.SQLServerSpatial.4.2' Not Registered` while
+MySQL, PostGIS, ODBC and the file-based suites stay green — which is what a resolving `br_locate()`
+caused before the executable probe was added. An immediate workaround, if the probe is what changed,
+is to copy that file beside the build-tree `libFDO` (`build_area/fdo/Fdo/Unmanaged/Src/providers.xml`).
 
 A Debug build is ASan/LSan-instrumented, so a green run still exits non-zero — judge it by
 `OK (<n>)` in the output, not by the exit code. The current run (`OK (290)`, 2026-10-26) reports

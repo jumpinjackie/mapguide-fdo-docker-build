@@ -80,6 +80,120 @@ reported three more families, all now closed:
 | 2,560 B / 20 direct - `MgCoordinateXY` from `MgHttpWmsGetFeatureInfo::GetSelectionGeometry` | `linearRingCoords->Add(new MgCoordinateXY(...))` - `MgCoordinateCollection::Add()` takes its own reference, so the one `new` returned was dropped, once per corner per GetFeatureInfo request | give each of the four corners a `Ptr<MgCoordinateXY>` and add the first one twice to close the ring |
 | 3,156 B / 30 indirect records - the SDF schema graph behind `MgServerDescribeSchema::DescribeSchemaAsXml` | `SdfConnection::GetSchema(..., bNewCopyFromFile = true)` reads a whole schema from the file and then validates the requested schema name; on a mismatch it threw `SDFPROVIDER_58_INVALID_SCHEMANAME` and abandoned the copy, which still referenced its class collection, classes, properties and strings. An all-indirect report is the signature here: every chunk is reachable from another leaked chunk (the schema's raw parent links), not from a live one | hold the fresh copy in an `FdoPtr` while the name is validated and `Detach()` it on the way out, so the throwing path releases it; the borrowed `m_dbSchema->GetSchema()` result is still returned untouched. Covered by the SDF provider suite's `SchemaTest::TestDescribeSchemaInvalidName`, which drives the same invalid-name describe and checks the connection survives it - see [docs/fdo-provider-memory-leaks.md](./fdo-provider-memory-leaks.md) |
 
+## The Java and PHP bindings each leaked one buffer per `byte[]` out-parameter
+
+Not in this file's LSan reports, because neither is a MapGuide allocation: the chunk lives in the
+client process's own runtime (the JVM heap for Java, the Zend memory manager for PHP), so the server
+suites never see either. They are recorded here because they are the one leak an application hits by
+doing nothing wrong, and they are big enough to OOM a real client. What an application should
+otherwise do (and how to measure its own memory) is in
+[docs/mapguide-bindings-memory-guide.md](./mapguide-bindings-memory-guide.md).
+
+Both bindings marshall the same single API - `MgByteReader::Read(byte[]/&$buffer, length)`, the only
+`BYTE_ARRAY_OUT` parameter in the API - and each leaked the caller's buffer once per call, so a
+client that drained a resource in chunks leaked the whole payload per fetch: ~18 MB for an 18 MB
+resource, however the reads were chunked.
+
+### Java: `ReleaseByteArrayElements(..., JNI_COMMIT)`
+
+The Java `byte[]` was marshalled like this:
+
+```
+%typemap(freearg) BYTE_ARRAY_OUT
+{
+    jenv->ReleaseByteArrayElements($input, bytes$argnum, JNI_COMMIT);
+}
+```
+
+`JNI_COMMIT` copies the buffer back but deliberately does **not** free it (the JNI spec's mode 0 is
+"copy back and free", `JNI_COMMIT` is "copy back", `JNI_ABORT` is "free without copying"). So every
+`read(byte[], len)` leaked one buffer of `len` bytes.
+
+Measured with the Debug tree (ubuntu22 x64): a `MgSiteConnection` client fetching an 18 MB resource
+data stream 12 times grew its RSS by 206,260 KB (17,188 KB per iteration) while the Java heap stayed
+at 23 MB. Massif attributed the whole of it in two iterations (37,756,928 B = 2 x 18,874,368 B plus
+JVM overhead) to:
+
+```
+jni_GetByteArrayElements
+  JNIEnv_::GetByteArrayElements (jni.h)
+    Java_..._MgByteReader_1read (MgApi_wrap.cpp:1627)
+```
+
+which is the typemap's `in` half. After changing `JNI_COMMIT` to `0` in
+`Bindings/src/Bindings/Java/java.i` (and the same typemap in
+`Portable/PortableUnmanagedApi/JavaApiEx/java.i`, where the "MapGuideApiEx" Java binding that the
+leak report came from is generated) the same 12-iteration run grows 2,804 KB, and 40 iterations with
+1 MB reads grow 32 MB total with the heap oscillating between 17 and 44 MB - i.e. noise, not a leak.
+The `java` web suite still reports `Tests failed/run: 0/618`.
+
+### PHP: `ZVAL_STRINGL` over the previous by-ref value
+
+A different mechanism, same symptom. The `argout` typemap copied the filled buffer into the caller's
+by-reference variable and freed the temporary, but it never released the value that variable already
+held:
+
+```
+%typemap(argout) BYTE_ARRAY_OUT buffer
+{
+    if (Z_ISREF($input))
+    {
+        ZVAL_STRINGL(Z_REFVAL($input), (char*)$1, result);
+        efree($1);
+    }
+}
+```
+
+`ZVAL_STRINGL` only stores the new string into the zval; it does not dtor what was there. So each
+`Read` leaked the *previous* chunk's string. Measured on the same Debug tree, on a reader over the same
+18 MB resource: `memory_get_usage(false)` grew 27,649 KB per drained resource with 8 KB reads and
+18.5 MB per drained resource with 1 MB reads - i.e. one buffer per call, rounded up to a Zend MM size
+class (an 8,193-byte allocation lands in the 12,288 class, which is why the total is ~1.5 x the
+payload). `memory_get_usage(true)` (the arena) tracked it exactly.
+
+Isolating it is what makes the diagnosis, because the resource-service half is clean:
+
+| Loop | Before the fix |
+|------|----------------|
+| `GetResourceData` + `unset($reader)` only | flat at 2,048 KB of arena, 393 KB used, four rounds |
+| `new MgByteReader(file)` + `Read` in 8 KB chunks, four rounds | +27,649 KB of used memory per round |
+
+The fix is a `zval_ptr_dtor(Z_REFVAL($input));` before the assignment in
+`Bindings/src/Bindings/Php/php.i`. After it, both loops above are flat (arena stays at 2,048 KB over
+four drained resources, and the proxied 12-iteration run grows 28 KB in total), and the `php` web
+suite - which reads through `MgByteReader::Read` in `Validate.php` - still reports
+`Tests failed/run: 0/593` with a clean server shutdown.
+
+Note that PHP has no `Dispose()`: the only way to release a proxy is to let it be destroyed
+(`unset()`, or reassigning the variable), which is what a `while ($reader->Read(...))` loop's owner
+has to do. `MgByteReader::Dispose()` does not exist in this binding, so a port of the Java/.NET test
+case fails with "Call to undefined method".
+
+Recipes worth keeping:
+
+- **The leak is proportional to the payload, not to the call count**, so it looks like "the reader is
+  not being disposed" when it is nothing of the sort. A control Java run that never disposes the
+  reader grows 865 KB per iteration; the typemap bug grew 17,188 KB for the same resource. Disposing
+  the reader correctly is not enough to avoid either leak, and neither is reading in bigger chunks -
+  the total leaked is the payload either way.
+- **Measure it in a memory-limited container.** The repro is a Web Tier client that opens an
+  `MgSiteConnection`, creates a session, `SetResourceData`s a large file and then loops
+  `GetResourceData` → `Read` → dispose; a 6 GB `--memory` cap is enough to see linear growth without
+  taking the host down.
+- **Use `valgrind --tool=massif` on the client when LSan cannot help.** It needs no instrumentation of
+  the JVM or of the MapGuide libraries, and the allocation stack comes out with source lines because
+  the tree is a Debug build: `valgrind --tool=massif --detailed-freq=1 java -Xint ...`, then read the
+  last snapshot's allocation tree. For PHP a plain `memory_get_usage(false)` before and after one
+  drained resource is enough, and it is what separates "the client's runtime is leaking" (this) from
+  "the fetch is leaking" (`GetResourceData` alone: flat).
+- **The .NET binding does not have this defect and needs no fix.** Its `byte[]` parameter is
+  marshalled by the P/Invoke runtime (a blittable array, pinned for the call), which allocates
+  nothing per call. The same proxied flow over the same 18 MB resource grows 9.6 MB over 12
+  iterations with 1 MB reads and is flat from the seventh iteration on, and a client that also
+  reproduces the leak report's `RecyclableMemoryStream` + `ArrayPool<byte>` shape rises to ~202 MB by
+  its tenth fetch of the resource and then moves 656 KB over the next fifty - that plateau is the
+  pooled 18 MB stream plus a managed heap that the GC lets grow, not a leak.
+
 ## The ACE allocations that only appear in a single-suite run
 
 `run_mapguide_tests.sh --component <one suite>` used to report a fixed trio in most suites while

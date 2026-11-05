@@ -268,7 +268,7 @@ export NLSPATH=/tmp/work/build_area/fdo/nls/linux/en_US/%N
 ./UnitTestPostGis initfiletest=/tmp/work/scripts/test_init/PostGisInit.txt FdoConstraintsTest
 ```
 
-- Run the binary from its own directory. Each unit test directory has a local `providers.xml`, except the GDAL and SHP suites, where that local copy does not work and has to be deleted (`rm providers.xml`); loading a provider from anywhere else fails with `CLNT_8_UNABLE_TO_LOAD_LIBRARY`.
+- Run the binary from its own directory. Each unit test directory has a local `providers.xml`, which FDO reads from the **binary's** directory (`FdoRegistryUtility::GetFileName()` probes next to the executable, never the working directory), so a suite loads the provider it was built against. The GDAL and SHP suites are the exception: their local copy does not work and has to be deleted (`rm providers.xml`), which sends them to the installed registry; loading a provider from anywhere else fails with `CLNT_8_UNABLE_TO_LOAD_LIBRARY`.
 - Export `NLSPATH` pointing at the generated message catalogues in the build tree, exactly as `run_fdo_tests.sh`, `env_test.sh` and `env_test_thin.sh` do. Without it, tests that assert on error message text see the raw message symbol (for example `FDOSM_220`) instead of the resolved English text and fail — which is easy to misread as a regression from the change under test (in the OGR suite it is `TestCase_EvalQuotedIdentifier`, `TestCase_SelectBadReaderProperties` and `TestCase_SelectAggregateBadReaderProperties`).
 - The GDAL and SHP suites also need FDO installed at `/usr/local/fdo-4.2.0` (`cmake --build . --target install`).
 - SHP needs two extra things the runner does for you. Its locale test only works if the locales it switches between exist (`locale-gen en_US en_US.UTF-8 fr_FR ja_JP.EUC-JP`), and its tests create filesets under `Providers/SHP/TestData` and open them with `IDF_CREATE_NEW`, so leftovers from an earlier run fail the next one — delete that whole `TestData` tree in the build area and copy it back from the sources (`cp -a <fdo sources>/Providers/SHP/TestData Providers/SHP/`) rather than relying on `sh ../../TestData/clean`, which is the shipped script but only removes some of what a run leaves behind.
@@ -510,6 +510,82 @@ default) skips what this install cannot run and lists it under `Skipped suites`.
 way to get a pristine server without recreating the container; the suites are otherwise designed to
 clean up after themselves.
 
+### 4.7 Building and testing MgPortable
+
+MgPortable is the portable (console/desktop) MapGuide API. It is off by default and is enabled with
+`-DWITH_PORTABLE=TRUE` (or `cmake_build.sh --with-portable`). It is built by the **common-libs
+subset** tree, not the full build, because that is where the portable NuGet package's native libs
+are collected: MgPortable links `MgGwsCommon`/`MgGwsQueryEngine` and the DWF Toolkit, so a
+portable-enabled common-subset tree also builds `Server/src/Gws` and `Oem/DWFTK`.
+
+`build_mapguide_generic.sh` enables it for the common-subset pass and emits two tarballs into
+`artifacts/<conf>/`:
+
+| Tarball | Contents |
+|---------|----------|
+| `mapguideopensource-common-<ver>-generic-linux-amd64.tar.gz` | unchanged; `portable/` is excluded |
+| `mapguideopensource-portable-<ver>-generic-linux-amd64.tar.gz` | `lib64/` with `libMgPortable*`, `libPortableUnmanagedApi.so`, the GWS libs and the Mg libraries MgPortable links, plus a top-level `fdo/` with the whole FDO install (`fdo/lib64` = `libFDO`, `libExpressionEngine`, every provider, `providers.xml`, `com/`, and for `generic` the gdal/xerces/xalan the FDO SDK bundles; `fdo/nls` = the message catalogues) |
+
+In Release every library in both subtrees is stripped, which is what takes the tarball from ~125 MB
+to ~39 MB (see below).
+
+Everything MgPortable owns installs under `<prefix>/portable/lib64`, which is what lets the common
+tarball exclude it as a single subtree. The DWF Toolkit is static and ends up inside
+`libMgRenderers`/`libMgPortable`, so it has no files of its own in the tarball.
+
+The portable tarball carries FDO rather than depending on `/usr/local/fdo-4.2.0` on the machine that
+consumes it, so it is self-contained once unpacked, and keeps it in one `fdo/` subtree so a consumer
+can lift FDO out as a unit. That works because the FDO install is relocatable: every FDO library (and
+the gdal/xerces/xalan copies the `generic` SDK bundles) is linked with `$ORIGIN` as its runtime path,
+`providers.xml` sits beside `libFDO`, and a provider registered there is loaded from that same
+directory — nothing has to be on `LD_LIBRARY_PATH`, and `FDOHOME` is not needed. The MapGuide
+libraries that use FDO (`libMgPortable`, `libPortableUnmanagedApi`, `libMgGwsCommon`,
+`libMgGwsQueryEngine` and `libMgStylization`) carry `$ORIGIN:$ORIGIN/../../lib64:$ORIGIN/../fdo/lib64`
+as their runtime search path (`MG_PORTABLE_INSTALL_RPATH`), so they find FDO in `fdo/lib64` in the
+tarball and in `<prefix>/lib64` in an install tree. `libMgRenderers` is not in that set: it only
+renders and uses no FDO symbol, matching its Windows project, which imports none — and since
+`MgStylization` declares FDO as a `PRIVATE` dependency, nothing is inherited, so the Linux library
+carries no `DT_NEEDED` entry for FDO either. Keep the `lib64` directory name inside `fdo/`: FDO's fallback
+for `providers.xml` is `$FDOHOME/lib64/providers.xml`, then `$FDOHOME/lib/providers.xml`, and only
+then the compiled-in prefix (a stray `/usr/local/fdo-4.2.0` on the target would win over a bundled
+tree that cannot be found one of those ways). `fdo/nls` carries the message catalogues, and
+`MgPortablePlatform::Initialize()` locates them itself: it derives `<fdo root>/nls` from `FdoPath`
+(and, for a build tree, `<fdo root>/nls/linux/en_US`; and `<FdoPath>/nls` for a flattened tree) and
+prepends whichever exist as `<dir>/%N` patterns to any `NLSPATH` already in the environment. A
+consumer therefore does not have to set `NLSPATH`; without this every message would fall back to its
+raw symbol (`FDOSM_220` rather than English text).
+
+The consumer's `Platform.ini` still has to say where FDO is: `MgPortablePlatform::Initialize()` reads
+`FdoPath`, prepends it to `LD_LIBRARY_PATH` and `dlopen`s `libFDO.so` from it by absolute path, so a
+packaged application sets `FdoPath` to `<root>/fdo/lib64` (the build generates it as
+`/usr/local/fdo-4.2.0/lib64`). Checked by unpacking a portable tarball into a container with no
+`/usr/local/fdo-*`: `libPortableUnmanagedApi.so` loads under `RTLD_NOW` with only ACE on
+`LD_LIBRARY_PATH`, resolving `libFDO`, `libExpressionEngine`, gdal, xerces and xalan from
+`lib64/../fdo/lib64`, and the C++ suite passes all 215 test cases with `NLSPATH` unset.
+
+To build and run the portable suites from an existing build tree (the runner creates the
+`<build-dir>_commonlibs` tree and configures it with `--with-portable`, plus `--with-asan` when the
+main tree is Debug):
+
+```
+/tmp/work/scripts/run_mapguide_tests.sh --mapguide-build-dir /tmp/work/build_area/mapguide \
+    --log-path /tmp/work/artifacts/test-logs --tier portable
+```
+
+| Suite | What it runs |
+|-------|--------------|
+| `cpp` | `Portable/UnitTest`, the Catch2 runner. In a Debug tree it is ASan/LSan-instrumented, so its log carries the leak report; the server-tier rules apply (`All tests passed`, then a `SUMMARY: AddressSanitizer:` line, and a non-zero exit is not a test failure). A clean Debug run reports no leak records at all — the fixed families are recorded in [docs/portable-memory-leaks.md](./docs/portable-memory-leaks.md). On Windows the same runner honours `MG_CRT_LEAK_CHECK=1`, which redirects the CRT leak report to stderr. |
+| `dotnet` | `Portable/DotNetUnitTest`. The SWIG-generated C# and the managed sources are staged and built for `net6.0` on Linux **for testing only**; the packaged assemblies still come from the Windows build. It runs against the same generated `Platform.ini` and `UnitTestFiles` as the C++ runner. |
+
+`--tier all` also runs the portable suites. They are skipped (and listed under `Skipped suites`)
+when the container has no .NET SDK or the portable tree could not be built; naming one with
+`--portable-suite` makes its prerequisites required. The C# sources are only built on Linux by this
+test path — a normal `build_thin.sh` build produces the native libs and the SWIG glue only.
+
+For the Windows overlay, `Bindings/setup_linux_native_libs.cmd` takes the common tarball as its
+first argument and the portable tarball as an optional second one; the second copies the portable
+native libs into `src/Managed/DotNet/OSGeo.MapGuide.Portable/runtimes/linux-x64/native`.
+
 ### SWIG is pinned, and never taken from the distro
 
 The bindings are generated by SWIG proper, and one version has to generate all of them: a distro
@@ -638,6 +714,14 @@ comes back with no report from either:
 `mgserver`'s records are what used to make the *suite* verdict fail even though its tests passed; the
 runner's are printed underneath the passing summary. Both are now silent, so a Debug web tier run
 green on assertions is also a green verdict.
+
+All of those records are native, on the server and runner side. A leak inside a binding *client* —
+the JVM heap, the Zend memory manager or the .NET managed heap — is invisible to LSan, and the two
+such defects that have been found (Java and PHP both leaked one buffer per `MgByteReader::Read`)
+could not have failed any of these suites: the verdict is assertions plus the server's own log, and
+neither depends on the client's memory. The ownership rules for .NET, Java and PHP application code,
+and the plateau/`massif`/`memory_get_usage` recipes that catch that class of leak, are in
+[docs/mapguide-bindings-memory-guide.md](./docs/mapguide-bindings-memory-guide.md).
 
 > The corrupt-DWF fixture (`DrawingService_MasterApiTest` feeding a truncated package through
 > `MgServerDrawingServiceUtil::OpenDrawingResource`) used to kill the server in a Debug container:

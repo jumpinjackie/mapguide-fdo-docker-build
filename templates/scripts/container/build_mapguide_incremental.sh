@@ -294,6 +294,11 @@ done
 
 if [ -z "$TARGETS" ]; then
     TARGETS="$DEFAULT_TARGETS"
+    # A portable-enabled tree (normally <build-dir>_commonlibs) also builds MgPortable, its
+    # unit-test runner and the SWIG glue, so an inner-loop run keeps them fresh too.
+    if grep -qE '^WITH_PORTABLE:[A-Z]+=ON' "$BUILD_DIR/CMakeCache.txt" 2>/dev/null; then
+        TARGETS="$TARGETS MgPortable MgPortableUnitTest PortableUnmanagedApi"
+    fi
 fi
 
 if [ "$SKIP_PREPARE" -eq 0 ]; then

@@ -5,7 +5,7 @@
 
 ROOT=$(realpath .)
 SCRIPT_ROOT=$ROOT/templates/scripts/container
-# Extra arguments for run_mapguide_tests.sh (--tier, --web-suite)
+# Extra arguments for run_mapguide_tests.sh (--tier, --web-suite, --portable-suite)
 RUN_ARGS=
 
 test_fdo_env()
@@ -59,14 +59,19 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             RUN_ARGS="$RUN_ARGS --web-suite $2"
             shift
             ;;
+        --portable-suite)
+            RUN_ARGS="$RUN_ARGS --portable-suite $2"
+            shift
+            ;;
         --help)
             echo "Usage: $0 (options)"
             echo "Options:"
             echo "  --target [mapguide|fdo]"
             echo "  --distro [the distro you are targeting, ubuntu|generic]"
             echo "  --cpu [x86|x64]"
-            echo "  --tier [server|web|all - MapGuide only, forwarded to run_mapguide_tests.sh]"
+            echo "  --tier [server|web|portable|all - MapGuide only, forwarded to run_mapguide_tests.sh]"
             echo "  --web-suite [Web tier suite for --tier web, repeatable, MapGuide only]"
+            echo "  --portable-suite [MgPortable suite for --tier portable, repeatable, MapGuide only]"
             echo "  --help [Display usage]"
             exit
             ;;
@@ -75,7 +80,7 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
 done
 
 if [ -n "$RUN_ARGS" ] && [ "$TARGET" != "mapguide" ]; then
-    echo "FATAL: --tier and --web-suite only apply to --target mapguide"
+    echo "FATAL: --tier, --web-suite and --portable-suite only apply to --target mapguide"
     exit 1
 fi
 

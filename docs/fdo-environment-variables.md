@@ -167,10 +167,12 @@ setup.
 `FDOHOME` is meant to point at an FDO installation that is not in the compiled-in default location.
 The two consumers interpret it slightly differently:
 
-- `FdoRegistryUtility::GetFileName()` uses it as the install prefix. It first looks for
-  `providers.xml` next to the executable; failing that it tries
-  `<FDOHOME>/lib64/providers.xml` and then `<FDOHOME>/lib/providers.xml` (default prefix
-  `/usr/local/fdo-4.2.0`).
+- `FdoRegistryUtility::GetFileName()` uses it as the install prefix, and only after two nearer
+  probes: `providers.xml` next to `libFDO`, then next to the running executable. Failing both it
+  tries `<FDOHOME>/lib64/providers.xml` and then `<FDOHOME>/lib/providers.xml` (default prefix
+  `/usr/local/fdo-4.2.0`). The executable's directory is the probe a build tree relies on, because
+  its single `libFDO` has no registry beside it while every provider suite has one next to its
+  test binary.
 - `nls_cat_open()` uses it as the *catalog directory*: it concatenates `FDOHOME` with the catalog
   name directly (`sprintf(fullfilename, "%s%s", install, cat_name)`). The default is the legacy
   string `/usr/local/fdo-3.6.0/nls/`, so a value should end with a slash for this path to work.
@@ -302,13 +304,21 @@ consults the process locale through `localeconv()`.
 
 | Variable | Who reads it | Effect |
 |---|---|---|
-| `NLSPATH` | glibc `catopen()` | Search path for message catalogues. The FDO test scripts point it at `<build>/nls/linux/en_US/%N`; without it, error messages fall back to raw symbols such as `FDOSM_220` |
+| `NLSPATH` | glibc `catopen()` | Search path for message catalogues. The FDO test scripts point it at `<build>/nls/linux/en_US/%N`; without it, error messages fall back to raw symbols such as `FDOSM_220`. Set **and modified** by `MgPortablePlatform::Initialize()` in MapGuide, which prepends the catalogues derived from its `Platform.ini` `FdoPath` — see [§2.1](#21-locale-and-message-catalogues) |
 | `LANG`, `LC_ALL`, `LC_MESSAGES` | libc / `catopen()` | Select the message language and the catalogue subdirectory |
 | `LC_NUMERIC`, `LC_ALL`, `LANG` | libc `localeconv()` | Determine the decimal separator used by `FdoStringP`, `FdoStringUtility::FormatNumber`, `GeometryUtility::FormatNumber` and the lexer's number parsing |
 | `LC_CTYPE`, `LC_ALL` | libc, and unixODBC's narrow→wide conversion | On Linux the FDO ODBC path emits UTF-8; unixODBC converts it to wide characters using `LC_CTYPE`. In the `C` locale non-ASCII identifiers can silently fail to match. The test scripts default `LC_CTYPE=C.UTF-8` for this reason |
 | `LC_ALL`, `LANG`, `LC_CTYPE` | SHP provider (`ShapeCPG`, `ShapeDBF`) | When a `.dbf` file has neither a `.cpg` sidecar nor an LDID code page, SHP derives the DBF code page from the process locale (`setlocale(LC_ALL, NULL)`), including the `.iso`/`.cp`/`.utf8`/`.euc`/`.big5`/`.ujis` suffix mappings |
 | `XERCESC_NLS_HOME` | bundled Xerces message loaders | Location of Xerces message catalogues |
 | `XERCESCROOT` | bundled Xerces message loaders | Fallback for `<XERCESCROOT>/msg` when `XERCESC_NLS_HOME` is unset |
+
+MapGuide's portable API sets `NLSPATH` itself, so a consumer of `libMgPortable`/the
+`OSGeo.MapGuide.Portable` package never has to: `MgPortablePlatform::Initialize()`
+(`Portable/MgPortable/System/PlatformInit.cpp`) derives the catalogue directory from the `FdoPath`
+in `Platform.ini` — `<fdo root>/nls`, `<fdo root>/nls/linux/en_US` (build trees) and `<FdoPath>/nls`
+(a flattened tree), taking whichever exist — and prepends them as `<dir>/%N` patterns to any
+`NLSPATH` already in the environment. That is what makes a relocated FDO tree resolve its messages,
+since the catalogues live beside the `lib64` the SDK installs rather than on any default path.
 
 A C/C++ process starts in the `"C"` locale regardless of these variables. FDO does not call
 `setlocale(LC_ALL, "")` on library initialisation — its `nls_locale_set()` helper is only invoked by

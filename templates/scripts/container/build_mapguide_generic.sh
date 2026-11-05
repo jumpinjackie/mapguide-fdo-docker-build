@@ -202,14 +202,72 @@ cd $SRC_DIR || exit
 #
 # TODO: In the future, instead of a dedicated build target, we should be able to just pluck the relevant files
 # from the main build and produce our common libs package tarball
-./cmake_bootstrap.sh --config "$MG_BUILD_CONFIG" --oem-working-dir $OEM_COMMON_BUILD_DIR --build 64 --with-ccache --with-all-internal --common-subset-only
+./cmake_bootstrap.sh --config "$MG_BUILD_CONFIG" --oem-working-dir $OEM_COMMON_BUILD_DIR --build 64 --with-ccache --with-all-internal --common-subset-only --with-portable
 check_build
-./cmake_build.sh --oem-working-dir $OEM_COMMON_BUILD_DIR --cmake-build-dir $BUILD_COMMON_DIR --mg-ver-major "$MG_VER_MAJOR" --mg-ver-minor "$MG_VER_MINOR" --mg-ver-rel "$MG_VER_REL" --mg-ver-rev "$MG_VER_REV" --ninja --common-subset-only
+# The common-subset tree also builds MgPortable and the GWS libraries it needs. They install under
+# <prefix>/portable so the common tarball can exclude them as one subtree. Debug builds instrument
+# the portable unit-test runner with ASan/LSan, as the full build does for mgserver.
+COMMON_CMDEX=
+if [ "$MG_BUILD_CONFIG" = "Debug" ]; then
+    COMMON_CMDEX="--with-asan"
+fi
+./cmake_build.sh --oem-working-dir $OEM_COMMON_BUILD_DIR --cmake-build-dir $BUILD_COMMON_DIR --mg-ver-major "$MG_VER_MAJOR" --mg-ver-minor "$MG_VER_MINOR" --mg-ver-rel "$MG_VER_REL" --mg-ver-rev "$MG_VER_REV" --ninja --common-subset-only --with-portable $COMMON_CMDEX
 check_build
 cd $BUILD_COMMON_DIR || exit
 cmake --build . --target install
 check_build
-cd "/usr/local/mapguideopensource-common-${MG_VER_TRIPLE}" || exit
-tar -zcf "$ARTIFACTS_DIR/mapguideopensource-common-$MG_VER-generic-linux-amd64.tar.gz" *
+COMMON_INSTALL="/usr/local/mapguideopensource-common-${MG_VER_TRIPLE}"
+cd "$COMMON_INSTALL" || exit
+# shellcheck disable=SC2035 # '*' is expanded by the shell, so the members are named "portable/..."
+# with no "./" prefix: the exclusion has to be anchored at the top level or it matches nothing, and
+# it has to name the directory and its contents separately so that lib64/libMgPortable* survives.
+tar -zcf "$ARTIFACTS_DIR/mapguideopensource-common-$MG_VER-generic-linux-amd64.tar.gz" --anchored --exclude=portable --exclude='portable/*' *
 check_build
+
+echo "Packaging MgPortable"
+PORTABLE_PACK=/tmp/mgportable
+rm -rf "$PORTABLE_PACK"
+mkdir -p "$PORTABLE_PACK/lib64"
+if [ ! -d "$COMMON_INSTALL/portable/lib64" ]; then
+    echo "FATAL: MgPortable was not installed into $COMMON_INSTALL/portable/lib64"
+    exit 1
+fi
+# MgPortable, its SWIG glue and the GWS libraries all install under portable/lib64.
+cp -a "$COMMON_INSTALL/portable/lib64/." "$PORTABLE_PACK/lib64/"
+# The common libraries MgPortable links are not part of the portable subtree, so stage them too.
+# Renderers/Stylization install into portable/lib64 in a portable common-subset build.
+for lib in MdfModel MdfParser Foundation Geometry PlatformBase; do
+    cp -a "$COMMON_INSTALL/lib64/libMg${lib}-${MG_VER_TRIPLE}.so" "$PORTABLE_PACK/lib64/"
+    check_build
+done
+# MgPortable links libFDO and libExpressionEngine and resolves every provider through the
+# providers.xml that sits beside libFDO, so the tarball carries the whole FDO install under a
+# top-level fdo/ subtree: the libraries, the providers, providers.xml, the RDBMS bootstrap SQL
+# (com/) and, for this distro, the gdal/xerces/xalan copies the FDO SDK bundles. Keeping it in
+# one subtree is what lets the consumer lift FDO out as a unit; the libraries find it through
+# the $ORIGIN/../fdo/lib64 entry in their runtime search path (MG_PORTABLE_INSTALL_RPATH), and
+# every FDO library carries $ORIGIN, so a provider's own dependencies resolve from fdo/lib64.
+FDO_INSTALL="/usr/local/fdo-${FDO_VER_TRIPLE}"
+if [ ! -f "$FDO_INSTALL/lib64/providers.xml" ]; then
+    echo "FATAL: the FDO install MgPortable links ($FDO_INSTALL/lib64) is missing providers.xml"
+    exit 1
+fi
+mkdir -p "$PORTABLE_PACK/fdo"
+cp -a "$FDO_INSTALL/lib64" "$PORTABLE_PACK/fdo/lib64"
+# Message catalogues are looked up through NLSPATH, so they keep the SDK's sibling nls/ shape.
+cp -a "$FDO_INSTALL/nls" "$PORTABLE_PACK/fdo/nls"
+check_build
+# The FDO libraries arrive stripped because they are taken from the CPack SDK, and CPack strips
+# Release packages. MapGuide's own libraries are not: the thin build path does not run
+# strip_mapguide_binaries.sh (only the build image does), and libMgPortable alone carries over
+# 100 MB of debug info. Strip the tarball so what ships to the Windows overlay is release-sized;
+# a Debug tarball keeps its symbols.
+if [ "$MG_BUILD_CONFIG" = "Release" ]; then
+    echo "Stripping MgPortable libraries"
+    find "$PORTABLE_PACK/lib64" "$PORTABLE_PACK/fdo/lib64" -type f -name "*.so*" -print0 | xargs -0 -r strip --strip-unneeded
+    check_build
+fi
+tar -zcf "$ARTIFACTS_DIR/mapguideopensource-portable-$MG_VER-$MG_DISTRO-amd64.tar.gz" -C "$PORTABLE_PACK" .
+check_build
+rm -rf "$PORTABLE_PACK"
 ccache -s
