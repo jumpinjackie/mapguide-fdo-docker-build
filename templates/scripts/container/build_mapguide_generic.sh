@@ -184,6 +184,18 @@ else
 cmake --install .
 check_build
 fi
+# `cmake --install --strip` only sees install(TARGETS), so the OEM copies that arrive through
+# install(FILES)/install(PROGRAMS) keep the symbol tables the build produced: libACE,
+# libxerces-c, liblib_json, libdbxml/libxqilla and the Berkeley DB XML tools (libxerces-c alone
+# is 28 MB with its DWARF). Strip what is left for a Release package; a Debug tree keeps its
+# symbols for ASan/LSan.
+if [ "$MG_BUILD_CONFIG" = "Release" ]; then
+    echo "Stripping remaining installed binaries"
+    find "/usr/local/mapguideopensource-${MG_VER_TRIPLE}" -type f \
+        \( -name 'lib*.so*' -o -name 'dbxml*' -o -name 'db_*' \) -print0 | \
+        xargs -0 -r strip --strip-unneeded
+    check_build
+fi
 cd $SRC_DIR || exit
 echo "Preparing test pack"
 ./prepare_test_pack.sh --output /tmp/mgtest
@@ -217,6 +229,16 @@ cd $BUILD_COMMON_DIR || exit
 cmake --build . --target install
 check_build
 COMMON_INSTALL="/usr/local/mapguideopensource-common-${MG_VER_TRIPLE}"
+# Nothing in the thin path runs strip_mapguide_binaries.sh (only the build image does), so a Release
+# install still carries the DWARF that -g produced - libMgFoundation-4.0.0.so alone is 10.9 MB with
+# it and 0.8 MB without - and every library in both tarballs below is cut from this install tree.
+# `cmake --install --strip` is not a substitute: it only sees install(TARGETS), so the OEM copies
+# that arrive through install(FILES) (libACE, libxerces-c, liblib_json) keep their symbol tables.
+if [ "$MG_BUILD_CONFIG" = "Release" ]; then
+    echo "Stripping common libs"
+    find "$COMMON_INSTALL" -type f -name "lib*.so*" -print0 | xargs -0 -r strip --strip-unneeded
+    check_build
+fi
 cd "$COMMON_INSTALL" || exit
 # shellcheck disable=SC2035 # '*' is expanded by the shell, so the members are named "portable/..."
 # with no "./" prefix: the exclusion has to be anchored at the top level or it matches nothing, and
@@ -257,16 +279,26 @@ cp -a "$FDO_INSTALL/lib64" "$PORTABLE_PACK/fdo/lib64"
 # Message catalogues are looked up through NLSPATH, so they keep the SDK's sibling nls/ shape.
 cp -a "$FDO_INSTALL/nls" "$PORTABLE_PACK/fdo/nls"
 check_build
-# The FDO libraries arrive stripped because they are taken from the CPack SDK, and CPack strips
-# Release packages. MapGuide's own libraries are not: the thin build path does not run
-# strip_mapguide_binaries.sh (only the build image does), and libMgPortable alone carries over
-# 100 MB of debug info. Strip the tarball so what ships to the Windows overlay is release-sized;
-# a Debug tarball keeps its symbols.
-if [ "$MG_BUILD_CONFIG" = "Release" ]; then
-    echo "Stripping MgPortable libraries"
-    find "$PORTABLE_PACK/lib64" "$PORTABLE_PACK/fdo/lib64" -type f -name "*.so*" -print0 | xargs -0 -r strip --strip-unneeded
-    check_build
+# MgPortablePlatform::Initialize() reads FdoPath out of Platform.ini and dlopens libFDO.so from
+# that directory, and it resolves every configured path against the working directory rather than
+# against the ini's own directory. Ship the file the common-subset build prepared (a configure_file
+# of cmake/configs/Platform.ini.in) with FdoPath repointed at the FDO copy above, so unpacking the
+# tarball and running from its root is enough; the value the build fills in names the container's
+# /usr/local/fdo-<ver>/lib64, which the consumer does not have. MentorDictionaryPath is cleared for
+# the same reason: the tarball carries no CS-Map dictionaries, so the prepared file leaves it unset
+# (the platform then leaves MENTOR_DICTIONARY_PATH alone and a consumer that has dictionaries
+# points at them), rather than at the build container's Oem build tree.
+PLATFORM_INI="$BUILD_COMMON_DIR/Portable/UnitTest/Platform.ini"
+if [ ! -f "$PLATFORM_INI" ]; then
+    echo "FATAL: the common-subset build did not prepare $PLATFORM_INI"
+    exit 1
 fi
+cp "$PLATFORM_INI" "$PORTABLE_PACK/Platform.ini"
+check_build
+sed -i -e 's|^\(FdoPath[[:space:]]*=[[:space:]]*\).*|\1fdo/lib64/|' \
+       -e 's|^\(MentorDictionaryPath[[:space:]]*=[[:space:]]*\).*|\1|' \
+       "$PORTABLE_PACK/Platform.ini"
+check_build
 tar -zcf "$ARTIFACTS_DIR/mapguideopensource-portable-$MG_VER-$MG_DISTRO-amd64.tar.gz" -C "$PORTABLE_PACK" .
 check_build
 rm -rf "$PORTABLE_PACK"

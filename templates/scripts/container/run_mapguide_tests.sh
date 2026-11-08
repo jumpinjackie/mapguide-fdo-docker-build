@@ -754,7 +754,8 @@ missing_web_artifacts()
     esac
     case " $WEB_SUITES " in
         *" php "*)
-            if [ ! -f "$INSTALL_DIR/webserverextensions/lib64/libphp_MapGuideApi.so" ]; then
+            php_ext_dir=$(php_extension_dir)
+            if [ -z "$php_ext_dir" ] || [ ! -f "$php_ext_dir/libphp_MapGuideApi.so" ]; then
                 missing="$missing libphp_MapGuideApi.so"
             fi
             ;;
@@ -886,10 +887,27 @@ linuxapt_php_cli()
     fi
 }
 
+# PHP's own extension directory, where the installed php.ini points extension_dir. The module and
+# every shared extension (mbstring, opcache) are installed there.
+php_extension_dir()
+{
+    local php_config="$INSTALL_DIR/webserverextensions/php/bin/php-config"
+    if [ -x "$php_config" ]; then
+        "$php_config" --extension-dir
+    fi
+}
+
 php_loads_mapguide()
 {
-    "$1" -d "extension_dir=$INSTALL_DIR/webserverextensions/lib64" \
-        -d "extension=libphp_MapGuideApi.so" -m 2>/dev/null | grep -qx 'MapGuideApi'
+    local ext_dir
+    ext_dir=$(php_extension_dir)
+    if [ -n "$ext_dir" ]; then
+        "$1" -d "extension_dir=$ext_dir" \
+            -d "extension=libphp_MapGuideApi.so" -m 2>/dev/null | grep -qx 'MapGuideApi'
+    else
+        # No php-config in the install (a pre-provisioned interpreter): rely on its php.ini.
+        "$1" -d "extension=libphp_MapGuideApi.so" -m 2>/dev/null | grep -qx 'MapGuideApi'
+    fi
 }
 
 php_cmd()
@@ -917,8 +935,9 @@ php_cmd()
 
 # The PHP interpreter is built by cmake_linuxapt.sh, which is part of a full build, so
 # `cmake --install` never puts one in the install prefix: a develop_thin container has the
-# extension (webserverextensions/lib64/libphp_MapGuideApi.so) but no interpreter to load it with,
-# and the PHP suite is skipped. The release tarball in artifacts/ does contain one, so take the
+# extension (in PHP's extension directory, e.g.
+# webserverextensions/php/lib/php/extensions/<api>/libphp_MapGuideApi.so) but no interpreter to
+# load it with, and the PHP suite is skipped. The release tarball in artifacts/ does contain one, so take the
 # interpreter from there rather than requiring a full rebuild. Only webserverextensions/php is
 # extracted: the rest of that tarball is the packaged build, and extracting it over the install
 # would replace the libraries this run just built with the packaged ones.
@@ -1254,10 +1273,11 @@ run_web_php()
     run_dir="$WEB_PACK/UnitTest/Php"
     php=$(php_cmd)
     php_args=
-    # The installed php.ini already points extension_dir at the install; a php from the
-    # environment does not, so tell it where the extension is.
-    if ! "$php" -m 2>/dev/null | grep -qx 'MapGuideApi'; then
-        php_args="-d extension_dir=$INSTALL_DIR/webserverextensions/lib64 -d extension=libphp_MapGuideApi.so"
+    # The installed php.ini already points extension_dir at PHP's extension directory; a php from
+    # the environment does not, so tell it where the extension is.
+    php_ext_dir=$(php_extension_dir)
+    if [ -n "$php_ext_dir" ] && ! "$php" -m 2>/dev/null | grep -qx 'MapGuideApi'; then
+        php_args="-d extension_dir=$php_ext_dir -d extension=libphp_MapGuideApi.so"
     fi
     run_guarded "$run_dir" "$php" $php_args RunTests.php > "$run_log" 2>&1
 }

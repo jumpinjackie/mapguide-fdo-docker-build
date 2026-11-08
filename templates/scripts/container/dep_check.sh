@@ -34,10 +34,17 @@ check_mapguide_deps()
 {
     NOT_FOUND=$(env LD_LIBRARY_PATH=$FDO_INST/lib64:$MG_INST/lib64:$MG_INST/server/lib64:$LD_LIBRARY_PATH ldd $1 | grep "not found")
     if [ -n "$NOT_FOUND" ]; then
-        echo "[dep_check]: $1 has missing dependencies:"
-        echo "$NOT_FOUND"
-        bad=$((bad+1))
-        #exit 1
+        case "$1" in
+            *libcoreclrtraceptprovider.so) # The CLR opens this LTTng provider only when LTTng tracing is enabled, so the .NET runtime (and RepositoryAdmin) runs without it
+                echo "Skipping dependency check on $1: optional LTTng tracing provider of the .NET runtime"
+                ;;
+            *)
+                echo "[dep_check]: $1 has missing dependencies:"
+                echo "$NOT_FOUND"
+                bad=$((bad+1))
+                #exit 1
+                ;;
+        esac
     else
         echo "[dep_check]: $1: All dependencies met"
         good=$((good+1))

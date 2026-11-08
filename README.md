@@ -524,10 +524,15 @@ portable-enabled common-subset tree also builds `Server/src/Gws` and `Oem/DWFTK`
 | Tarball | Contents |
 |---------|----------|
 | `mapguideopensource-common-<ver>-generic-linux-amd64.tar.gz` | unchanged; `portable/` is excluded |
-| `mapguideopensource-portable-<ver>-generic-linux-amd64.tar.gz` | `lib64/` with `libMgPortable*`, `libPortableUnmanagedApi.so`, the GWS libs and the Mg libraries MgPortable links, plus a top-level `fdo/` with the whole FDO install (`fdo/lib64` = `libFDO`, `libExpressionEngine`, every provider, `providers.xml`, `com/`, and for `generic` the gdal/xerces/xalan the FDO SDK bundles; `fdo/nls` = the message catalogues) |
+| `mapguideopensource-portable-<ver>-generic-linux-amd64.tar.gz` | `Platform.ini` prepared for the tarball layout, `lib64/` with `libMgPortable*`, `libPortableUnmanagedApi.so`, the GWS libs and the Mg libraries MgPortable links, plus a top-level `fdo/` with the whole FDO install (`fdo/lib64` = `libFDO`, `libExpressionEngine`, every provider, `providers.xml`, `com/`, and for `generic` the gdal/xerces/xalan the FDO SDK bundles; `fdo/nls` = the message catalogues) |
 
-In Release every library in both subtrees is stripped, which is what takes the tarball from ~125 MB
-to ~39 MB (see below).
+In Release every library in both tarballs is stripped. Nothing in the thin path runs
+`strip_mapguide_binaries.sh` (only the build image does), so the common-subset install is stripped
+in `build_mapguide_generic.sh` before either tarball is cut from it — the common tarball goes from
+~83 MB to ~12 MB, and the portable one from ~125 MB to ~39 MB. A Debug tarball keeps its symbols.
+`cmake --install --strip` is not enough on its own: it only sees `install(TARGETS)`, so the OEM
+copies that arrive through `install(FILES)` (`libACE`, `libxerces-c`, `liblib_json`) keep their
+symbol tables.
 
 Everything MgPortable owns installs under `<prefix>/portable/lib64`, which is what lets the common
 tarball exclude it as a single subtree. The DWF Toolkit is static and ends up inside
@@ -555,13 +560,23 @@ prepends whichever exist as `<dir>/%N` patterns to any `NLSPATH` already in the 
 consumer therefore does not have to set `NLSPATH`; without this every message would fall back to its
 raw symbol (`FDOSM_220` rather than English text).
 
-The consumer's `Platform.ini` still has to say where FDO is: `MgPortablePlatform::Initialize()` reads
-`FdoPath`, prepends it to `LD_LIBRARY_PATH` and `dlopen`s `libFDO.so` from it by absolute path, so a
-packaged application sets `FdoPath` to `<root>/fdo/lib64` (the build generates it as
-`/usr/local/fdo-4.2.0/lib64`). Checked by unpacking a portable tarball into a container with no
-`/usr/local/fdo-*`: `libPortableUnmanagedApi.so` loads under `RTLD_NOW` with only ACE on
-`LD_LIBRARY_PATH`, resolving `libFDO`, `libExpressionEngine`, gdal, xerces and xalan from
-`lib64/../fdo/lib64`, and the C++ suite passes all 215 test cases with `NLSPATH` unset.
+The tarball ships the `Platform.ini` `MgPortablePlatform::Initialize()` needs, as a top-level file
+beside `lib64/` and `fdo/`. It is the file the common-subset build prepared (`configure_file` of
+`cmake/configs/Platform.ini.in`) with the two paths the build fills in adjusted for the tarball:
+`FdoPath` becomes `fdo/lib64/`, and `MentorDictionaryPath` is left empty because the tarball carries
+no CS-Map dictionaries (the platform then leaves `MENTOR_DICTIONARY_PATH` alone, and a consumer that
+has dictionaries points it at them). Every configured path is resolved against the **working
+directory**, not against the ini's own directory, so unpacking the tarball and running from its root
+is what makes `fdo/lib64/` resolve; an application that lays the native libraries out differently
+(namespace them under `runtimes/linux-x64/native` for the NuGet package, say) copies the file next to
+its own executable and edits `FdoPath`. Checked in the generic thin container: with no
+`/usr/local/fdo-*` and only ACE on `LD_LIBRARY_PATH`, `libPortableUnmanagedApi.so` and
+`libMgPortable` load under `RTLD_NOW`, resolving `libFDO`, `libExpressionEngine`, gdal, xerces and
+xalan from `lib64/../fdo/lib64`; pointing the shipped `FdoPath` at a directory that does not exist
+makes `MgPortablePlatform::Initialize()` fail with `Failed to load FDO library`, so that is the value
+it reads; and the `Portable/UnitTest` runner passes all 215 test cases out of the unpacked layout
+(with `MENTOR_DICTIONARY_PATH` set to a dictionary set, since the tarball carries none, and `NLSPATH`
+unset).
 
 To build and run the portable suites from an existing build tree (the runner creates the
 `<build-dir>_commonlibs` tree and configures it with `--with-portable`, plus `--with-asan` when the
@@ -643,8 +658,9 @@ The staging copy is why the SVN working copy stays clean: the Windows build writ
 into the managed project directories, and nothing here does.
 
 The PHP interpreter is the one artefact no CMake target produces. `cmake --install` puts the
-extension (`webserverextensions/lib64/libphp_MapGuideApi.so`) and the interpreter's configuration
-(`webserverextensions/php/lib/php.ini`) in place, but never an interpreter to load it with: the
+extension in PHP's extension directory (`webserverextensions/php/lib/php/extensions/<api>/`,
+which is the `extension_dir` in `webserverextensions/php/lib/php.ini`) and the interpreter's
+configuration in place, but never an interpreter to load it with: the
 interpreter is built by `cmake_linuxapt.sh`, which a full build runs. An installed `.run` package
 and the `build` image have one out of the box; a `develop_thin` container does not.
 
@@ -851,6 +867,43 @@ Our canonical distros for building MapGuide releases for Linux are:
 | ubuntu22 | System           | Internal/dynamic | Internal/dynamic | Internal/dynamic | Internal/static^| System          | System          | System          | System          | System          | System           |
 
 ^ The version of GEOS library shipped with Ubuntu 22.04 has an incompatible C++ API that is too difficult to #ifdef around. Until MapGuide switches to using GEOS's C API we will have to build MapGuide against our internal copy for the foreseeable future
+
+# Generic build runtime requirements
+
+The `generic` artifacts are built on Rocky Linux 8 and bundle every library they need except the
+system C/C++ runtime. They do not need any of the build-time thirdparty packages listed above on the
+machine that runs them, but they are not dependency-free: the table lists everything that is still
+external.
+
+| Requirement | Needed by | Notes |
+|-------------|-----------|-------|
+| glibc 2.28 or newer | everything | The highest symbol version required is `GLIBC_2.28`. A distro at that floor (Debian 10) runs the server; Ubuntu 18.04 (2.27) fails with `version 'GLIBC_2.28' not found`. |
+| `libstdc++` with `GLIBCXX_3.4.22`/`CXXABI_1.3.9`, and `libgcc_s` | everything | The C++ runtime of GCC 6 or newer. |
+| `libcrypt.so.1` (libxcrypt, `XCRYPT_2.0` symbols) | Apache httpd/APR (web tier) | Present by default on Debian/Ubuntu. On Fedora, RHEL 9 and Arch install `libxcrypt-compat` (`libxcrypt` itself now provides `libcrypt.so.2`); on openSUSE install `libcrypt1`. Without it the web tier does not start. |
+| Oracle Instant Client (`libclntsh.so.12.1`) | KingOracle provider | Bring your own OCI, as on every platform. |
+| `liblttng-ust.so.0` (optional) | `MapGuide.RepositoryAdmin` | The self-contained .NET runtime ships `libcoreclrtraceptprovider.so`, which the CLR opens only when LTTng tracing is enabled. The runtime and the admin app start and run without it (measured on Debian 12, which has no LTTng installed), and `dep_check.sh` skips it for that reason. |
+| a JVM | Tomcat (optional) | |
+| a `daemon` user/group, or another existing pair | httpd | `httpd.conf` runs as `daemon:daemon`. The installer does not create accounts: an interactive install asks for an existing user and group when `daemon` is missing, and a headless install fails unless `--httpd-user`/`--httpd-group` name an existing pair (on openSUSE the usual pair is `wwwrun:www`). |
+| a UTF-8 locale | Xerces-C (`mgserver`) and Apache | Both fail with `Could not load a transcoding service` when the locale has no UTF-8 charset. The installed launchers (`mgserver.sh`, `mgserverd.sh`, apache `envvars`) select one if the environment has none. |
+| `tar` and `gzip` | the `.run` installer | A makeself archive; every normal distribution has both. |
+
+Everything else in the matrices above is bundled, including ACE, Xerces-C, Xalan-C, GDAL, OpenSSL,
+libcurl, SQLite, MariaDB Connector/C, libpq, unixODBC, PCRE2, libxml2, expat, oniguruma, CS-Map,
+GEOS, Berkeley DB/DbXML/XQilla, gd, libpng, libjpeg, libtiff and freetype. On Linux,
+`MapGuide.RepositoryAdmin` is published self-contained, with invariant globalization and without
+the .NET single-file host, so it needs neither ICU nor zlib (the Windows publish is unchanged).
+Fonts are *not* bundled: text rendering uses the system font directories configured by
+`LinuxFontDirectories` in `serverconfig.ini`.
+
+These requirements were measured on the Release artifacts. A full end-to-end run — install,
+`mgserver`, the PHP binding under httpd and a `GETSITEVERSION` MapAgent request — works on Debian
+12, Fedora 43, AlmaLinux 9, Arch Linux and openSUSE Leap 15.6 once the per-distro packages above are
+present. Ubuntu 22.04 installs and runs the server and the PHP extension without any of them.
+Debian 10 (glibc 2.28, the floor) runs the server and PHP; its web tier additionally needs
+`libcrypt1`, because its default `libcrypt.so.1` is glibc's and lacks `XCRYPT_2.0`. Ubuntu 18.04
+(glibc 2.27) fails as expected. Every FDO provider except KingOracle also loads under `RTLD_NOW` on
+Debian 12, Fedora 43 and AlmaLinux 9; the FDO SDK is relocatable because `libFDO` and the providers
+carry `$ORIGIN` in their runtime path.
 
 # Known issues
 

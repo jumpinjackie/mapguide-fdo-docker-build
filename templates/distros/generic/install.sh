@@ -432,25 +432,33 @@ dialog_tomcat()
 
 dialog_webtier()
 {
-    tempfile=$(mktemp 2>/dev/null) || tempfile=/tmp/form.$$
-    dialog --backtitle "$INSTALLER_TITLE" --title "Web Tier Configuration" \
-            --form "\nSet the port numbers that Apache/Tomcat will listen on.\n\nTomcat only needs to be enabled if you are intending to run Java MapGuide applications" 25 60 16 \
-            "Connect to Server IP:" 1 1 "${DEFAULT_SERVER_IP}"     1 25 25 30 \
-            "Apache Port:"          2 1 "${DEFAULT_HTTPD_PORT}"    2 25 25 30 \
-            "Enable Tomcat (Y/N)?:" 3 1 "${DEFAULT_ENABLE_TOMCAT}" 3 25 1 30 \
-            "Tomcat Port:"          4 1 "${DEFAULT_TOMCAT_PORT}"   4 25 25 30 \
-            "Run httpd as user:"    5 1 "${DEFAULT_HTTPD_USER}"   5 25 25 30 \
-            "Run httpd as group:"   6 1 "${DEFAULT_HTTPD_GROUP}"   6 25 25 30 2> $tempfile
-    case $? in
-      1)
-        echo "Cancelled"
-        exit 1;;
-      255)
-        echo "Cancelled"
-        exit 255;;
-    esac
-    set_webtier_vars $tempfile
-    rm $tempfile
+    while true; do
+        tempfile=$(mktemp 2>/dev/null) || tempfile=/tmp/form.$$
+        dialog --backtitle "$INSTALLER_TITLE" --title "Web Tier Configuration" \
+                --form "\nSet the port numbers that Apache/Tomcat will listen on.\n\nTomcat only needs to be enabled if you are intending to run Java MapGuide applications" 25 60 16 \
+                "Connect to Server IP:" 1 1 "${DEFAULT_SERVER_IP}"     1 25 25 30 \
+                "Apache Port:"          2 1 "${DEFAULT_HTTPD_PORT}"    2 25 25 30 \
+                "Enable Tomcat (Y/N)?:" 3 1 "${DEFAULT_ENABLE_TOMCAT}" 3 25 1 30 \
+                "Tomcat Port:"          4 1 "${DEFAULT_TOMCAT_PORT}"   4 25 25 30 \
+                "Run httpd as user:"    5 1 "${httpd_user}"            5 25 25 30 \
+                "Run httpd as group:"   6 1 "${httpd_group}"           6 25 25 30 2> $tempfile
+        case $? in
+          1)
+            echo "Cancelled"
+            exit 1;;
+          255)
+            echo "Cancelled"
+            exit 255;;
+        esac
+        set_webtier_vars $tempfile
+        rm $tempfile
+        if httpd_identity_ok; then
+            return 0
+        fi
+        candidates=$(list_httpd_candidates)
+        dialog --backtitle "$INSTALLER_TITLE" --title "Web Tier Configuration" --msgbox \
+                "The user '${httpd_user}' or group '${httpd_group}' does not exist on this system.\n\nAccounts present: ${candidates:-none detected}\n\nEnter an existing user and group." 12 62
+    done
 }
 
 dialog_extras()
@@ -490,9 +498,79 @@ dialog_extras()
     rm $tempfile
 }
 
+httpd_identity_ok()
+{
+    id -u "${httpd_user}" >/dev/null 2>&1 && id -g "${httpd_group}" >/dev/null 2>&1
+}
+
+list_httpd_candidates()
+{
+    # Only used to make the "bad user name" failure actionable
+    candidates=
+    for candidate in daemon www-data apache httpd wwwrun lighttpd; do
+        if id -u "${candidate}" >/dev/null 2>&1; then
+            candidates="${candidates} ${candidate}"
+        fi
+    done
+    echo "${candidates# }"
+}
+
+require_httpd_identity()
+{
+    # The bundled httpd.conf runs as ${httpd_user}:${httpd_group}. Do not create the account: an
+    # installer that silently invents a system user is worse than one that asks. Interactive
+    # installs nominate a replacement in dialog_webtier; a headless install has to pass
+    # --httpd-user/--httpd-group for a pair that already exists.
+    if httpd_identity_ok; then
+        return 0
+    fi
+    candidates=$(list_httpd_candidates)
+    echo "[install]: ERROR: the httpd user '${httpd_user}' or group '${httpd_group}' does not exist."
+    if [ -n "${candidates}" ]; then
+        echo "[install]:        Accounts present on this system: ${candidates}"
+    fi
+    echo "[install]:        Re-run with --httpd-user <user> --httpd-group <group>."
+    exit 1
+}
+
+check_utf8_locale()
+{
+    # Xerces-C (mgserver) and Apache's APR transcoder fail to initialise when the process locale
+    # has no UTF-8 charset ("Could not load a transcoding service"). The launchers pick a UTF-8
+    # locale when the environment has none, but one has to exist on the system for that to work.
+    if command -v locale >/dev/null 2>&1; then
+        if [ "$(locale charmap 2>/dev/null)" = "UTF-8" ]; then
+            return
+        fi
+        for candidate in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do
+            if locale -a 2>/dev/null | grep -qx "${candidate}"; then
+                return
+            fi
+        done
+    fi
+    echo "[install]: WARNING: no UTF-8 locale is installed. MapGuide Server and Apache can fail to"
+    echo "[install]:          start with 'Could not load a transcoding service' until one is."
+}
+
+check_libcrypt()
+{
+    # The Apache web tier links libcrypt.so.1 (libxcrypt, XCRYPT_2.0 versioned symbols). It is
+    # present on Debian/Ubuntu but is a separate package on several distributions.
+    if command -v ldconfig >/dev/null 2>&1 && ! ldconfig -p 2>/dev/null | grep -q 'libcrypt\.so\.1'; then
+        echo "[install]: WARNING: libcrypt.so.1 was not found. The Apache/MapGuide web tier will not start."
+        echo "[install]:          Install libxcrypt-compat (Fedora/RHEL/Arch) or libcrypt1 (Debian/openSUSE)."
+    fi
+}
+
 install_prerequisites()
 {
-    # Our generic build is fully self-contained, so there is no pre-requisites to install
+    # The binaries bundle every library they need other than the system C/C++ runtime (glibc,
+    # libstdc++, libgcc_s); see the "Generic build runtime requirements" section in the README
+    # for the few system packages the web tier and the optional tools rely on.
+    require_httpd_identity
+    check_utf8_locale
+    check_libcrypt
+
     if [ ${HAVE_TOMCAT} = "1" ]; then
         # However, we should still check if java is present if tomcat is enabled
         JAVA_CMD=java
