@@ -381,7 +381,11 @@ fi
 # below overrides it to empty because it has to run the provider in the build tree; that suite finds
 # its own registry in the test binary's directory (FdoRegistryUtility::GetFileName() probes next to
 # the executable, not the working directory).
-export LD_LIBRARY_PATH="/usr/local/fdo-4.2.0/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# Discover the install rather than pinning its version: a baseline bump renames /usr/local/fdo-<ver>.
+FDO_INSTALL=$(ls -d /usr/local/fdo-[0-9]* 2>/dev/null | sort -V | tail -1)
+if [ -n "$FDO_INSTALL" ]; then
+    export LD_LIBRARY_PATH="${FDO_INSTALL}/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
 
 if [ -f "$TEST_ODBC" ];
 then

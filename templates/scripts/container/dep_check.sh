@@ -1,7 +1,17 @@
 #!/bin/sh
 
-FDO_INST=/usr/local/fdo-4.2.0
-MG_INST=/usr/local/mapguideopensource-4.0.0
+# Resolve the installed trees instead of pinning their version here: the installer creates exactly
+# one tree of each, and a baseline version bump would otherwise leave this check pointed at a path
+# that no longer exists. A value the caller already exported (mapguide_smoke_test.sh sets MG_INST)
+# wins over the discovery.
+FDO_INST=${FDO_INST:-$(ls -d /usr/local/fdo-[0-9]* 2>/dev/null | sort -V | tail -1)}
+MG_INST=${MG_INST:-$(ls -d /usr/local/mapguideopensource-[0-9]* 2>/dev/null | sort -V | tail -1)}
+
+if [ -z "$FDO_INST" ] || [ -z "$MG_INST" ]; then
+    echo "[dep_check]: FATAL: could not locate the installed trees under /usr/local"
+    echo "[dep_check]:   FDO_INST=[$FDO_INST] MG_INST=[$MG_INST]"
+    exit 1
+fi
 
 find $FDO_INST -type f -exec file --mime-type {} + | grep -E 'application/(x-executable|x-sharedlib)' | awk -v suffix=":" '{ sub(suffix, ""); print $1 }' > /tmp/fdolist
 find $MG_INST -type f -exec file --mime-type {} + | grep -E 'application/(x-executable|x-sharedlib)' | awk -v suffix=":" '{ sub(suffix, ""); print $1 }' > /tmp/mglist

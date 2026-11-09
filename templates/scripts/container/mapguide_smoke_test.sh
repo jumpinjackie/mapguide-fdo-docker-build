@@ -3,7 +3,7 @@
 PACKAGE=
 DISTRO=
 HTTPD_PORT=8008
-INST_PATH=/usr/local/mapguideopensource-4.0.0
+INST_PATH=
 
 while [ $# -gt 0 ]; do    # Until you run out of parameters...
     case "$1" in
@@ -19,18 +19,37 @@ while [ $# -gt 0 ]; do    # Until you run out of parameters...
             HTTPD_PORT="$2"
             shift
             ;;
+        --install-dir)
+            INST_PATH="$2"
+            shift
+            ;;
         --help)
             echo "Usage: $0 (options)"
             echo "Options:"
             echo "  --package [Installer package name]"
             echo "  --distro [Installer package name]"
             echo "  --httpd-port [Port number to use for httpd, default $HTTPD_PORT]"
+            echo "  --install-dir [Installed MapGuide tree, default: discovered under /usr/local]"
             echo "  --help [Display usage]"
             exit
             ;;
     esac
     shift   # Check next set of parameters.
 done
+
+# The installer creates /usr/local/mapguideopensource-<major>.<minor>.<rel>, so the tree is
+# discovered rather than pinned here: a baseline version bump must not silently invalidate this.
+if [ -z "$INST_PATH" ]; then
+    INST_PATH=$(ls -d /usr/local/mapguideopensource-[0-9]* 2>/dev/null | sort -V | tail -1)
+fi
+if [ -z "$INST_PATH" ]; then
+    echo "FATAL: could not find an installed MapGuide tree under /usr/local"
+    exit 1
+fi
+echo "Installed MapGuide tree: $INST_PATH"
+# dep_check.sh runs the same discovery, but the tree we found is the one that was just installed.
+MG_INST=$INST_PATH
+export MG_INST
 
 install_prereqs()
 {

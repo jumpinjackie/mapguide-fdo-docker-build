@@ -8,7 +8,7 @@ FDO_VER_REV=$(svn info fdo | grep "Last Changed Rev:" | awk '{print $4}')
 
 MG_VER_MAJOR=4
 MG_VER_MINOR=0
-MG_VER_REL=0
+MG_VER_REL=1
 MG_VER_REV=$(svn info mapguide/MgDev | grep "Last Changed Rev:" | awk '{print $4}')
 #MG_VER_REV=0
 

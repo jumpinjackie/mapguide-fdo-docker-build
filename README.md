@@ -284,7 +284,7 @@ export NLSPATH=/tmp/work/build_area/fdo/nls/linux/en_US/%N
 
 It does three things and nothing else:
 
-1. **Installs the FDO SDK the build tree was configured against.** The install lives in the container, not on the host, so a fresh interactive container does not have it — and a MapGuide build tree cannot build a single target without it. `ninja` stops immediately with `'/usr/local/fdo-4.2.0/lib64/libExpressionEngine.so', needed by 'Common/Stylization/libMgStylization-4.0.0.so', missing and no known rule to make it`. The SDK tarball is stamped into the install directory, so a rebuilt tarball (a fresh FDO build) is re-installed and an unchanged one is skipped. `atomic.h` is copied to `/usr/include/asm` only when its contents changed, because re-stamping it would rebuild every translation unit that includes it.
+1. **Installs the FDO SDK the build tree was configured against.** The install lives in the container, not on the host, so a fresh interactive container does not have it — and a MapGuide build tree cannot build a single target without it. `ninja` stops immediately with `'/usr/local/fdo-4.2.0/lib64/libExpressionEngine.so', needed by 'Common/Stylization/libMgStylization-4.0.1.so', missing and no known rule to make it`. The SDK tarball is stamped into the install directory, so a rebuilt tarball (a fresh FDO build) is re-installed and an unchanged one is skipped. `atomic.h` is copied to `/usr/include/asm` only when its contents changed, because re-stamping it would rebuild every translation unit that includes it.
 2. **Builds `mgserver` and `MgUnitTesting` incrementally** — the server executable and the unit-test library. Everything under `Common/` and `Server/` is a dependency of one of them, and `ninja` re-runs CMake by itself when a `CMakeLists.txt` changes, so adding or removing a source file needs no extra step.
 3. **Reports how long it took.** A no-op run builds nothing (`ninja: no work to do`) and takes a second; editing `Common/Geometry/Geometry.cpp` costs a recompile plus the dependent relinks (~5s).
 
@@ -300,7 +300,7 @@ It does three things and nothing else:
 
 The script never configures from scratch: it needs the CMake build tree that a full build created, and reconfiguring is the full script's job because it owns `cmake_bootstrap.sh`/`cmake_linuxapt.sh` and the OEM tree (`oem/env_vars.sh`) the configuration depends on.
 
-The default targets do not cover the web tier. An edit under `Web/` needs `--target mod_mgmapagent-4.0.0` (or `mgdevhttpserver`, `MgWebApp-4.0.0`, ...), and to exercise it through Apache/PHP, `--install`.
+The default targets do not cover the web tier. An edit under `Web/` needs `--target mod_mgmapagent-4.0.1` (or `mgdevhttpserver`, `MgWebApp-4.0.1`, ...), and to exercise it through Apache/PHP, `--install`.
 
 A session on a host that has already run a full build:
 
@@ -476,7 +476,7 @@ What it does before each suite runs, which is what used to be manual:
 
 1. **Installs the build tree into its install prefix when the web tier artifacts are missing**
    (`MG_INSTALL_PREFIX` from the build tree's `CMakeCache.txt`, normally
-   `/usr/local/mapguideopensource-4.0.0`). The PHP extension, the Java glue library and the API jar
+   `/usr/local/mapguideopensource-4.0.1`). The PHP extension, the Java glue library and the API jar
    are only ever built as part of the web tier, and `build_mapguide_incremental.sh` builds neither,
    so the script builds those targets and runs `cmake --install .` itself. `--no-install` turns
    that off and reports what is missing instead.
@@ -843,6 +843,18 @@ vm.mmap_rnd_compat_bits = 8
 This setting does not persist, so it must be done and checked before starting a build
 
 More information on this issue can be found here: https://llbit.github.io/programming/2024/03/19/aslr-asan-problem.html
+
+# Bumping the baseline version
+
+The version the Linux build stamps, installs under and names its libraries with is supplied by this
+repository, not read from the source trees: `env_setup.sh` passes it to each tree's `cmake_build.sh`,
+and CMake derives `/usr/local/mapguideopensource-<ver>`, `/usr/local/fdo-<ver>` and the
+`-<ver>.so` suffixes from it. Two constants blocks in `templates/distros/*/install.sh` are *not*
+templated and have to be bumped by hand alongside it, and three container scripts used to pin the
+install path outright (they now discover it).
+
+Step-by-step checklist, including what must **not** be renamed (the MapAgent `VERSION=` protocol
+strings and the managed proxies' NuGet versions): [docs/version-bump.md](./docs/version-bump.md).
 
 # Supported build environments
 

@@ -223,6 +223,17 @@ See [Testing](#testing).
 
 or `./make_installer_all.sh` for all combinations.
 
+### 6. Bump the baseline version
+
+`env_setup.sh` owns FDO's and MapGuide's version (the source trees' own version files do not feed
+CMake), and `templates/distros/{ubuntu,generic}/install.sh` carry a hand-edited copy of it that the
+installer's `post_install` depends on, so a bump is never a one-line change. The procedure, the
+derived carriers that need nothing, and the version strings that must **not** be touched (the
+MapAgent `VERSION=` protocol strings, the managed proxies' NuGet versions) are in
+[docs/version-bump.md](./docs/version-bump.md). After editing `env_setup.sh`, re-run it for every
+target/distro — `docker/**` and `*_version.sh` are generated — and rebuild from clean build trees,
+because a stale `CMakeCache.txt` keeps the old install prefix the inner loop reads.
+
 ## Command reference
 
 | Task | Command | Notes |
@@ -830,7 +841,7 @@ Both full builds run `cmake_build.sh`, which sets `-DWITH_JAVA=TRUE`, and `Bindi
 1. **The recorded surface.** `Bindings/src/ApiDump/api.java.txt`, `api.dotnet.txt` and `api.php.txt` are per-language dumps of the generated proxies, taken against a live MapGuide installation and reviewed as an SVN diff (`ApiDump/README.txt`). This is MapGuide's counterpart to diffing `nm -D`: it shows whether the surface moved. Like the freeze baselines they are refreshed by hand and are expected to lag the tree, so read them as the last accepted surface rather than as the current one. Beside them, `filelist.*.txt` are `tar -tzf` listings of the shipped installers, which catch a binding library that has stopped being packaged at all.
 2. **The interface inputs.** With `MapGuideApiGen.xml`, a `.i` file or `SwigCommon/**` in the change, read the diff for surface movement — a renamed method, a changed parameter type, a class no longer exposed — rather than for C++ correctness.
 3. **Behaviour.** `Bindings/src/Test/{DotNet,Java,Php}` exercise the bindings against a running server, and `templates/scripts/container/mapguide_smoke_test.sh` runs a PHP binding sanity check as part of installer verification.
-4. **Rebuild the glue.** "The glue still calls the C++ correctly" is only ever true of glue rebuilt against the changed C++, so a C++ edit that this policy permits is still validated by building and running it: build the binding targets in the container that is already running rather than the whole tree — `php_MapGuideApi-4.0.0`, `MapGuideJavaApi-4.0.0`, and the `*UnmanagedApi` libraries in a `--common-subset-only` tree.
+4. **Rebuild the glue.** "The glue still calls the C++ correctly" is only ever true of glue rebuilt against the changed C++, so a C++ edit that this policy permits is still validated by building and running it: build the binding targets in the container that is already running rather than the whole tree — `php_MapGuideApi-4.0.1`, `MapGuideJavaApi-4.0.1`, and the `*UnmanagedApi` libraries in a `--common-subset-only` tree.
 
 An explicit instruction in a task overrides the mode line for that task only, exactly as for FDO (see [Policy gate](#policy-gate-which-mode-are-we-in)): in `freeze` the surface dump in step 1 is the mandatory check for any `mapguide` change that could move the binding API, and a change that would move it is escalated, not made.
 
