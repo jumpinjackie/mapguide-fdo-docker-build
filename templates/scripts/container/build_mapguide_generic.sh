@@ -279,15 +279,47 @@ cp -a "$FDO_INSTALL/lib64" "$PORTABLE_PACK/fdo/lib64"
 # Message catalogues are looked up through NLSPATH, so they keep the SDK's sibling nls/ shape.
 cp -a "$FDO_INSTALL/nls" "$PORTABLE_PACK/fdo/nls"
 check_build
+# The tarball is overlaid into a NuGet package on Windows, and NuGet copies a symbolic link as a
+# full duplicate of the file it points at. Nothing here needs the links: the only library
+# P/Invoked from C# is libPortableUnmanagedApi.so (itself an unversioned real file), the versioned
+# libraries are what every DT_NEEDED in the tree names, and the test runners link the same way.
+find "$PORTABLE_PACK/lib64" -maxdepth 1 -type l -delete
+check_build
+FDO_LIB="$PORTABLE_PACK/fdo/lib64"
+# A link whose name is its target's soname is the name the loader asks for (libgdal.so.20,
+# libxalan-c.so.111, libxalanMsg.so.111 in this tree), so rename the real file to it. Every other
+# link here is a developer name (libSDFProvider.so, libgdal.so, ...) that nothing resolves - except
+# the provider names in providers.xml, which the rewrite below replaces with the sonames, and
+# libFDO.so, which MgPortablePlatform::Initialize() dlopens by name: the NuGet targets recreate
+# that one as a link to the copy the loader has already loaded, because a copy here would be a
+# second FDO instance (and two copies crash when their static destructors run).
+for link in "$FDO_LIB"/*.so*; do
+    [ -L "$link" ] || continue
+    link_target=$(readlink -f "$link")
+    link_name=$(basename "$link")
+    link_soname=$(readelf -d "$link_target" 2>/dev/null | sed -n 's/.*SONAME.*\[\(.*\)\].*/\1/p')
+    if [ -n "$link_soname" ] && [ "$link_name" = "$link_soname" ]; then
+        mv -f "$link_target" "$link"
+        check_build
+    else
+        rm -f "$link"
+        check_build
+    fi
+done
+sed -i -E "s|<LibraryPath>(lib[A-Za-z0-9_]+)\.so</LibraryPath>|<LibraryPath>\1-${FDO_VER_TRIPLE}.so</LibraryPath>|g" \
+    "$FDO_LIB/providers.xml"
+check_build
 # MgPortablePlatform::Initialize() reads FdoPath out of Platform.ini and dlopens libFDO.so from
 # that directory, and it resolves every configured path against the working directory rather than
 # against the ini's own directory. Ship the file the common-subset build prepared (a configure_file
-# of cmake/configs/Platform.ini.in) with FdoPath repointed at the FDO copy above, so unpacking the
-# tarball and running from its root is enough; the value the build fills in names the container's
-# /usr/local/fdo-<ver>/lib64, which the consumer does not have. MentorDictionaryPath is cleared for
-# the same reason: the tarball carries no CS-Map dictionaries, so the prepared file leaves it unset
-# (the platform then leaves MENTOR_DICTIONARY_PATH alone and a consumer that has dictionaries
-# points at them), rather than at the build container's Oem build tree.
+# of cmake/configs/Platform.ini.in) with FdoPath repointed at the FDO copy above; the value the build
+# fills in names the container's /usr/local/fdo-<ver>/lib64, which the consumer does not have.
+# Unpacked on its own, the tarball needs fdo/lib64/libFDO.so linked to the versioned library before
+# MgPortablePlatform::Initialize() will run; the NuGet targets create the equivalent link.
+# MentorDictionaryPath is cleared for the same reason: the tarball carries no CS-Map dictionaries,
+# so the prepared file leaves it unset (the platform then leaves MENTOR_DICTIONARY_PATH alone and a
+# consumer that has dictionaries points at them), rather than at the build container's Oem build
+# tree.
 PLATFORM_INI="$BUILD_COMMON_DIR/Portable/UnitTest/Platform.ini"
 if [ ! -f "$PLATFORM_INI" ]; then
     echo "FATAL: the common-subset build did not prepare $PLATFORM_INI"
@@ -299,6 +331,13 @@ sed -i -e 's|^\(FdoPath[[:space:]]*=[[:space:]]*\).*|\1fdo/lib64/|' \
        -e 's|^\(MentorDictionaryPath[[:space:]]*=[[:space:]]*\).*|\1|' \
        "$PORTABLE_PACK/Platform.ini"
 check_build
+# A link that reappears here (from a new install rule, or a provider added to the SDK) would be
+# copied by the NuGet overlay as a duplicate, which is what this staging exists to avoid.
+if [ -n "$(find "$PORTABLE_PACK" -type l -print -quit)" ]; then
+    echo "FATAL: symbolic links remain in the portable tarball:"
+    find "$PORTABLE_PACK" -type l
+    exit 1
+fi
 tar -zcf "$ARTIFACTS_DIR/mapguideopensource-portable-$MG_VER-$MG_DISTRO-amd64.tar.gz" -C "$PORTABLE_PACK" .
 check_build
 rm -rf "$PORTABLE_PACK"

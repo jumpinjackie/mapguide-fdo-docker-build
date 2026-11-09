@@ -61,6 +61,13 @@ reported three more families, all now closed:
 | `webtestrunner` (the runner process itself) | 2,560 B in 20 allocations (20 direct) | no report |
 | `java` / `php` / `dotnet` (server) | 3,156 B in 38 allocations (30 records, all indirect) | no report |
 
+A later `HttpParameterTest` suite in the same runner added 763 B in 6 allocations
+(3 direct + 3 indirect), closed by the last two rows of [The fixes](#the-fixes) - so re-cut that
+suite's figure rather than assuming "no report" still holds. A clean `webtestrunner` run is
+`All tests passed (48 assertions in 18 test cases)` with no LeakSanitizer output, and the sample
+package has to be applied (`--reset-repository`) for two of those records to be reachable at all:
+once the sample is in the server's library `EnsureSampleData` returns before it builds a reader.
+
 ## The fixes
 
 | Record (before) | Root cause | Fix |
@@ -79,6 +86,8 @@ reported three more families, all now closed:
 | 17,168 B / 12 records (1 direct) - `TransformCache` + its `MgCSTrans`/CS-Map transform, from `MgOpGetWfsReader` | `TransformCache::GetLayerToMapTransform` deliberately does not cache the `reverse == false` (feature-to-map) direction, because a map-to-feature entry with the same WKT key would answer the wrong way round, so it returns a fresh entry the caller owns - and `MgWfsQueryAdapter::SetOptions` kept only `item->GetMgTransform()` and dropped the entry | hold the entry in a `unique_ptr` in `SetOptions` (the transform it carries is reference counted, so `m_xform` is unaffected), and document the ownership contract on `GetLayerToMapTransform` |
 | 2,560 B / 20 direct - `MgCoordinateXY` from `MgHttpWmsGetFeatureInfo::GetSelectionGeometry` | `linearRingCoords->Add(new MgCoordinateXY(...))` - `MgCoordinateCollection::Add()` takes its own reference, so the one `new` returned was dropped, once per corner per GetFeatureInfo request | give each of the four corners a `Ptr<MgCoordinateXY>` and add the first one twice to close the ring |
 | 3,156 B / 30 indirect records - the SDF schema graph behind `MgServerDescribeSchema::DescribeSchemaAsXml` | `SdfConnection::GetSchema(..., bNewCopyFromFile = true)` reads a whole schema from the file and then validates the requested schema name; on a mismatch it threw `SDFPROVIDER_58_INVALID_SCHEMANAME` and abandoned the copy, which still referenced its class collection, classes, properties and strings. An all-indirect report is the signature here: every chunk is reachable from another leaked chunk (the schema's raw parent links), not from a live one | hold the fresh copy in an `FdoPtr` while the name is validated and `Detach()` it on the way out, so the throwing path releases it; the borrowed `m_dbSchema->GetSchema()` result is still returned untouched. Covered by the SDF provider suite's `SchemaTest::TestDescribeSchemaInvalidName`, which drives the same invalid-name describe and checks the connection survives it - see [docs/fdo-provider-memory-leaks.md](./fdo-provider-memory-leaks.md) |
+| 120 B direct + 604 B indirect (3 records) - the `MgByteReader` from `MgByteSource::GetReader()` in `WebTestRunner`'s `EnsureSampleData` | `GetReader()` returns a counted reference to the source, and `ApplyResourcePackage(source->GetReader())` dropped it; the source object, its file impl and its path string were then reachable only from the leaked reader | hold it in a `Ptr<MgByteReader>` and pass that |
+| 20 B + 19 B direct - `MgUtil::WideCharToMultiByte(const wchar_t*)`, once per JSON document converted, from `MgXmlJsonConvert::ToJson` | that overload returns a `new char[]` the caller owns and then deletes, and `X2W(root->getNodeName())` is a `const wchar_t*`, so it is the *better* match than `WideCharToMultiByte(CREFSTRING)` - assigning the result to a `std::string` leaked the buffer. Every other call site in the file passes a `STRING` and gets the overload that fills a `std::string`, which is why only this line's converts leaked | convert through a `STRING` first (`STRING wNodeName = X2W(...)`), which selects the non-allocating overload |
 
 ## The Java and PHP bindings each leaked one buffer per `byte[]` out-parameter
 

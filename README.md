@@ -538,6 +538,19 @@ Everything MgPortable owns installs under `<prefix>/portable/lib64`, which is wh
 tarball exclude it as a single subtree. The DWF Toolkit is static and ends up inside
 `libMgRenderers`/`libMgPortable`, so it has no files of its own in the tarball.
 
+The portable tarball contains no symbolic links. It is overlaid into the NuGet package on Windows,
+and NuGet copies a link as a full duplicate of the file it points at, so
+`build_mapguide_generic.sh` stages one real file per library: it drops the unversioned developer
+names from `lib64/` (the only P/Invoked library, `libPortableUnmanagedApi.so`, is itself a real
+unversioned file, and every `DT_NEEDED` in the tree names a versioned soname), rewrites
+`providers.xml` to name each provider by its versioned soname, and renames the bundled gdal/xalan
+libraries to the sonames the loader asks for (`libgdal.so.20`, `libxalan-c.so.111`,
+`libxalanMsg.so.111`). It also leaves out `libFDO.so`, which
+`MgPortablePlatform::Initialize()` dlopens by name: the package's `build/OSGeo.MapGuide.Portable.targets`
+recreates it on Linux as `FDO/lib64/libFDO.so` linked to the flat `libFDO-<ver>.so` it stages beside
+the application. A copy there would be a second FDO instance — the glue has already loaded the flat
+one through its `$ORIGIN` RUNPATH — and two instances crash when their static destructors run.
+
 The portable tarball carries FDO rather than depending on `/usr/local/fdo-4.2.0` on the machine that
 consumes it, so it is self-contained once unpacked, and keeps it in one `fdo/` subtree so a consumer
 can lift FDO out as a unit. That works because the FDO install is relocatable: every FDO library (and
@@ -574,9 +587,10 @@ its own executable and edits `FdoPath`. Checked in the generic thin container: w
 `libMgPortable` load under `RTLD_NOW`, resolving `libFDO`, `libExpressionEngine`, gdal, xerces and
 xalan from `lib64/../fdo/lib64`; pointing the shipped `FdoPath` at a directory that does not exist
 makes `MgPortablePlatform::Initialize()` fail with `Failed to load FDO library`, so that is the value
-it reads; and the `Portable/UnitTest` runner passes all 215 test cases out of the unpacked layout
-(with `MENTOR_DICTIONARY_PATH` set to a dictionary set, since the tarball carries none, and `NLSPATH`
-unset).
+it reads; and, after linking `fdo/lib64/libFDO.so` to `libFDO-4.2.0.so` (which the NuGet targets do
+for the packaged layout), the `Portable/UnitTest` runner passes all 215 test cases out of the
+unpacked layout (with `MENTOR_DICTIONARY_PATH` set to a dictionary set, since the tarball carries
+none, and `NLSPATH` unset).
 
 To build and run the portable suites from an existing build tree (the runner creates the
 `<build-dir>_commonlibs` tree and configures it with `--with-portable`, plus `--with-asan` when the
