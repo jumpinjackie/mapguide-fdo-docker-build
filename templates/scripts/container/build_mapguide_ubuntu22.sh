@@ -57,7 +57,7 @@ cmake --build . --target install
 check_build
 cd $SRC_DIR || exit
 echo "Preparing test pack"
-./prepare_test_pack.sh --output /tmp/mgtest
+./prepare_test_pack.sh --output /tmp/mgtest --install-dir "/usr/local/mapguideopensource-${MG_VER_TRIPLE}"
 check_build
 cd /tmp/mgtest || exit
 tar -zcf $ARTIFACTS_DIR/mapguide-test-pack-"$MG_DISTRO".tar.gz .

@@ -32,11 +32,43 @@ trees *and* the wrappers' `MG_VER_*`/`FDOVER_*` constants; there is no equivalen
 | `env_setup.sh` — `FDO_VER_MAJOR`, `FDO_VER_MINOR`, `FDO_VER_REL` | The root. `FDO_VER` is `<major>.<minor>.<rel>` and becomes `-DFDO_VERSION_*` in the FDO tree, which derives the install prefix (`/usr/local/fdo-<FDO_VER>`) and the versioned sonames (`libFDO-<FDO_VER>.so`, `libMySQLProvider-<FDO_VER>.so`, ...). |
 | `env_setup.sh` — `FDO_VER_REV` | The fourth component; the SVN revision of `fdo`. |
 | `templates/distros/{ubuntu,generic}/install.sh` — `FDOVER_MAJOR`, `FDOVER_MINOR`, `FDOVER_POINT` | `FDO_INST`, plus the `<Version>`/`<FeatureDataObjectsVersion>` fields the ubuntu installer writes into `providers.xml`. Hand-edited, same as the MapGuide block above. |
+| `templates/vscode/mapguide/launch.json` — `LD_LIBRARY_PATH` | A `cppdbg` launch configuration, so it cannot discover anything: the FDO path is literal. It is copied into `.vscode/` by hand rather than generated, so an FDO bump has to edit it. (The MapGuide half of the same list is a build-area path, which does not carry a version.) |
 
 An FDO bump **renames the provider libraries**, so anything that names
 `lib<X>Provider-<ver>.so` by hand has to follow. Nothing in this repository does: `providers.xml`
 is written by the FDO build, and the MgPortable pack rewrites the `<LibraryPath>` entries with
 `-${FDO_VER_TRIPLE}.so` when it stages the tarball.
+
+### The source trees
+
+The two trees own the version **files** but not the version **value**, so a bump of this repository
+does not require an SVN change — with one historical exception, which is now gone. The MapGuide test
+harness used to pin the install path in four places, each of which broke the moment the prefix moved
+(`prepare_test_pack.sh` failed with `.../mapguideopensource-4.0.0/webserverextensions/www/WEB-INF/lib
+does not exist`, which is the ant error an install of `-4.0.1` produced):
+
+| File | Was | Now |
+|---|---|---|
+| `Bindings/src/Test/Java/build.xml` — `mapguide.ldpath` | `location="/usr/local/mapguideopensource-4.0.0/…"` | composed from `-Dinstall.dir`; `checkunix` fails with a message naming the flag when it is absent |
+| `prepare_test_pack.sh` — the ant `-Djarsrc.web` | `-Djarsrc.web=/usr/local/mapguideopensource-4.0.0/…` | `--install-dir`, defaulting to discovery; also passes `-Dinstall.dir` |
+| `UnitTest/run_web_tests.sh` — webconfig, CS-Map dictionaries, PHP dir, `LD_LIBRARY_PATH` | four literals | `--install-dir`, defaulting to discovery |
+| `UnitTest/run_server_tests.sh` — `MG_INST_DIR` | `/usr/local/mapguideopensource-4.0.0` | discovery; `--install-dir` still overrides |
+
+The two build scripts pass `--install-dir /usr/local/mapguideopensource-${MG_VER_TRIPLE}` so the
+test pack is cut from the tree that build just installed, rather than from whichever tree happens to
+sort highest under `/usr/local`. When adding anything to the test harness that needs the install
+tree, take the same route: a flag with a discovery default, never a literal path.
+
+The Windows repo's [Bump-Version.ps1](https://github.com/jumpinjackie/mapguide-fdo-build-windows)
+knows these four files by name (`$MapGuideInstallPathPaths`) and checks them on every run: a working
+copy that has not taken this change yet still holds the literal, so the script rewrites it to the
+version being bumped to — and reports a literal it did not rewrite rather than letting the next
+"Preparing test pack" fail with ant's `does not exist`. That is the safety net for the two working
+copies drifting apart, not a substitute for the discovery above: the healthy report is that all four
+derive the tree.
+
+The `.bat` variants (`UnitTest/run_*_tests.bat`) take every path as a parameter and carry no
+version, so they need nothing.
 
 ## Procedure
 
@@ -51,7 +83,8 @@ is written by the FDO build, and the MgPortable pack rewrites the `<LibraryPath>
    - `MGVER_MAJOR` / `MGVER_MINOR` / `MGVER_POINT`
    - `FDOVER_MAJOR` / `FDOVER_MINOR` / `FDOVER_POINT`
 
-3. Update `INSTALLER_LABEL` in `make_installer.sh`.
+3. Update `INSTALLER_LABEL` in `make_installer.sh`, and — on an FDO bump — the `LD_LIBRARY_PATH`
+   in `templates/vscode/mapguide/launch.json`.
 
 4. Regenerate the generated content for **every** target and distro. `docker/**` and
    `*_version.sh` are generated and gitignored, so editing them by hand is always wrong:
