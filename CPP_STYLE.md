@@ -2,6 +2,11 @@
 
 Applies to edits under `mapguide/MgDev` and `fdo`.
 
+Both trees are upstream content that is committed upstream, so nothing written into them — code,
+comment, doc string or test data — may reference the docker build repository this checkout lives in
+(its scripts, `docs/**`, `patches/` or `/tmp/work` container paths). See
+[AGENTS.md § Source trees](./AGENTS.md#source-trees).
+
 ## Language standard
 
 Both source trees compile as **C++11**:

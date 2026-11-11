@@ -46,6 +46,18 @@ The two source trees are Subversion (SVN) working copies, **not** git submodules
 Rules for working with source trees:
 
 - You may edit files under `MgDev` and `fdo`, but you must **never commit changes upstream**. Do not run `svn commit` or any svn command that writes changes back to the repository.
+- **Never write a reference to this repository into a source tree.** `fdo/` and `mapguide/MgDev/` are
+  upstream content: once the working copy is committed, this git repository and everything in it —
+  `gen_*.sh` / `build_*.sh`, `templates/**`, `docs/**`, `patches/`, `dbs/**`, the `/tmp/work` mount
+  layout — does not exist, and the sibling
+  [mapguide-fdo-build-windows](https://github.com/jumpinjackie/mapguide-fdo-build-windows) repository
+  shares none of it either. A comment, a README line, a test fixture or an SVN commit message there
+  must stand on its own: do not name or link a script, doc, patch or path from here, and do not
+  annotate a source-tree file with the command that generates it when that command lives here. Keep
+  the automation's documentation in `AGENTS.md`/`README.md` (git) or in the script itself. Worked
+  example: `mapguide/MgDev/Bindings/src/ApiDump/README.txt` lists the three `tar` commands that
+  regenerate the filelists, never the script that runs them. The reverse is fine and expected — a
+  git-tracked script or `docs/**` page here may (and does) name paths inside the source trees.
 - `svn update` / `svn info` are fine — `svn_update.sh` is the canonical way to update both trees.
 - Both trees track their current release branches. The MapGuide 4.0 branch has diverged significantly from `trunk`; those changes will eventually be merged back into `trunk`. `svn_checkout.sh` currently checks out `trunk` for both trees and is intentionally left as-is — if a fresh checkout lands on `trunk`, switch to the intended branch manually (for example `svn switch https://svn.osgeo.org/mapguide/branches/4.0/MgDev mapguide/MgDev`).
 - Both source trees compile as **C++11** (`CMAKE_CXX_STANDARD 11` in each tree's top-level `CMakeLists.txt`). See [CPP_STYLE.md](./CPP_STYLE.md) for code guidelines.
@@ -259,6 +271,7 @@ because a stale `CMakeCache.txt` keeps the old install prefix the inner loop rea
 | Package installer | `./make_installer.sh <distro_nover> <distro_ver> <Release\|Debug>` | `ubuntu 22 Release`, or `generic "" Release`. |
 | Package all installers | `./make_installer_all.sh` | |
 | Checksums | `./gen_checksums.sh` | Prints a checksum table for `artifacts/`. |
+| Filelist snapshots | `./gen_filelist_snapshots.sh [--conf Release\|Debug] [--ubuntu <NN>]` | Regenerates `Bindings/src/ApiDump/filelist.linux.{generic,generic-common,ubuntu}.txt` from the MapGuide tarballs in `artifacts/<conf>/` (the scripted form of `ApiDump/README.txt`). Entries are written in `LC_ALL=C` byte order, so a rebuild of identical content produces no diff. |
 | Clean artifacts | `./clean_artifacts.sh` | |
 | Clean images | `./clean_images.sh` | Removes `_thin_` and `_run_` images. |
 | DB fixtures | `docker compose -f dbs/docker-compose.yml up -d` | Oracle, PostGIS, MariaDB for feature tests. |
@@ -909,7 +922,7 @@ See [CPP_STYLE.md](./CPP_STYLE.md) — applies to edits under `MgDev` and `fdo`.
 ## Validation (definition of done)
 
 - **Shell/template-only changes** — run `bash -n` (or `sh -n`) on every touched script. If `templates/**` changed, re-run `env_setup.sh` and review the regenerated Dockerfiles. Also check `git status` for files the scripts wrote outside the gitignored paths.
-- **Source-tree changes (`MgDev` or `fdo`)** — a run of `./build_thin.sh` against the **baseline distro** is the required validation. The baseline distro is the latest Ubuntu version supported by the build scripts (currently 22.04).
+- **Source-tree changes (`MgDev` or `fdo`)** — a run of `./build_thin.sh` against the **baseline distro** is the required validation. The baseline distro is the latest Ubuntu version supported by the build scripts (currently 22.04). Read the `svn diff` once for references to this repository ([Source trees](#source-trees)) before handing it over: a script name, a `docs/**`/`patches/` link or a `/tmp/work` path in a file or comment you add is a defect in that working copy, not merely a docs nit.
 - **Release vs Debug** — a Debug (ASan) pass does not validate the Release build. Release's optimiser assumes `this` is never NULL and deletes the NULL guards that Debug's `-O0` keeps, so a suite can pass in Debug and segfault in Release; run the affected suite in **both** configurations. See the NULL-`this` note in [CPP_STYLE.md](./CPP_STYLE.md).
 - **Shipped-header changes** — check the [current mode](#current-cycle) first. A change to a header the SDK installs can move the provider-facing ABI; see [FDO API/ABI compatibility](#fdo-apiabi-compatibility) for how to rule it in or out. For `mapguide` the equivalent question is whether the binding surface moved, not whether a C++ class did; see [MapGuide API/ABI compatibility](#mapguide-apiabi-compatibility).
 - **Container-based validation** — run it in the container that is already running for that target and build configuration (`$DOCKER_CMD exec`), not in a freshly started one; see [Running commands inside build containers](#running-commands-inside-build-containers).
