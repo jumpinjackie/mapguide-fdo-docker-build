@@ -919,7 +919,12 @@ GEOS, Berkeley DB/DbXML/XQilla, gd, libpng, libjpeg, libtiff and freetype. On Li
 `MapGuide.RepositoryAdmin` is published self-contained, with invariant globalization and without
 the .NET single-file host, so it needs neither ICU nor zlib (the Windows publish is unchanged).
 Fonts are *not* bundled: text rendering uses the system font directories configured by
-`LinuxFontDirectories` in `serverconfig.ini`.
+`LinuxFontDirectories` in `serverconfig.ini`. The installer fills that setting in from the
+directories it finds fonts in under `/usr/share/fonts` and `/usr/local/share/fonts`, so a stock
+install renders text without hand-editing the configuration; it leaves the setting alone when the
+value already names a directory that exists, and warns (`no TrueType fonts found`) when the machine
+has no fonts at all. Without that list the server's font list is empty and every text primitive and
+label is dropped silently.
 
 These requirements were measured on the Release artifacts. A full end-to-end run — install,
 `mgserver`, the PHP binding under httpd and a `GETSITEVERSION` MapAgent request — works on Debian

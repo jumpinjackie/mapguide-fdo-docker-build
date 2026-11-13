@@ -88,6 +88,34 @@ post_install()
 {
     echo "Performing post-install tasks"
 
+    # The server drops every text primitive and label when LinuxFontDirectories resolves to no
+    # directory, so the installer fills it in from the fonts the machine has. Check that what it
+    # wrote names directories that exist, but only where there are fonts to name: a machine with
+    # none leaves the shipped default in place and the installer has already warned about it.
+    if [ -n "$(find /usr/share/fonts /usr/local/share/fonts -type f \
+        \( -name '*.ttf' -o -name '*.otf' -o -name '*.ttc' \) 2>/dev/null | head -n 1)" ]; then
+        fontdirs=$(sed -n 's/^[[:space:]]*LinuxFontDirectories[[:space:]]*=[[:space:]]*//p' \
+            "$INST_PATH/server/bin/serverconfig.ini" | head -n 1)
+        if [ -z "$fontdirs" ]; then
+            echo "FATAL: serverconfig.ini has no LinuxFontDirectories value"
+            exit 1
+        fi
+        saved_ifs=$IFS
+        IFS=:
+        bad_dir=
+        for fontdir in $fontdirs; do
+            if [ -n "$fontdir" ] && [ ! -d "$fontdir" ]; then
+                bad_dir=$fontdir
+            fi
+        done
+        IFS=$saved_ifs
+        if [ -n "$bad_dir" ]; then
+            echo "FATAL: LinuxFontDirectories names a directory that does not exist: $bad_dir"
+            exit 1
+        fi
+        echo "Fonts: LinuxFontDirectories resolves to $fontdirs"
+    fi
+
     echo "Checking if we have java ..."
     if ! command -v java 2>&1 >/dev/null
     then

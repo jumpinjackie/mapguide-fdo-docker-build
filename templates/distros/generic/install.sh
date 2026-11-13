@@ -885,6 +885,61 @@ install_mapguide_packages()
     cp -R mapguideopensource-${MGVER_MAJOR_MINOR_REV} ${MG_INST}
 }
 
+# The server reads fonts only from the directories named by LinuxFontDirectories, whose shipped
+# default is the msttcore location that only a core-fonts package provides. On a machine with just
+# the distribution's fonts that setting resolves to nothing, the font list is empty, and every text
+# primitive and label is silently dropped. Name the directories this machine actually has.
+set_font_directories()
+{
+    serverconfig=${MG_INST}/server/bin/serverconfig.ini
+    if [ ! -f "$serverconfig" ]; then
+        return 0
+    fi
+
+    if ! grep -q '^[[:space:]]*LinuxFontDirectories' "$serverconfig"; then
+        echo "[config]: serverconfig.ini has no LinuxFontDirectories setting, not setting one"
+        return 0
+    fi
+    current=$(sed -n 's/^[[:space:]]*LinuxFontDirectories[[:space:]]*=[[:space:]]*//p' "$serverconfig" | head -n 1)
+
+    # A setting that already resolves is left alone: the administrator may have chosen it.
+    resolved=0
+    saved_ifs=$IFS
+    IFS=:
+    for dir in $current; do
+        if [ -n "$dir" ] && [ -d "$dir" ]; then
+            resolved=1
+        fi
+    done
+    IFS=$saved_ifs
+    if [ "$resolved" = "1" ]; then
+        echo "[config]: LinuxFontDirectories already resolves, leaving it as '$current'"
+        return 0
+    fi
+
+    all=$(find /usr/share/fonts /usr/local/share/fonts -type f \
+        \( -name '*.ttf' -o -name '*.otf' -o -name '*.ttc' \) 2>/dev/null \
+        | sed 's#/[^/]*$##' | sort -u)
+    if [ -z "$all" ]; then
+        echo "[config]: WARNING - no TrueType fonts found under /usr/share/fonts."
+        echo "[config]: MapGuide will run, but text will not render. Install a font package"
+        echo "[config]: (for example fonts-dejavu-core) and set LinuxFontDirectories in"
+        echo "[config]: ${serverconfig} to the directory it installs into."
+        return 0
+    fi
+
+    # A font name that matches nothing falls back to the first font in the list, so list the
+    # mainstream Latin families first instead of whatever the distribution sorts first.
+    preferred=$(printf '%s\n' "$all" | grep -iE 'msttcore|liberation|dejavu' || true)
+    rest=$(printf '%s\n' "$all" | grep -ivE 'msttcore|liberation|dejavu' || true)
+    found=$(printf '%s\n%s\n' "$preferred" "$rest" | grep -v '^$' | paste -sd: -)
+
+    # escape the sed replacement: a font directory may contain & or a backslash
+    escaped=$(printf '%s' "$found" | sed 's/[\\&]/\\&/g')
+    echo "[config]: Setting LinuxFontDirectories to '$found'"
+    sed -i "s#^\([[:space:]]*LinuxFontDirectories[[:space:]]*=[[:space:]]*\).*#\1${escaped}#" "$serverconfig"
+}
+
 post_install()
 {
     echo "[config]: Updating serverconfig.ini with configuration choices"
@@ -893,6 +948,7 @@ post_install()
     sed -i 's/Port.*= '"${DEFAULT_ADMIN_PORT}"'/Port = '"${admin_port}"'/g' ${MG_INST}/server/bin/serverconfig.ini
     sed -i 's/Port.*= '"${DEFAULT_CLIENT_PORT}"'/Port = '"${client_port}"'/g' ${MG_INST}/server/bin/serverconfig.ini
     sed -i 's/Port.*= '"${DEFAULT_SITE_PORT}"'/Port = '"${site_port}"'/g' ${MG_INST}/server/bin/serverconfig.ini
+    set_font_directories
     echo "[config]: Updating webconfig.ini with configuration choices"
     sed -i 's/IpAddress.*= '"${DEFAULT_SERVER_IP}"'/IpAddress = '"${webtier_server_ip}"'/g' ${MG_INST}/webserverextensions/www/webconfig.ini
     sed -i 's/Port.*= '"${DEFAULT_ADMIN_PORT}"'/Port = '"${admin_port}"'/g' ${MG_INST}/webserverextensions/www/webconfig.ini
