@@ -622,8 +622,11 @@ install_fdo()
     #     dpkg -E -G --install "${download_file}"
     # done
 
-    # Copy FDO directory from installer staging area
-    cp -R fdo-${FDOVER_MAJOR_MINOR_REV} ${FDO_INST}
+    # Copy FDO directory from installer staging area. The destination can already exist -- a
+    # reinstall over one, or a directory the harness created as a mount point -- so create it and
+    # copy the contents: `cp -R <dir> <existing dir>` would put the tree one level too deep.
+    mkdir -p ${FDO_INST}
+    cp -R fdo-${FDOVER_MAJOR_MINOR_REV}/. ${FDO_INST}/
 
     # Nuke the old providers.xml, we're rebuiding it
     providersxml=${FDO_INST}/lib64/providers.xml
@@ -882,7 +885,15 @@ install_mapguide_packages()
     #     dpkg -E -G --install "${download_file}"
     # done
 
-    cp -R mapguideopensource-${MGVER_MAJOR_MINOR_REV} ${MG_INST}
+    if [ ! -d "mapguideopensource-${MGVER_MAJOR_MINOR_REV}" ]; then
+        echo "[install]: FATAL - the installer has no mapguideopensource-${MGVER_MAJOR_MINOR_REV} tree"
+        exit 1
+    fi
+    # The destination can already exist -- a reinstall over one, or a directory the harness created
+    # as a mount point -- so create it and copy the contents: `cp -R <dir> <existing dir>` would put
+    # the tree one level too deep and leave ${MG_INST} with nothing in it.
+    mkdir -p ${MG_INST}
+    cp -R mapguideopensource-${MGVER_MAJOR_MINOR_REV}/. ${MG_INST}/
 }
 
 # The server reads fonts only from the directories named by LinuxFontDirectories, whose shipped
@@ -942,6 +953,14 @@ set_font_directories()
 
 post_install()
 {
+    # Every setting below is edited in the installed tree, so an install that produced none would
+    # otherwise fail with sed's "can't read ...: No such file or directory" and look like a font or
+    # configuration problem rather than an empty installer.
+    if [ ! -f "${MG_INST}/server/bin/serverconfig.ini" ]; then
+        echo "[install]: FATAL - ${MG_INST} has no server/bin/serverconfig.ini"
+        echo "[install]: this installer did not populate ${MG_INST}; nothing can be configured"
+        exit 1
+    fi
     echo "[config]: Updating serverconfig.ini with configuration choices"
     sed -i 's/MachineIp.*= '"${DEFAULT_SERVER_IP}"'/MachineIp = '"${server_ip}"'/g' ${MG_INST}/server/bin/serverconfig.ini
     sed -i 's/IpAddress.*= '"${DEFAULT_SERVER_IP}"'/IpAddress = '"${server_ip}"'/g' ${MG_INST}/server/bin/serverconfig.ini

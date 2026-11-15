@@ -839,7 +839,16 @@ install_mapguide_packages()
         # HACK-ish: The installer script doesn't know about the build number that is baked into these
         # deb packages so we can't locate the exact package to apt-get install, but we can find it using 
         # an identifier that should already be unique enough
-        find . -type f | grep "mapguideopensource-${file}" | xargs apt-get install -y
+        packages=$(find . -type f | grep "mapguideopensource-${file}" || true)
+        # The packages are what the installer installs MapGuide *from*: without them this loop is a
+        # no-op, everything below it configures a tree that was never installed, and the failure
+        # surfaces as a missing serverconfig.ini far from the cause.
+        if [ -z "$packages" ]; then
+            echo "[install]: FATAL - this installer contains no mapguideopensource-${file} deb package"
+            echo "[install]: the installer is incomplete, so MapGuide would not be installed at all"
+            exit 1
+        fi
+        echo "$packages" | xargs apt-get install -y
     done
 }
 
@@ -900,6 +909,14 @@ set_font_directories()
 
 post_install()
 {
+    # Every setting below is edited in the installed tree, so an install that produced none would
+    # otherwise fail with sed's "can't read ...: No such file or directory" and look like a font or
+    # configuration problem rather than an empty installer.
+    if [ ! -f "${MG_INST}/server/bin/serverconfig.ini" ]; then
+        echo "[install]: FATAL - ${MG_INST} has no server/bin/serverconfig.ini"
+        echo "[install]: this installer did not populate ${MG_INST}; nothing can be configured"
+        exit 1
+    fi
     echo "[config]: Updating serverconfig.ini with configuration choices"
     sed -i 's/MachineIp.*= '"${DEFAULT_SERVER_IP}"'/MachineIp = '"${server_ip}"'/g' ${MG_INST}/server/bin/serverconfig.ini
     sed -i 's/IpAddress.*= '"${DEFAULT_SERVER_IP}"'/IpAddress = '"${server_ip}"'/g' ${MG_INST}/server/bin/serverconfig.ini

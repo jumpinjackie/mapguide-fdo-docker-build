@@ -115,7 +115,12 @@ the package name, and is listed here so a bump is not spent auditing it:
 
 - `templates/scripts/container/build_mapguide.sh`, `build_mapguide_ubuntu22.sh` and
   `build_mapguide_generic.sh` — `MG_VER_TRIPLE` from the environment, the install prefix, the
-  tarball names, and the MgPortable pack's `libMg<X>-<MG_VER_TRIPLE>.so` copies.
+  tarball names, and the MgPortable pack's `libMg<X>-<MG_VER_TRIPLE>.so` copies. The two scripts
+  that run the deb packaging pass `--mg-ver`/`--fdo-ver` to `MgDev/cmake_package.sh`, which stages
+  and packages the install prefix for the version it is *told*; its own defaults (4.0.0/4.2.0) only
+  apply to a caller that names neither, and nothing here depends on them. They are still restamped
+  on a bump by the Windows repo's `Bump-Version.ps1` (`$SourceDefaultCarriers`), so a hand-run of
+  that script cannot pick up a stale prefix; a bump of this repository alone needs no SVN change.
 - `templates/scripts/container/build_mapguide_incremental.sh` and `run_mapguide_tests.sh` — read
   `MG_INSTALL_PREFIX` and `MG_VERSION_{MAJOR,MINOR,RELEASE}` out of `CMakeCache.txt`, which is also
   what every version-suffixed CMake target name is built from.
@@ -128,6 +133,11 @@ the package name, and is listed here so a bump is not spent auditing it:
   unaided. `mapguide_smoke_test.sh --install-dir` overrides the discovery.
 - The ubuntu `.deb` names (`mapguideopensource-server_<ver>-<rev>_amd64.deb`): the installer finds
   them by component with `grep "mapguideopensource-${file}"`, so their version is irrelevant to it.
+  Their *presence* is not optional and is checked twice, because the ubuntu installer installs
+  MapGuide only from these packages: `build_mapguide_ubuntu22.sh` fails the build if any of the five
+  components produced no `.deb`, and `make_installer.sh` refuses to stage an ubuntu installer without
+  them. A missing set used to surface as an empty `/usr/local/mapguideopensource-<ver>` whose
+  `post_install` seds then failed on a `serverconfig.ini` that was never installed.
 
 ## What must not be changed
 
@@ -164,11 +174,12 @@ grep -E '^MG_VERSION_(MAJOR|MINOR|RELEASE)|^MG_INSTALL_PREFIX' \
     build_area/x64/Release/ubuntu22/mapguide/mapguide/CMakeCache.txt
 tar -tzf artifacts/Release/mapguideopensource-<ver>.<rev>-ubuntu22-amd64.tar.gz | grep 'libMg.*\.so$'
 tar -tzf artifacts/Release/fdosdk-<ver>.<rev>-ubuntu22-amd64.tar.gz | grep 'libFDO.*\.so$'
-ls artifacts/Release/ubuntu22/*.deb
+ls artifacts/Release/ubuntu22/*.deb                           # must list mapguideopensource-*.deb
 ```
 
 The CMake cache must name the new prefix, the tarball's libraries must carry the new
-`-<ver>.so` suffix, and the installer must still install and pass the smoke test
+`-<ver>.so` suffix, and the deb list must include all five MapGuide components as well as FDO's.
+The installer must then install and pass the smoke test
 (`./mapguide_image_install.sh --target ubuntu22`, or `--target generic`) — that last one is what
 actually exercises the hand-edited `install.sh` constants, since a mismatch there shows up as a
 failing `cp` in the generic installer or a failing `post_install` `sed` in the ubuntu one.

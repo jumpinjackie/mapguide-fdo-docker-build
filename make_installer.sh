@@ -18,18 +18,58 @@ fi
 . ./fdo_version.sh
 . ./mapguide_version.sh
 echo "Prepare installer staging area (${DISTRO} - ${BUILD_CONF})"
+# Leftovers from a previous run must not end up in this installer: staging is keyed by distro, and
+# an interrupted run leaves another distro's payload (or another version's tree) behind.
+rm -rf staging
+mkdir -p staging
 case "$DISTRO" in
     *ubuntu*)
-        mkdir -p staging
         echo "Load deb packages into staging area"
+        if [ -z "$(ls artifacts/${BUILD_CONF}/${DISTRO}/*.deb 2>/dev/null)" ]; then
+            echo "ERROR: no deb packages in artifacts/${BUILD_CONF}/${DISTRO}"
+            echo "The ubuntu installer installs both FDO and MapGuide from those packages."
+            exit 1
+        fi
         cp artifacts/${BUILD_CONF}/${DISTRO}/*.deb staging
+        # The ubuntu installer finds MapGuide's packages by component name, so a missing set installs
+        # nothing at all for MapGuide and leaves /usr/local/mapguideopensource-<ver> unpopulated.
+        for component in coordsys common server webextensions httpd; do
+            if [ -z "$(ls staging/mapguideopensource-${component}_*.deb 2>/dev/null)" ]; then
+                echo "ERROR: no mapguideopensource-${component} deb package in artifacts/${BUILD_CONF}/${DISTRO}"
+                echo "The MapGuide build generates them; see build_mapguide_${DISTRO}.sh"
+                rm -rf staging
+                exit 1
+            fi
+        done
         ;;
     *)
+        echo "Extract tarball contents to staging area"
+        for tarball in \
+            "artifacts/${BUILD_CONF}/fdosdk-${FDO_VER}-${DISTRO}-amd64.tar.gz" \
+            "artifacts/${BUILD_CONF}/mapguideopensource-${MG_VER}-${DISTRO}-amd64.tar.gz"
+        do
+            if [ ! -f "$tarball" ]; then
+                echo "ERROR: '$tarball' not found"
+                rm -rf staging
+                exit 1
+            fi
+        done
         mkdir -p staging/fdo-${FDO_VER_TRIPLE}
         mkdir -p staging/mapguideopensource-${MG_VER_TRIPLE}
-        echo "Extract tarball contents to staging area"
         tar -zxf artifacts/${BUILD_CONF}/fdosdk-${FDO_VER}-${DISTRO}-amd64.tar.gz -C staging/fdo-${FDO_VER_TRIPLE}
         tar -zxf artifacts/${BUILD_CONF}/mapguideopensource-${MG_VER}-${DISTRO}-amd64.tar.gz -C staging/mapguideopensource-${MG_VER_TRIPLE}
+        # Both trees are copied wholesale into their install prefixes, so a tarball that is missing
+        # either one produces an installer that fails at post_install with no servers installed.
+        if [ ! -f "staging/mapguideopensource-${MG_VER_TRIPLE}/server/bin/serverconfig.ini" ]; then
+            echo "ERROR: mapguideopensource-${MG_VER}-${DISTRO}-amd64.tar.gz has no server/bin/serverconfig.ini"
+            rm -rf staging
+            exit 1
+        fi
+        if [ ! -d "staging/fdo-${FDO_VER_TRIPLE}/lib64" ]; then
+            echo "ERROR: fdosdk-${FDO_VER}-${DISTRO}-amd64.tar.gz has no lib64"
+            rm -rf staging
+            exit 1
+        fi
         ;;
 esac
 if [ -f "templates/distros/${DISTRO_NOVER}/install_$DISTRO.sh" ];

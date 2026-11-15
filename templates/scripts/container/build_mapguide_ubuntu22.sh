@@ -62,6 +62,9 @@ check_build
 cd /tmp/mgtest || exit
 tar -zcf $ARTIFACTS_DIR/mapguide-test-pack-"$MG_DISTRO".tar.gz .
 check_build
+cd /usr/local/mapguideopensource-${MG_VER_TRIPLE} || exit
+tar -zcf $ARTIFACTS_DIR/mapguideopensource-$MG_VER-$MG_DISTRO-amd64.tar.gz *
+check_build
 case "$MG_DISTRO" in
     *ubuntu*)
         echo "Generating deb packages"
@@ -70,7 +73,28 @@ case "$MG_DISTRO" in
         if [ "$MG_BUILD_CONFIG" = "Debug" ]; then
             CMDEX="--debug"  
         fi
-        ./cmake_package.sh --format deb --working-dir $BUILD_DIR/mg_deb --output-dir $ARTIFACTS_DIR/$MG_DISTRO --build-number "$MG_VER_REV" $CMDEX
+        # Package the tarball that was just cut rather than the live install tree, so the debs and
+        # the generic installer carry the same content. The version has to be named because
+        # cmake_package.sh lays the packages out under the install prefix for the version it is
+        # told, and its own default silently lags a baseline bump.
+        ./cmake_package.sh --format deb --working-dir $BUILD_DIR/mg_deb --output-dir $ARTIFACTS_DIR/$MG_DISTRO --build-number "$MG_VER_REV" --tarball $ARTIFACTS_DIR/mapguideopensource-$MG_VER-$MG_DISTRO-amd64.tar.gz --mg-ver "$MG_VER_TRIPLE" --fdo-ver "$FDO_VER_TRIPLE" $CMDEX
+        check_build
+        # The package name carries the version cmake_package.sh was told, so this is also the check
+        # that the packaging ran against this build's version rather than a default.
+        for component in common coordsys server webextensions httpd; do
+            deb=$ARTIFACTS_DIR/$MG_DISTRO/mapguideopensource-${component}_${MG_VER_TRIPLE}-${MG_VER_REV}_amd64.deb
+            if [ ! -f "$deb" ]; then
+                echo "FATAL: no $(basename $deb) in $ARTIFACTS_DIR/$MG_DISTRO"
+                exit 1
+            fi
+        done
+        # The packages must also install into the prefix the installer configures, which is the one
+        # this build installs to: one laid out for another version installs a tree nothing can find,
+        # and the only symptom at install time is an empty install directory.
+        if ! dpkg-deb -c $ARTIFACTS_DIR/$MG_DISTRO/mapguideopensource-server_${MG_VER_TRIPLE}-${MG_VER_REV}_amd64.deb | grep "mapguideopensource-${MG_VER_TRIPLE}/server/bin/serverconfig.ini" > /dev/null; then
+            echo "FATAL: the mapguideopensource-server package does not install into mapguideopensource-${MG_VER_TRIPLE}"
+            exit 1
+        fi
         ;;
 #    *centos*)
 #        echo "Generating rpm packages"
@@ -78,7 +102,4 @@ case "$MG_DISTRO" in
 #        ./cmake_package.sh --format rpm --working-dir $BUILD_DIR/mg_rpm --output-dir $ARTIFACTS_DIR/$MG_DISTRO --build-number "$MG_VER_REV"
 #        ;;
 esac
-cd /usr/local/mapguideopensource-${MG_VER_TRIPLE} || exit
-tar -zcf $ARTIFACTS_DIR/mapguideopensource-$MG_VER-$MG_DISTRO-amd64.tar.gz *
-check_build
 ccache -s
