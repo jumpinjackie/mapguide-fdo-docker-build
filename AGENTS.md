@@ -25,6 +25,8 @@ Durable content (edited and committed to git):
 - `patches/atomic.h` — the header the MapGuide `snap.sh` scripts copy into the build tree, and the only
   durable file under `patches/` (see [Source trees](#source-trees) for what the rest of that directory is)
 - `dbs/**` — docker-compose fixtures for database-backed tests
+- `tools/**` — developer utilities that are not part of a build: `trac2md.py` converts Trac wiki markup
+  (as used by release notes) to GitHub Markdown, with its `unittest` suite beside it
 
 Generated content (never hand-edited; gitignored):
 
